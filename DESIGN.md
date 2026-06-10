@@ -186,6 +186,27 @@ consumed by the sim; the sim never imports `content/` — the host wires defs in
 - **Determinism test**: run the same script twice in one process and on both
   arches in CI; assert identical state hashes every tick.
 
+## 13. Networking model (decided 2026-06-10)
+
+**Server-authoritative state replication is the spine.** Clients receive
+views; they never compute truth. The alternative — deterministic lockstep
+with the sim compiled to wasm — was considered and deliberately demoted to
+an *optional later layer* for own-character latency feel (PoE-style
+predictive/lockstep modes), because a serious online ARPG needs hidden
+information (anti-maphack, economy), mid-instance joins/reconnects, and
+client-tech freedom, all of which replication gives and input-streaming
+lockstep structurally can't.
+
+Two contracts follow:
+
+- **A snapshot is one client's *view* of the world, not the world.** With
+  interest management, different clients legitimately see different state.
+  Nothing client-side may assume omniscience.
+- **Determinism stays mandatory** even though replication doesn't strictly
+  need it — it powers replays, golden tests, server verification, and keeps
+  the prediction/rollback option open. The no-floats/no-map-iteration/
+  seeded-RNG rules do not relax.
+
 ## Package layout
 
 ```

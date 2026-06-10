@@ -11,7 +11,7 @@ tests, and session-log entries older than a few sessions (git history is the
 archive). If this file outgrows ~150 lines, it has stopped being a status doc
 and started being a changelog — cut it back.
 
-**Last updated: 2026-06-10** (session 4: web client)
+**Last updated: 2026-06-10** (session 5: netcode overhaul planned, not yet built)
 
 ## Where things stand
 
@@ -92,8 +92,25 @@ All foundational machinery from DESIGN.md is real, not stubbed:
 
 ## Natural next steps (in rough order of leverage)
 
-1. **Make the fight feel good in the browser**: snapshot interpolation,
-   monster respawns or waves in the arena, nova/ignite visual effects.
+1. **Netcode overhaul — planned with Jake, build next session, one pass.**
+   Decision context lives in DESIGN.md §13 (replication spine; snapshot =
+   per-client view; lockstep/wasm demoted to optional later layer). Scope:
+   - *Send-rate decoupling*: sim stays 30Hz; network send rate ~10–15Hz,
+     configurable per instance.
+   - *Client interpolation*: web client buffers snapshots and renders
+     ~100–150ms behind, lerping entity positions — fixes the 30Hz stutter
+     and makes the lower send rate invisible.
+   - *WS compression*: permessage-deflate via coder/websocket options.
+   - *Interest management*: per-client relevance (radius around the player
+     to start), server-side culling at snapshot build. BuildSnapshot grows a
+     viewer argument. Events filtered to relevant entities too.
+   - *Binary delta encoding*: per-client baseline of last-acked view; send
+     field-level diffs + entered/left-view entity lists; client acks by tick;
+     full-baseline resend on ack gap. Keep full-JSON snapshots available as
+     a debug mode and for the TCP/nc wire.
+   - Sim itself should need no changes (snapshot building and transport
+     only); golden trace should survive untouched — treat any golden diff
+     as a red flag.
 2. **Chill/shock ailments** — cold/lightning hits should do something besides
    damage; chill wants a status-effect notion beyond DoTs (a slow), which is
    the small system ignite didn't force.
@@ -102,6 +119,8 @@ All foundational machinery from DESIGN.md is real, not stubbed:
 
 ## Session log
 
+- **2026-06-10 (5)** — Planned the netcode overhaul (see next steps #1) and
+  recorded the networking model decision in DESIGN.md §13. No code.
 - **2026-06-10 (4)** — Web client. Server refactored onto a transport
   interface (TCP/NDJSON + WebSocket via coder/websocket, first dependency);
   cmd/server serves /ws and the static client. web/ is vanilla JS + canvas.
