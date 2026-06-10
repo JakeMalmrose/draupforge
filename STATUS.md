@@ -117,7 +117,9 @@ Structural risks live in `RISKS.md` — read it before building anything load-be
    damage; chill wants a status-effect notion beyond DoTs (a slow), which is
    the small system ignite didn't force.
 3. Map gen + pathing behind `space.Walkable`.
-4. Server hardening: replay log, per-client send queues, delta snapshots.
+4. Server hardening: replay log, per-client send queues.
+5. World persistence (RISKS.md #1) + the server dashboard parked at the
+   bottom of RISKS.md (observe/save/load/rollback) — natural pair.
 
 ## Session log
 

@@ -73,6 +73,21 @@ omitempty. One line now; a compatibility matrix after clients proliferate.
 - Reconnect/session identity doesn't exist: disconnect = actor and items
   deleted. Needs an account/session layer alongside persistence.
 
+## Parked here (not a risk): server dashboard
+
+Jake wants an admin dashboard for the server — doesn't belong in a risk
+register, but it lives here because it's the feature that *consumes* risk
+#1's mitigation, and whoever fixes #1 should design with it in mind:
+
+- **Observe:** instances, tick health (actual vs target rate), entity and
+  client counts, bandwidth per client, live event stream, world state hash.
+- **Operate (needs #1 solved):** save world to file, load world from file,
+  rollback to an earlier tick — rollback = restore a saved state, or replay
+  from a snapshot + command log (determinism makes both exact).
+- **Poke:** spawn entities, kick clients, adjust tick rate.
+- Needs an auth story before it's exposed anywhere; HTTP+JSON on a separate
+  admin port is fine, it does not need to be pretty.
+
 ## Non-risks (deliberate, stop re-evaluating)
 
 - Single-threaded sim per instance — instances scale horizontally (PoE's own
