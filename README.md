@@ -27,7 +27,7 @@ draupforge/
 ├── protocol/   # Command + snapshot wire types shared with future clients
 ├── server/     # Hosts the sim over TCP/NDJSON: sessions, command intake, snapshot broadcast
 ├── scripts/    # Scenario scripts for the headless runner
-└── cmd/        # Entrypoints (headless debug runner; server binary later)
+└── cmd/        # Entrypoints: headless debug runner, server binary
 ```
 
 ## Quickstart
