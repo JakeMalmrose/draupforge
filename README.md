@@ -25,7 +25,7 @@ draupforge/
 ├── sim/        # Deterministic sim core — pure, no I/O (see DESIGN.md for internals)
 ├── content/    # Game data as typed Go literals: skills, monsters, affix pools
 ├── protocol/   # Command + snapshot wire types shared with future clients
-├── server/     # later: hosts the sim — sessions, command intake, snapshot broadcast
+├── server/     # Hosts the sim over TCP/NDJSON: sessions, command intake, snapshot broadcast
 ├── scripts/    # Scenario scripts for the headless runner
 └── cmd/        # Entrypoints (headless debug runner; server binary later)
 ```
@@ -36,6 +36,9 @@ draupforge/
 go test ./...                                          # full suite incl. golden replay
 go run ./cmd/headless -script scripts/slice.json       # watch the vertical slice fight
 go run ./cmd/headless -script scripts/slice.json -hash # per-tick state hashes
+
+go run ./cmd/server -scenario scripts/arena.json       # host an instance on :7777
+echo '{"kind":"move","x":5000,"y":0}' | nc localhost 7777   # be a (brave) client
 ```
 
 Intentional behavior changes re-record the golden trace:

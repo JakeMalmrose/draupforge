@@ -11,19 +11,20 @@ tests, and session-log entries older than a few sessions (git history is the
 archive). If this file outgrows ~150 lines, it has stopped being a status doc
 and started being a changelog — cut it back.
 
-**Last updated: 2026-06-10** (session 2: equipment + frost nova)
+**Last updated: 2026-06-10** (session 3: inventory + server layer)
 
 ## Where things stand
 
-The loot loop is closed and locked by tests: a player fireballs a training
-dummy to death, walks to the drop, equips it (affixes land on the stat sheet,
-displaced items fall at your feet), and frost-novas the zombie that chased
-him the whole way. Damage flows through the full pipeline — hit/evasion,
-crit, armour/resists, ignite. Run it:
+The game is playable over the network: `cmd/server` hosts an instance over
+TCP/NDJSON — connect with netcat, send a move command, watch 30 snapshots/sec
+while a zombie hunts you down. The full item flow works (kill → drop →
+pickup → bag → equip → affixes on the sheet), and damage runs the whole
+pipeline: hit/evasion, crit, armour/resists, ignite. Run it:
 
 ```sh
 go test ./...                                    # ~25 tests, all green
 go run ./cmd/headless -script scripts/slice.json # watch the fight as events
+go run ./cmd/server -scenario scripts/arena.json # host on :7777 (nc-able)
 ```
 
 All foundational machinery from DESIGN.md is real, not stubbed:
@@ -38,6 +39,8 @@ All foundational machinery from DESIGN.md is real, not stubbed:
 | Actions (windup/recovery) + projectiles | `sim/skills` | done |
 | Loot: rarity, weighted affixes, group caps | `sim/items` | done, tested |
 | Equipment: slots, equip command, affix→sheet | `sim/items/equip.go` | done, tested |
+| Inventory: pickup/unequip/drop_item, capacity | `sim/items/equip.go` | done, tested |
+| Server: TCP/NDJSON, joins/leaves, broadcast | `server/` | done, race-tested |
 | AI (`melee_chaser`) | `sim/ai` | minimal but real |
 | Phase order + command validation | `sim/sim.go` | done — this IS the determinism contract |
 | Wire types (commands/snapshots, JSON) | `protocol/` | done for debug use |
@@ -66,8 +69,15 @@ All foundational machinery from DESIGN.md is real, not stubbed:
   reserved, no skill converts yet.
 - Leech, block, stun, chill/shock (only ignite exists), ES recharge: absent.
 - Corpses compact away at tick end — fine until on-corpse mechanics matter.
-- Equip is pickup-and-wear only: no inventory, no explicit unequip command
-  (replacing drops the old item at your feet — that IS the unequip).
+- Inventory is a flat ID-addressed bag — no spatial grid, no stacking.
+- Server: no auth, no persistence (disconnect deletes the actor and its
+  items), full-world snapshots every tick (no deltas/interest), one instance
+  per process, and a slow client can stall a tick for up to 1s (no per-client
+  send queues). All fine for a debug server; all on the list for a real one.
+- Live server play is not replay-deterministic (network timing decides
+  command arrival ticks); determinism holds within a tick via stable command
+  sort. A replay log (seed + per-tick commands) would restore full replays —
+  cheap to add when wanted.
 - No actor-actor collision; movement is straight-line on an open plane.
 - AI keys off a magic string (`"melee_chaser"`); fine until ~3 behaviors.
 - `zombie_drops` table is 100% drop chance — tuned for proving loot, not play.
@@ -75,17 +85,22 @@ All foundational machinery from DESIGN.md is real, not stubbed:
 
 ## Natural next steps (in rough order of leverage)
 
-1. **`server/`**: tick driver + WebSocket/TCP transport hosting one instance —
-   the protocol boundary is ready for it.
-2. **Debug renderer** (terminal grid or tiny Ebiten view) — eyes on the arena
-   beats reading JSON.
-3. **Chill/shock ailments** — cold/lightning hits should do something besides
+1. **Debug renderer / playable client** (terminal grid or tiny Ebiten view
+   speaking the TCP protocol) — the server is up; eyes and a keyboard would
+   make it a game.
+2. **Chill/shock ailments** — cold/lightning hits should do something besides
    damage; chill wants a status-effect notion beyond DoTs (a slow), which is
    the small system ignite didn't force.
-4. Map gen + pathing behind `space.Walkable`.
+3. Map gen + pathing behind `space.Walkable`.
+4. Server hardening: replay log, per-client send queues, delta snapshots.
 
 ## Session log
 
+- **2026-06-10 (3)** — Inventory (flat bag, pickup/unequip/drop_item commands,
+  displaced-item routing, capacity rules) and the server layer (`server/`:
+  TCP/NDJSON instance hosting, joins/leaves at tick boundaries, command
+  authority override, pre-welcome command buffering; race-tested). Golden
+  re-recorded: slice now does pickup → equip-from-bag.
 - **2026-06-10 (2)** — Equipment (slots, `equip` command, affix→modifier via
   item-ID source, displaced items drop at feet, pool clamping) and Frost Nova
   (SkillNova AoE kind, independent roll per target). Golden re-recorded:
