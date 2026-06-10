@@ -1,0 +1,222 @@
+# Draupforge Sim Core — Foundational Design
+
+This documents the decisions that are expensive to change later. Anything not
+covered here is fair game to figure out during implementation.
+
+## 1. Entity model: pragmatic actors, not ECS
+
+We do **not** use an ECS library. A PoE-like has a small, stable entity taxonomy —
+the genre's complexity lives in the stat/modifier system and skill interactions,
+not in entity composition. An archetype ECS solves a problem we don't have and
+costs indirection everywhere.
+
+Instead:
+
+- **`Actor`** — one struct for everything that acts: players, monsters, minions,
+  totems. Holds position, stat sheet, resource pools (life/mana/ES), current
+  action, status effects. Behavior differences come from data (its `ActorDef` and
+  AI behavior field), not from different types.
+- **Separate pools for high-volume ephemera** — projectiles, ground effects, and
+  loot drops get their own small structs in their own slices. They vastly
+  outnumber actors and need only a fraction of the state.
+- **Stable IDs, slice iteration** — every entity has a `EntityID` (uint64,
+  monotonically assigned by the world, never reused). Entities live in slices and
+  are iterated in insertion order. **Sim logic never iterates a Go map** — map
+  order is random and would break determinism. Maps are allowed only as
+  ID→index lookups.
+- Dead entities are tombstoned during the tick and compacted at tick end, so
+  indices are stable within a tick.
+
+## 2. The stat system (the heart of the genre)
+
+Every number in the game flows through one evaluator. The PoE modifier algebra:
+
+```
+final = (base + Σflat) × (1 + Σincreased − Σreduced) × Π(1 + more_i) × Π(1 − less_i)
+```
+
+then `override` (if any) wins outright. The crucial property: *increased* values
+share one additive bucket; each *more* multiplier applies separately. This split
+is the genre's entire balance language and must be first-class from day one.
+
+```go
+type Modifier struct {
+    Stat   StatID     // what it modifies (Life, Damage, CastSpeed, ...)
+    Layer  Layer      // Flat | Increased | More | Override
+    Value  Fixed      // see §5 on numbers
+    Tags   TagSet     // when it applies: Fire, Spell, Hit, DoT, Melee, ...
+    Source SourceID   // the item/passive/buff that granted it, for removal
+}
+```
+
+- **Tags are the conditionality system.** "10% increased fire damage" is
+  `{Stat: Damage, Layer: Increased, Tags: {Fire}}`. A query carries a tag
+  context — `sheet.Eval(Damage, TagSet{Fire, Spell, Hit})` — and a modifier
+  applies iff its tags are a subset of the query's tags. TagSet is a uint64
+  bitset; subset check is one AND+compare.
+- Conditional modifiers ("while at full life") are tags whose presence is
+  computed per-tick on the actor (`FullLife` tag set when applicable), keeping
+  the evaluator itself condition-free.
+- **Evaluation is on-demand with a per-tick memo cache** keyed by
+  (stat, tag context), invalidated when the modifier list changes. No dirty-flag
+  dependency graph in v1 — measure first, optimize later. The evaluator is a pure
+  function of the modifier list, so it's trivially golden-testable.
+
+## 3. Damage pipeline
+
+A hit is an explicit value flowing through named stages — not arithmetic smeared
+across call sites. Each stage is independently unit-testable.
+
+```
+SkillBase → AddedDamage (× skill effectiveness) → Conversion (phys→ele etc.)
+  → Inc/More from attacker stats → HitCheck (accuracy vs evasion)
+  → CritCheck (chance, then multiplier) → Mitigation per damage type
+    (armour for phys, resists for ele, flat reductions)
+  → DamageTaken modifiers on defender → ApplyToPools (ES before life)
+  → PostHit (ailment rolls: ignite/shock/chill; leech; on-hit/on-kill events)
+```
+
+```go
+type Hit struct {
+    Attacker, Defender EntityID
+    Damage             [DamageTypeCount]Fixed  // phys, fire, cold, lightning, chaos
+    SkillTags          TagSet
+    CritRoll, Crit     bool
+    // accumulates outcomes as it flows: blocked, evaded, ailments inflicted...
+}
+```
+
+Damage types are a fixed array indexed by enum, not a map. Conversion happens
+once, in pipeline order (a PoE lesson: conversion order is a balance lever —
+locked as base → added → converted, modifiers from all applicable types apply
+post-conversion).
+
+Damage-over-time is **not** a hit. DoTs skip hit/crit/armour and run through a
+separate, simpler per-tick path. Conflating hits and DoTs is a classic ARPG
+implementation mistake; they share only the mitigation tail.
+
+## 4. Time, ticks, and actions
+
+- **Fixed 30 ticks/sec.** All durations, cooldowns, and speeds are stored in
+  ticks (`type Ticks uint32`). Seconds exist only at the content-authoring and
+  display boundary. World time is a single `uint64` tick counter.
+- `World.Step(commands []Command)` advances exactly one tick:
+  `intake commands → AI decides → actions advance → projectiles/areas move &
+  collide → hits resolve → DoTs tick → deaths & loot → events drain → compact`.
+  Fixed phase order, every tick, no exceptions — phase order is the determinism
+  contract.
+- **Actions**: an actor does one thing at a time (idle / moving / using a skill).
+  Skill use is a tick-counted action with windup → effect point → recovery, which
+  is what makes attack/cast speed, animation canceling, and stun interrupts
+  modelable later.
+- The sim never reads the wall clock. The host (server, test, replay runner)
+  decides when to call `Step`.
+
+## 5. Numbers: fixed-point, no floats in the sim
+
+`type Fixed int64`, scaled ×1000 (milli-units). All gameplay math — damage,
+stats, positions, speeds — uses it. Rationale: float math is *probably*
+reproducible on one server arch, but "probably" is a bad foundation for replays
+and golden tests, and cross-arch (arm64 dev Mac vs amd64 server) drift is real.
+Fixed-point makes determinism boring and certain. 1/1000 granularity is plenty
+for ARPG math; int64 gives ~9×10¹⁵ headroom, so intermediate products won't
+overflow at sane scales.
+
+The one place this costs us is sqrt/trig for movement vectors — implemented once
+in `sim/fixmath` with integer algorithms and golden-tested.
+
+## 6. RNG
+
+- One **PCG-64 stream per concern**, all seeded from the world seed:
+  `rngCombat`, `rngLoot`, `rngAI`, `rngMapGen`. Split streams mean adding an AI
+  random call doesn't reshuffle every loot drop after it — replays and golden
+  tests stay diff-able when unrelated systems change.
+- RNG is only ever consumed inside `Step`, in phase order. No RNG in snapshot
+  encoding, logging, or anything outside the sim.
+
+## 7. Concurrency model: single-threaded sim, instances as the unit of parallelism
+
+A map instance's `World` is **strictly single-goroutine**. No locks, no atomics,
+no races, perfect determinism. The server scales by running many instances on
+many goroutines — which is exactly how PoE itself scales. A 30Hz tick with a few
+hundred entities is trivial for one core; we will never need intra-instance
+parallelism before we need a profiler.
+
+## 8. Space and movement
+
+2D plane, fixed-point coordinates, collision circles for entities. v1 is an open
+arena: straight-line movement, circle-vs-circle and circle-vs-segment tests.
+Pathing (navgrid + A*) comes with real map layouts — the `sim/space` API takes a
+`Walkable(from, to)` interface from day one so pathing slots in without touching
+movement consumers.
+
+## 9. Commands in, snapshots out (`protocol/`)
+
+- **Commands** are the only way anything outside the sim affects it:
+  `MoveTo{pos}`, `UseSkill{skill, target|dir}`, `StopAction{}`. Each is stamped
+  with the issuing actor and validated by the sim (range, resources, alive) —
+  the client is a suggestion box, never an authority.
+- **Snapshots** are the only way state leaves: per-tick structs of visible
+  entity state. v1 emits full-world snapshots as JSON for debuggability; the
+  delta/interest-management/binary-encoding layer is a server concern bolted on
+  later without touching the sim.
+- `protocol/` holds both, versioned, with no `sim/` imports in clients' future.
+
+## 10. Events
+
+Synchronous FIFO event queue inside the tick (`Death`, `HitLanded`,
+`AilmentApplied`, ...) drained in its phase. Triggers ("on kill, explode") enqueue
+follow-up effects rather than recursing; a per-tick trigger-depth cap (16) makes
+infinite trigger loops impossible by construction. The same event stream is the
+hook for combat logging and tests.
+
+## 11. Content as Go code (for now)
+
+Skills, monster defs, base items, and affix pools are **typed Go literals** in
+`content/` — compile-time checked, refactorable, no parser to write, fastest
+possible iteration loop. Migration to data files only when there's a reason
+(modding, an editor, a balance-tuning workflow). Definitions are pure data
+consumed by the sim; the sim never imports `content/` — the host wires defs in.
+
+## 12. Testing strategy (determinism is a feature only if enforced)
+
+- Unit tests per stage: stat evaluator, each damage-pipeline stage, fixmath.
+- **Golden replay tests**: scripted command sequences + seed → hash of world
+  state per N ticks, committed. Any unintended behavior change fails CI loudly.
+- **Determinism test**: run the same script twice in one process and on both
+  arches in CI; assert identical state hashes every tick.
+
+## Package layout
+
+```
+sim/
+  core/      # World, Step, entity stores, IDs, event queue, phase order
+  stats/     # StatID, Modifier, TagSet, the evaluator
+  combat/    # Hit pipeline, DoTs, ailments, mitigation
+  skills/    # skill execution: actions, projectiles, areas
+  items/     # item instances, affix rolling, loot generation
+  ai/        # monster behaviors (deciders emitting the same Commands players use)
+  space/     # fixed-point geometry, collision, Walkable interface
+  fixmath/   # Fixed arithmetic, sqrt, trig
+content/     # typed Go data: skills, monsters, base items, affix pools
+protocol/    # Command + Snapshot types, versioned
+server/      # later: sessions, transport, tick driver per instance
+cmd/
+  headless/  # script-driven runner: feed commands, print/dump snapshots
+```
+
+Dependency rule: `sim/` imports nothing outside `sim/`. `content/` and
+`protocol/` import `sim/` types but not each other. `server/` and `cmd/` sit on
+top.
+
+## First vertical slice (the "is this real" milestone)
+
+One arena. One player actor with Move and a Fireball (projectile, fire damage,
+can ignite). One melee zombie type with chase-and-swing AI. Full loop:
+
+> spawn → command intake → cast → projectile flight → hit → full damage
+> pipeline → death → loot drops with rolled affixes → JSON snapshots out
+
+driven by `cmd/headless` from a scripted command file, with a golden replay test
+locking it in. Everything after that — more skills, defenses, map gen, the
+server layer — is iteration on a proven spine.
