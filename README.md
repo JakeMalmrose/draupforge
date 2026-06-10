@@ -1,4 +1,4 @@
-# grimforge
+# draupforge
 
 A PoE-like ARPG, starting from the simulation engine outward.
 
@@ -21,7 +21,7 @@ A PoE-like ARPG, starting from the simulation engine outward.
 ## Planned layout (subject to change)
 
 ```
-grimforge/
+draupforge/
 ├── sim/        # Deterministic sim core — pure, no I/O
 ├── server/     # Hosts the sim: sessions, command intake, snapshot broadcast
 ├── protocol/   # Command + snapshot wire types shared with future clients
