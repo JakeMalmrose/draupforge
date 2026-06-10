@@ -1,0 +1,100 @@
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  background: #0b0b10;
+  color: #cfc9bf;
+  font: 14px/1.4 "Iowan Old Style", Georgia, serif;
+  overflow: hidden;
+}
+
+#game { display: block; cursor: crosshair; }
+
+/* --- HUD --- */
+#hud {
+  position: fixed;
+  left: 50%; bottom: 16px;
+  transform: translateX(-50%);
+  width: 420px;
+}
+.bar {
+  position: relative;
+  height: 22px;
+  margin-top: 6px;
+  background: #1a1a22;
+  border: 1px solid #3a3a45;
+  border-radius: 3px;
+  overflow: hidden;
+}
+.bar .fill { height: 100%; width: 100%; transition: width 120ms linear; }
+.bar.life .fill { background: linear-gradient(#a32626, #6e1414); }
+.bar.mana .fill { background: linear-gradient(#2a4fa3, #16306e); }
+.bar span {
+  position: absolute; inset: 0;
+  text-align: center; line-height: 22px;
+  font-size: 12px; color: #efe9dc; text-shadow: 0 1px 2px #000;
+}
+
+/* --- inventory panel --- */
+#panel {
+  position: fixed;
+  right: 16px; top: 16px;
+  width: 280px; max-height: 75vh;
+  overflow-y: auto;
+  background: rgba(16, 16, 22, 0.95);
+  border: 1px solid #3a3a45;
+  border-radius: 4px;
+  padding: 12px;
+}
+#panel h2 { font-size: 13px; color: #8d8678; text-transform: uppercase; letter-spacing: 1px; margin: 8px 0 4px; }
+#panel ul { list-style: none; }
+#panel li {
+  padding: 4px 6px; margin: 2px 0;
+  border: 1px solid #2a2a33; border-radius: 3px;
+  cursor: pointer; font-size: 13px;
+}
+#panel li:hover { border-color: #6a6455; background: #1c1c26; }
+#panel li .affix { display: block; font-size: 11px; color: #7d8fb0; }
+#panel li .slot { color: #8d8678; font-size: 11px; }
+#panel .empty { color: #55504a; font-style: italic; cursor: default; }
+#panel .hint { font-size: 11px; color: #55504a; margin-top: 8px; }
+.rarity-normal { color: #cfc9bf; }
+.rarity-magic { color: #8888ff; }
+.rarity-rare { color: #ffff77; }
+
+/* --- event log --- */
+#log {
+  position: fixed;
+  left: 16px; bottom: 16px;
+  width: 340px; max-height: 180px;
+  overflow: hidden;
+  font-size: 12px; color: #8d8678;
+  text-shadow: 0 1px 2px #000;
+  pointer-events: none;
+}
+#log .ev-death { color: #c0392b; }
+#log .ev-drop, #log .ev-pickup, #log .ev-equip { color: #b8a44a; }
+
+/* --- overlays --- */
+#overlay {
+  position: fixed; inset: 0;
+  background: rgba(10, 0, 0, 0.82);
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  gap: 24px;
+}
+#overlay-text { font-size: 64px; letter-spacing: 6px; color: #a32626; }
+#overlay button {
+  font: inherit; font-size: 16px;
+  background: #1a1a22; color: #cfc9bf;
+  border: 1px solid #3a3a45; border-radius: 3px;
+  padding: 8px 24px; cursor: pointer;
+}
+#overlay button:hover { border-color: #6a6455; }
+
+#help {
+  position: fixed;
+  right: 16px; bottom: 16px;
+  font-size: 12px; color: #55504a;
+}
+
+.hidden { display: none !important; }

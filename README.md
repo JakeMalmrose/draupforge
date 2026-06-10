@@ -26,6 +26,7 @@ draupforge/
 ├── content/    # Game data as typed Go literals: skills, monsters, affix pools
 ├── protocol/   # Command + snapshot wire types shared with future clients
 ├── server/     # Hosts the sim over TCP/NDJSON: sessions, command intake, snapshot broadcast
+├── web/        # Browser client: canvas renderer + WebSocket, no build step
 ├── scripts/    # Scenario scripts for the headless runner
 └── cmd/        # Entrypoints: headless debug runner, server binary
 ```
@@ -37,8 +38,9 @@ go test ./...                                          # full suite incl. golden
 go run ./cmd/headless -script scripts/slice.json       # watch the vertical slice fight
 go run ./cmd/headless -script scripts/slice.json -hash # per-tick state hashes
 
-go run ./cmd/server -scenario scripts/arena.json       # host an instance on :7777
-echo '{"kind":"move","x":5000,"y":0}' | nc localhost 7777   # be a (brave) client
+go run ./cmd/server -scenario scripts/arena.json       # host an instance
+open http://localhost:8080                             # play it in the browser
+echo '{"kind":"move","x":5000,"y":0}' | nc localhost 7777   # or be a brave TCP client
 ```
 
 Intentional behavior changes re-record the golden trace:

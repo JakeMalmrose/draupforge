@@ -11,20 +11,21 @@ tests, and session-log entries older than a few sessions (git history is the
 archive). If this file outgrows ~150 lines, it has stopped being a status doc
 and started being a changelog — cut it back.
 
-**Last updated: 2026-06-10** (session 3: inventory + server layer)
+**Last updated: 2026-06-10** (session 4: web client)
 
 ## Where things stand
 
-The game is playable over the network: `cmd/server` hosts an instance over
-TCP/NDJSON — connect with netcat, send a move command, watch 30 snapshots/sec
-while a zombie hunts you down. The full item flow works (kill → drop →
-pickup → bag → equip → affixes on the sheet), and damage runs the whole
-pipeline: hit/evasion, crit, armour/resists, ignite. Run it:
+The game is playable in a browser: `cmd/server` hosts the sim (TCP/NDJSON
+and WebSocket, same frames) and serves `web/` — a no-build-step canvas
+client with click-to-move, Q fireball / E nova, drop pickup, an inventory
+panel (I), HUD orbs, an event log, and a death screen. The full item flow
+works (kill → drop → pickup → bag → equip → affixes on the sheet); damage
+runs the whole pipeline. Run it:
 
 ```sh
 go test ./...                                    # ~25 tests, all green
 go run ./cmd/headless -script scripts/slice.json # watch the fight as events
-go run ./cmd/server -scenario scripts/arena.json # host on :7777 (nc-able)
+go run ./cmd/server -scenario scripts/arena.json # then open localhost:8080
 ```
 
 All foundational machinery from DESIGN.md is real, not stubbed:
@@ -40,7 +41,8 @@ All foundational machinery from DESIGN.md is real, not stubbed:
 | Loot: rarity, weighted affixes, group caps | `sim/items` | done, tested |
 | Equipment: slots, equip command, affix→sheet | `sim/items/equip.go` | done, tested |
 | Inventory: pickup/unequip/drop_item, capacity | `sim/items/equip.go` | done, tested |
-| Server: TCP/NDJSON, joins/leaves, broadcast | `server/` | done, race-tested |
+| Server: TCP + WebSocket transports, joins/leaves | `server/` | done, race-tested |
+| Web client: canvas, input, inventory UI | `web/` | working POC, no build step |
 | AI (`melee_chaser`) | `sim/ai` | minimal but real |
 | Phase order + command validation | `sim/sim.go` | done — this IS the determinism contract |
 | Wire types (commands/snapshots, JSON) | `protocol/` | done for debug use |
@@ -74,6 +76,11 @@ All foundational machinery from DESIGN.md is real, not stubbed:
   items), full-world snapshots every tick (no deltas/interest), one instance
   per process, and a slow client can stall a tick for up to 1s (no per-client
   send queues). All fine for a debug server; all on the list for a real one.
+- Web client renders raw 30Hz snapshots — no interpolation (slight stutter)
+  and no client prediction (input feels its latency). Both are known phase-2
+  work; prediction is the thing that would justify compiling sim/ to wasm.
+- WS endpoint accepts any origin (LAN-dev convenience); static files come
+  from -web dir at runtime, not embedded.
 - Live server play is not replay-deterministic (network timing decides
   command arrival ticks); determinism holds within a tick via stable command
   sort. A replay log (seed + per-tick commands) would restore full replays —
@@ -85,9 +92,8 @@ All foundational machinery from DESIGN.md is real, not stubbed:
 
 ## Natural next steps (in rough order of leverage)
 
-1. **Debug renderer / playable client** (terminal grid or tiny Ebiten view
-   speaking the TCP protocol) — the server is up; eyes and a keyboard would
-   make it a game.
+1. **Make the fight feel good in the browser**: snapshot interpolation,
+   monster respawns or waves in the arena, nova/ignite visual effects.
 2. **Chill/shock ailments** — cold/lightning hits should do something besides
    damage; chill wants a status-effect notion beyond DoTs (a slow), which is
    the small system ignite didn't force.
@@ -96,6 +102,11 @@ All foundational machinery from DESIGN.md is real, not stubbed:
 
 ## Session log
 
+- **2026-06-10 (4)** — Web client. Server refactored onto a transport
+  interface (TCP/NDJSON + WebSocket via coder/websocket, first dependency);
+  cmd/server serves /ws and the static client. web/ is vanilla JS + canvas.
+  Protocol additions: radii on actor/projectile snaps, IDs on item snaps.
+  No sim changes; golden untouched.
 - **2026-06-10 (3)** — Inventory (flat bag, pickup/unequip/drop_item commands,
   displaced-item routing, capacity rules) and the server layer (`server/`:
   TCP/NDJSON instance hosting, joins/leaves at tick boundaries, command
