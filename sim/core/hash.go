@@ -48,6 +48,19 @@ func (w *World) Hash() uint64 {
 			s.i64(d.PerTick.Milli())
 			s.u64(uint64(d.TicksLeft))
 		}
+		for slot := EquipSlot(0); slot < EquipSlotCount; slot++ {
+			item := a.Equipment[slot]
+			if item == nil {
+				s.u64(0)
+				continue
+			}
+			s.u64(uint64(item.ID))
+			s.str(item.Base.ID)
+			for _, af := range item.Affixes {
+				s.str(af.Def.ID)
+				s.i64(af.Value.Milli())
+			}
+		}
 	}
 
 	for _, p := range w.Projectiles {

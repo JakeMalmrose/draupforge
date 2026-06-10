@@ -90,6 +90,8 @@ func printEvent(ev core.Event) {
 		fmt.Printf("[tick %4d] %d ignited %d (%s/tick)\n", ev.Tick, ev.Actor, ev.Other, fixedStr(ev.Amount))
 	case core.EvDrop:
 		fmt.Printf("[tick %4d] %d dropped %s (entity %d)\n", ev.Tick, ev.Actor, ev.Note, ev.Other)
+	case core.EvEquip:
+		fmt.Printf("[tick %4d] %d equipped %s (item %d)\n", ev.Tick, ev.Actor, ev.Note, ev.Other)
 	}
 }
 

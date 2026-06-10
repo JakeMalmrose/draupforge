@@ -12,6 +12,9 @@ const (
 	CmdMove CommandKind = iota
 	CmdUseSkill
 	CmdStop
+	// CmdEquip picks up the ground drop named by TargetID and equips it,
+	// dropping any displaced item at the actor's feet.
+	CmdEquip
 )
 
 // Command is the only way anything outside the sim affects it. The sim
@@ -33,6 +36,7 @@ const (
 	EvDeath
 	EvIgnite
 	EvDrop
+	EvEquip
 )
 
 func (k EventKind) String() string {
@@ -45,8 +49,10 @@ func (k EventKind) String() string {
 		return "death"
 	case EvIgnite:
 		return "ignite"
-	default:
+	case EvDrop:
 		return "drop"
+	default:
+		return "equip"
 	}
 }
 
@@ -101,6 +107,19 @@ func NewWorld(db *ContentDB, seed uint64) *World {
 func (w *World) nextEntityID() EntityID {
 	w.nextID++
 	return w.nextID
+}
+
+// AllocID hands out an entity ID for non-spawned identities (rolled items).
+func (w *World) AllocID() EntityID { return w.nextEntityID() }
+
+// DropByID returns nil for unknown or already-taken drops.
+func (w *World) DropByID(id EntityID) *Drop {
+	for _, d := range w.Drops {
+		if d.ID == id && !d.Taken {
+			return d
+		}
+	}
+	return nil
 }
 
 func (w *World) SpawnActor(def *ActorDef, pos space.Vec2) *Actor {
@@ -180,4 +199,12 @@ func (w *World) EndTick() {
 		}
 	}
 	w.Projectiles = projs
+
+	drops := w.Drops[:0]
+	for _, d := range w.Drops {
+		if !d.Taken {
+			drops = append(drops, d)
+		}
+	}
+	w.Drops = drops
 }

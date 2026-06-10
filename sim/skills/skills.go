@@ -93,6 +93,23 @@ func fire(w *core.World, a *core.Actor) {
 			Skill:    sk,
 			Tags:     sk.Tags.With(stats.TagHit),
 		})
+	case core.SkillNova:
+		// One independent hit per target (own damage roll, own crit roll),
+		// queued in actor slice order.
+		for _, tgt := range w.Actors {
+			if tgt.Dead || tgt.Team == a.Team || tgt.Team == core.TeamNone {
+				continue
+			}
+			if space.Dist(a.Pos, tgt.Pos) > sk.AoERadius+tgt.Def.Radius {
+				continue
+			}
+			w.QueueHit(core.Hit{
+				Attacker: a.ID,
+				Defender: tgt.ID,
+				Skill:    sk,
+				Tags:     sk.Tags.With(stats.TagHit),
+			})
+		}
 	}
 }
 

@@ -62,6 +62,10 @@ type Actor struct {
 	Action Action
 	DoTs   []DoT
 
+	// Equipment by concrete slot; nil = empty. Equipped items grant their
+	// affixes as sheet modifiers sourced by the item's ID.
+	Equipment [EquipSlotCount]*Item
+
 	// Dead actors are tombstoned during the tick and compacted at tick end,
 	// so slice indices stay stable while a tick is in flight.
 	Dead bool
@@ -107,6 +111,10 @@ type RolledAffix struct {
 }
 
 type Item struct {
+	// ID is allocated at roll time from the world's entity counter and is
+	// stable for the item's whole life — it is the modifier Source used to
+	// cleanly remove the item's stats on unequip.
+	ID      EntityID
 	Base    *BaseItemDef
 	Rarity  Rarity
 	Affixes []RolledAffix
@@ -116,7 +124,48 @@ type Drop struct {
 	ID   EntityID
 	Pos  space.Vec2
 	Item Item
+	// Taken drops are tombstoned (picked up mid-tick) and compacted at
+	// tick end, mirroring how dead actors work.
+	Taken bool
 }
+
+// EquipSlot is a concrete equipment slot on an actor.
+type EquipSlot uint8
+
+const (
+	EquipRing1 EquipSlot = iota
+	EquipRing2
+	EquipBelt
+
+	EquipSlotCount
+)
+
+func (s EquipSlot) String() string {
+	switch s {
+	case EquipRing1:
+		return "ring1"
+	case EquipRing2:
+		return "ring2"
+	default:
+		return "belt"
+	}
+}
+
+// SlotsFor maps an item's slot family to the concrete slots it can occupy,
+// in fill-preference order. Read-only package data.
+func SlotsFor(f SlotFamily) []EquipSlot {
+	switch f {
+	case FamilyRing:
+		return ringSlots
+	default:
+		return beltSlots
+	}
+}
+
+var (
+	ringSlots = []EquipSlot{EquipRing1, EquipRing2}
+	beltSlots = []EquipSlot{EquipBelt}
+)
 
 // Hit is one resolved-or-pending strike flowing through the damage pipeline.
 // It is created with attacker/skill identity; the pipeline fills in outcomes.

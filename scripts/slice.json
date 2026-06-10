@@ -5,9 +5,12 @@
     { "def": "zombie", "x": 0, "y": 12000 }
   ],
   "commands": [
-    { "tick": 1,  "actor": 1, "kind": "use_skill", "skill": "fireball", "x": 8000, "y": 0 },
-    { "tick": 23, "actor": 1, "kind": "use_skill", "skill": "fireball", "x": 8000, "y": 0 },
-    { "tick": 45, "actor": 1, "kind": "use_skill", "skill": "fireball", "x": 8000, "y": 0 },
-    { "tick": 67, "actor": 1, "kind": "use_skill", "skill": "fireball", "x": 8000, "y": 0 }
+    { "tick": 1,   "actor": 1, "kind": "use_skill", "skill": "fireball", "x": 8000, "y": 0 },
+    { "tick": 23,  "actor": 1, "kind": "use_skill", "skill": "fireball", "x": 8000, "y": 0 },
+    { "tick": 45,  "actor": 1, "kind": "use_skill", "skill": "fireball", "x": 8000, "y": 0 },
+    { "tick": 67,  "actor": 1, "kind": "use_skill", "skill": "fireball", "x": 8000, "y": 0 },
+    { "tick": 90,  "actor": 1, "kind": "move", "x": 8000, "y": 0 },
+    { "tick": 140, "actor": 1, "kind": "equip", "target": 8 },
+    { "tick": 160, "actor": 1, "kind": "use_skill", "skill": "frost_nova" }
   ]
 }
