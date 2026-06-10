@@ -66,6 +66,11 @@ type Actor struct {
 	// affixes as sheet modifiers sourced by the item's ID.
 	Equipment [EquipSlotCount]*Item
 
+	// Inventory is a flat ID-addressed bag (no spatial grid), capacity
+	// capped by the def's InventorySize. Order is insertion order and is
+	// part of world state (hashed).
+	Inventory []Item
+
 	// Dead actors are tombstoned during the tick and compacted at tick end,
 	// so slice indices stay stable while a tick is in flight.
 	Dead bool

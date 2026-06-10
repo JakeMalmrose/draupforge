@@ -19,7 +19,16 @@ func (s *hasher) u64(v uint64) {
 	}
 }
 
-func (s *hasher) i64(v int64)    { s.u64(uint64(v)) }
+func (s *hasher) i64(v int64) { s.u64(uint64(v)) }
+
+func (s *hasher) item(item *Item) {
+	s.u64(uint64(item.ID))
+	s.str(item.Base.ID)
+	for _, af := range item.Affixes {
+		s.str(af.Def.ID)
+		s.i64(af.Value.Milli())
+	}
+}
 func (s *hasher) str(v string) {
 	for i := 0; i < len(v); i++ {
 		s.h ^= uint64(v[i])
@@ -54,12 +63,11 @@ func (w *World) Hash() uint64 {
 				s.u64(0)
 				continue
 			}
-			s.u64(uint64(item.ID))
-			s.str(item.Base.ID)
-			for _, af := range item.Affixes {
-				s.str(af.Def.ID)
-				s.i64(af.Value.Milli())
-			}
+			s.item(item)
+		}
+		s.u64(uint64(len(a.Inventory)))
+		for i := range a.Inventory {
+			s.item(&a.Inventory[i])
 		}
 	}
 

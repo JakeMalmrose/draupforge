@@ -81,18 +81,142 @@ func TestEquipReplaceDropsOldItemAndRemovesItsMods(t *testing.T) {
 	if got := player.MaxLife(); got != baseMax+fm.FromInt(25) {
 		t.Errorf("max life after replace = %d, want %d (20 removed, 5 added)", got, baseMax+fm.FromInt(25))
 	}
-	// The picked-up drop is consumed; exactly the displaced +20 ring remains.
-	var ground []*core.Drop
-	for _, dr := range w.Drops {
-		if !dr.Taken {
-			ground = append(ground, dr)
-		}
+	// The displaced ring lands in the bag, not on the ground.
+	if got := liveDrops(w); got != 0 {
+		t.Errorf("live drops = %d, want 0 (displaced item goes to inventory)", got)
 	}
-	if len(ground) != 1 {
-		t.Fatalf("live drops = %d, want 1 (the displaced ring at the player's feet)", len(ground))
+	if len(player.Inventory) != 1 || player.Inventory[0].Affixes[0].Value != fm.FromInt(20) {
+		t.Fatalf("inventory = %+v, want exactly the displaced +20 ring", player.Inventory)
 	}
-	if v := ground[0].Item.Affixes[0].Value; v != fm.FromInt(20) {
-		t.Errorf("ground item affix = %d, want the displaced ring's 20000", v)
+}
+
+func TestEquipDisplacedFallsToGroundWhenBagFull(t *testing.T) {
+	db := content.DB()
+	w := core.NewWorld(db, 1)
+	// One-slot bag, pre-filled.
+	def := *db.Actors["player"]
+	def.InventorySize = 1
+	player := w.SpawnActor(&def, space.V(0, 0))
+	player.Inventory = append(player.Inventory, makeRing(w, db))
+
+	for i := 0; i < 3; i++ { // third equip displaces ring1 with a full bag
+		d := w.SpawnDrop(player.Pos, makeRing(w, db))
+		items.Equip(w, player, d.ID)
+	}
+	if got := liveDrops(w); got != 1 {
+		t.Errorf("live drops = %d, want 1 (full bag overflows displaced item to ground)", got)
+	}
+}
+
+func TestPickupAndEquipFromInventory(t *testing.T) {
+	db := content.DB()
+	w := core.NewWorld(db, 1)
+	player := w.SpawnActor(db.Actors["player"], space.V(0, 0))
+	lifeAffix := affixByID(t, db, "flat_life")
+
+	ring := makeRing(w, db, core.RolledAffix{Def: lifeAffix, Value: fm.FromInt(20)})
+	d := w.SpawnDrop(player.Pos, ring)
+	if !items.Pickup(w, player, d.ID) {
+		t.Fatal("pickup of in-range drop failed")
+	}
+	if len(player.Inventory) != 1 {
+		t.Fatalf("inventory = %d items, want 1", len(player.Inventory))
+	}
+	baseMax := player.MaxLife() // picked up but not worn: no stats yet
+
+	if !items.Equip(w, player, ring.ID) {
+		t.Fatal("equip from inventory failed")
+	}
+	if len(player.Inventory) != 0 {
+		t.Error("item stayed in inventory after equipping")
+	}
+	if got := player.MaxLife(); got != baseMax+fm.FromInt(20) {
+		t.Errorf("max life = %d, want %d (affixes apply only when worn)", got, baseMax+fm.FromInt(20))
+	}
+}
+
+func TestPickupRejectsWhenBagFull(t *testing.T) {
+	db := content.DB()
+	w := core.NewWorld(db, 1)
+	def := *db.Actors["player"]
+	def.InventorySize = 1
+	player := w.SpawnActor(&def, space.V(0, 0))
+
+	d1 := w.SpawnDrop(player.Pos, makeRing(w, db))
+	d2 := w.SpawnDrop(player.Pos, makeRing(w, db))
+	if !items.Pickup(w, player, d1.ID) {
+		t.Fatal("first pickup failed")
+	}
+	if items.Pickup(w, player, d2.ID) {
+		t.Error("pickup succeeded into a full bag")
+	}
+	if got := liveDrops(w); got != 1 {
+		t.Errorf("live drops = %d, want 1 (rejected drop stays on the ground)", got)
+	}
+}
+
+func TestUnequipToInventory(t *testing.T) {
+	db := content.DB()
+	w := core.NewWorld(db, 1)
+	player := w.SpawnActor(db.Actors["player"], space.V(0, 0))
+	lifeAffix := affixByID(t, db, "flat_life")
+	baseMax := player.MaxLife()
+
+	ring := makeRing(w, db, core.RolledAffix{Def: lifeAffix, Value: fm.FromInt(20)})
+	d := w.SpawnDrop(player.Pos, ring)
+	items.Equip(w, player, d.ID)
+
+	if !items.Unequip(w, player, ring.ID) {
+		t.Fatal("unequip failed")
+	}
+	if player.Equipment[core.EquipRing1] != nil {
+		t.Error("slot still occupied after unequip")
+	}
+	if len(player.Inventory) != 1 {
+		t.Errorf("inventory = %d items, want 1", len(player.Inventory))
+	}
+	if got := player.MaxLife(); got != baseMax {
+		t.Errorf("max life = %d, want base %d (mods must leave with the item)", got, baseMax)
+	}
+}
+
+func TestUnequipRejectedWhenBagFull(t *testing.T) {
+	db := content.DB()
+	w := core.NewWorld(db, 1)
+	def := *db.Actors["player"]
+	def.InventorySize = 1
+	player := w.SpawnActor(&def, space.V(0, 0))
+
+	ring := makeRing(w, db)
+	d := w.SpawnDrop(player.Pos, ring)
+	items.Equip(w, player, d.ID)
+	player.Inventory = append(player.Inventory, makeRing(w, db)) // fill the bag
+
+	if items.Unequip(w, player, ring.ID) {
+		t.Error("unequip succeeded into a full bag")
+	}
+	if player.Equipment[core.EquipRing1] == nil {
+		t.Error("item left the slot despite rejected unequip")
+	}
+}
+
+func TestDropItem(t *testing.T) {
+	db := content.DB()
+	w := core.NewWorld(db, 1)
+	player := w.SpawnActor(db.Actors["player"], space.V(0, 0))
+
+	ring := makeRing(w, db)
+	d := w.SpawnDrop(player.Pos, ring)
+	items.Pickup(w, player, d.ID)
+
+	if !items.DropItem(w, player, ring.ID) {
+		t.Fatal("drop from inventory failed")
+	}
+	if len(player.Inventory) != 0 {
+		t.Error("item stayed in inventory after dropping")
+	}
+	if got := liveDrops(w); got != 1 {
+		t.Errorf("live drops = %d, want 1 (the dropped ring)", got)
 	}
 }
 

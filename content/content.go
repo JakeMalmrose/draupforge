@@ -114,7 +114,8 @@ func actorDefs() []*core.ActorDef {
 			stats.Armour:     fm.FromInt(20),
 			stats.CritChance: fm.FromMilli(50), // 5%
 		}),
-		Skills: []string{"fireball", "frost_nova"},
+		Skills:        []string{"fireball", "frost_nova"},
+		InventorySize: 20,
 	}
 
 	zombie := &core.ActorDef{

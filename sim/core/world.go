@@ -12,9 +12,18 @@ const (
 	CmdMove CommandKind = iota
 	CmdUseSkill
 	CmdStop
-	// CmdEquip picks up the ground drop named by TargetID and equips it,
-	// dropping any displaced item at the actor's feet.
+	// CmdEquip equips the item named by TargetID — from the inventory if
+	// it's there, else from a ground drop in pickup range. A displaced item
+	// goes to the inventory, or the ground if the bag is full.
 	CmdEquip
+	// CmdPickup moves the ground drop named by TargetID into the inventory.
+	CmdPickup
+	// CmdUnequip moves the equipped item named by TargetID into the
+	// inventory; rejected if the bag is full.
+	CmdUnequip
+	// CmdDropItem drops the inventory item named by TargetID at the
+	// actor's feet.
+	CmdDropItem
 )
 
 // Command is the only way anything outside the sim affects it. The sim
@@ -37,6 +46,8 @@ const (
 	EvIgnite
 	EvDrop
 	EvEquip
+	EvPickup
+	EvUnequip
 )
 
 func (k EventKind) String() string {
@@ -51,8 +62,12 @@ func (k EventKind) String() string {
 		return "ignite"
 	case EvDrop:
 		return "drop"
-	default:
+	case EvEquip:
 		return "equip"
+	case EvPickup:
+		return "pickup"
+	default:
+		return "unequip"
 	}
 }
 
