@@ -50,32 +50,41 @@ func mustSpawn(t *testing.T, s *sim.Sim, def string, x, y int64) core.EntityID {
 	return id
 }
 
-// stepSlice advances one tick, merging scheduled commands with the reactive
-// loot-pickup behavior: once the dummy's drop appears, the player walks to it
-// and equips it. Reacting to deterministic events keeps the trace stable
-// without hardcoding entity IDs or arrival ticks.
+// sliceState drives the reactive loot behavior tick by tick: once the
+// dummy's drop appears, the player walks to it, picks it up into the
+// inventory, then equips it from the bag — the full item flow. Reacting to
+// deterministic events keeps the trace stable without hardcoding entity IDs
+// or arrival ticks.
 type sliceState struct {
 	dropID   core.EntityID
 	dropPos  space.Vec2
+	itemID   core.EntityID // known after pickup
 	equipped bool
 }
 
 func (st *sliceState) step(s *sim.Sim, scheduled []core.Command) {
 	cmds := scheduled
-	if st.dropID != 0 && !st.equipped {
+	switch {
+	case st.itemID != 0 && !st.equipped:
+		cmds = append(append([]core.Command{}, cmds...),
+			core.Command{Actor: 1, Kind: core.CmdEquip, TargetID: st.itemID})
+	case st.dropID != 0:
 		cmds = append(append([]core.Command{}, cmds...),
 			core.Command{Actor: 1, Kind: core.CmdMove, Point: st.dropPos},
-			core.Command{Actor: 1, Kind: core.CmdEquip, TargetID: st.dropID},
+			core.Command{Actor: 1, Kind: core.CmdPickup, TargetID: st.dropID},
 		)
 	}
 	s.Step(cmds)
 	for _, ev := range s.W.LastEvents {
 		switch {
-		case ev.Kind == core.EvDrop && st.dropID == 0:
+		case ev.Kind == core.EvDrop && st.dropID == 0 && st.itemID == 0:
 			st.dropID = ev.Other
 			if d := s.W.DropByID(ev.Other); d != nil {
 				st.dropPos = d.Pos
 			}
+		case ev.Kind == core.EvPickup && ev.Actor == 1:
+			st.itemID = ev.Other
+			st.dropID = 0
 		case ev.Kind == core.EvEquip && ev.Actor == 1:
 			st.equipped = true
 		}

@@ -114,6 +114,8 @@ type ActorDef struct {
 	AI          string
 	AggroRadius fm.Fixed
 	LootTable   string // "" drops nothing
+	// InventorySize is the bag capacity; 0 means the actor carries nothing.
+	InventorySize int
 }
 
 type AffixKind uint8

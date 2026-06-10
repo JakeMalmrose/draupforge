@@ -73,11 +73,20 @@ func applyCommands(w *core.World, cmds []core.Command) {
 				a.Action = core.Action{}
 			}
 
-		case core.CmdEquip:
+		case core.CmdEquip, core.CmdPickup, core.CmdUnequip, core.CmdDropItem:
 			if a.Action.Kind == core.ActionSkill {
-				continue // no swapping rings mid-swing
+				continue // no rummaging through the bag mid-swing
 			}
-			items.Equip(w, a, c.TargetID)
+			switch c.Kind {
+			case core.CmdEquip:
+				items.Equip(w, a, c.TargetID)
+			case core.CmdPickup:
+				items.Pickup(w, a, c.TargetID)
+			case core.CmdUnequip:
+				items.Unequip(w, a, c.TargetID)
+			case core.CmdDropItem:
+				items.DropItem(w, a, c.TargetID)
+			}
 
 		case core.CmdUseSkill:
 			if a.Action.Kind == core.ActionSkill {

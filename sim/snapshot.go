@@ -24,6 +24,10 @@ func (s *Sim) BuildSnapshot() protocol.Snapshot {
 				})
 			}
 		}
+		var inventory []protocol.ItemSnap
+		for _, item := range a.Inventory {
+			inventory = append(inventory, itemSnap(item))
+		}
 		snap.Actors = append(snap.Actors, protocol.ActorSnap{
 			ID:      uint64(a.ID),
 			Def:     a.Def.ID,
@@ -36,6 +40,7 @@ func (s *Sim) BuildSnapshot() protocol.Snapshot {
 			ES:      a.ES.Milli(),
 			Action:  actionString(a.Action),
 			Equipment: equipment,
+			Inventory: inventory,
 		})
 	}
 	for _, p := range w.Projectiles {
@@ -101,6 +106,12 @@ func DecodeCommand(c protocol.Command) (core.Command, error) {
 		out.Kind = core.CmdStop
 	case "equip":
 		out.Kind = core.CmdEquip
+	case "pickup":
+		out.Kind = core.CmdPickup
+	case "unequip":
+		out.Kind = core.CmdUnequip
+	case "drop_item":
+		out.Kind = core.CmdDropItem
 	default:
 		return core.Command{}, fmt.Errorf("protocol: unknown command kind %q", c.Kind)
 	}
