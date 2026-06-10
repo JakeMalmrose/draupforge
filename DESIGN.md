@@ -189,25 +189,26 @@ consumed by the sim; the sim never imports `content/` — the host wires defs in
 ## Package layout
 
 ```
-sim/
-  core/      # World, Step, entity stores, IDs, event queue, phase order
+sim/         # package sim: Step (the phase order), command validation, snapshots
+  core/      # shared data types: World, Actor, Hit, defs, events, RNG, hashing
   stats/     # StatID, Modifier, TagSet, the evaluator
-  combat/    # Hit pipeline, DoTs, ailments, mitigation
-  skills/    # skill execution: actions, projectiles, areas
-  items/     # item instances, affix rolling, loot generation
+  combat/    # Hit pipeline, DoTs, ailments, mitigation, upkeep
+  skills/    # action advancement (windup/recovery), projectile flight
+  items/     # affix rolling, loot generation
   ai/        # monster behaviors (deciders emitting the same Commands players use)
   space/     # fixed-point geometry, collision, Walkable interface
-  fixmath/   # Fixed arithmetic, sqrt, trig
+  fixmath/   # Fixed arithmetic, sqrt
 content/     # typed Go data: skills, monsters, base items, affix pools
-protocol/    # Command + Snapshot types, versioned
+protocol/    # Command + Snapshot wire types (imports nothing from sim/)
 server/      # later: sessions, transport, tick driver per instance
 cmd/
-  headless/  # script-driven runner: feed commands, print/dump snapshots
+  headless/  # script-driven runner: feed commands, print events/snapshots
 ```
 
-Dependency rule: `sim/` imports nothing outside `sim/`. `content/` and
-`protocol/` import `sim/` types but not each other. `server/` and `cmd/` sit on
-top.
+Cycle-free by construction: data types live in `sim/core`, system logic lives
+in leaf packages that import core, and only the root `sim` package knows the
+phase order. `sim/` imports nothing outside `sim/`; `protocol/` imports
+nothing at all; `content/` builds `core` defs; `server/` and `cmd/` sit on top.
 
 ## First vertical slice (the "is this real" milestone)
 

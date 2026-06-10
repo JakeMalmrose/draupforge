@@ -1,0 +1,13 @@
+{
+  "spawns": [
+    { "def": "player", "x": 0, "y": 0 },
+    { "def": "training_dummy", "x": 8000, "y": 0 },
+    { "def": "zombie", "x": 0, "y": 12000 }
+  ],
+  "commands": [
+    { "tick": 1,  "actor": 1, "kind": "use_skill", "skill": "fireball", "x": 8000, "y": 0 },
+    { "tick": 23, "actor": 1, "kind": "use_skill", "skill": "fireball", "x": 8000, "y": 0 },
+    { "tick": 45, "actor": 1, "kind": "use_skill", "skill": "fireball", "x": 8000, "y": 0 },
+    { "tick": 67, "actor": 1, "kind": "use_skill", "skill": "fireball", "x": 8000, "y": 0 }
+  ]
+}

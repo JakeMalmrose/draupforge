@@ -18,15 +18,31 @@ A PoE-like ARPG, starting from the simulation engine outward.
   boundary; debug visualization first, real client (2D or 3D, any stack) later.
 - **Language: Go.** Fast compile/test loop, easy concurrency for the server layer.
 
-## Planned layout (subject to change)
+## Layout
 
 ```
 draupforge/
-├── sim/        # Deterministic sim core — pure, no I/O
-├── server/     # Hosts the sim: sessions, command intake, snapshot broadcast
+├── sim/        # Deterministic sim core — pure, no I/O (see DESIGN.md for internals)
+├── content/    # Game data as typed Go literals: skills, monsters, affix pools
 ├── protocol/   # Command + snapshot wire types shared with future clients
-└── cmd/        # Entrypoints (server binary, debug/headless runners)
+├── server/     # later: hosts the sim — sessions, command intake, snapshot broadcast
+├── scripts/    # Scenario scripts for the headless runner
+└── cmd/        # Entrypoints (headless debug runner; server binary later)
 ```
+
+## Quickstart
+
+```sh
+go test ./...                                          # full suite incl. golden replay
+go run ./cmd/headless -script scripts/slice.json       # watch the vertical slice fight
+go run ./cmd/headless -script scripts/slice.json -hash # per-tick state hashes
+```
+
+Intentional behavior changes re-record the golden trace:
+`DRAUPFORGE_UPDATE_GOLDEN=1 go test ./sim/ -run TestGoldenReplay`
+
+See `DESIGN.md` for the foundational decisions (stat algebra, damage
+pipeline, determinism rules, package layout).
 
 ## Conventions
 
