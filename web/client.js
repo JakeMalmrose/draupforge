@@ -230,7 +230,7 @@ window.addEventListener("keydown", (e) => {
       break;
     case "i":
       panel.classList.toggle("hidden");
-      if (!panel.classList.contains("hidden")) renderPanel(me());
+      if (!panel.classList.contains("hidden")) renderPanel(me(), true);
       break;
   }
 });
@@ -257,7 +257,19 @@ function itemLI(item, extra) {
   return li;
 }
 
-function renderPanel(self) {
+// The panel only re-renders when its contents change. Rebuilding it every
+// snapshot (30Hz) destroys the element mid-click — mousedown lands on a node
+// that's gone by mouseup, so click events never fire.
+let panelKey = "";
+
+function renderPanel(self, force) {
+  const key = !self ? "dead" : JSON.stringify([
+    (self.equipment || []).map((e) => e.item.id),
+    (self.inventory || []).map((i) => i.id),
+  ]);
+  if (!force && key === panelKey) return;
+  panelKey = key;
+
   equipmentEl.replaceChildren();
   inventoryEl.replaceChildren();
   if (!self) return;
@@ -271,7 +283,7 @@ function renderPanel(self) {
   for (const eq of self.equipment || []) {
     const li = itemLI(eq.item, eq.slot);
     li.title = "click to unequip";
-    li.onclick = () => send({ kind: "unequip", target: eq.item.id });
+    li.onmousedown = (e) => { if (e.button === 0) send({ kind: "unequip", target: eq.item.id }); };
     equipmentEl.appendChild(li);
   }
 
@@ -285,7 +297,7 @@ function renderPanel(self) {
   for (const item of self.inventory || []) {
     const li = itemLI(item);
     li.title = "click to equip · right-click to drop";
-    li.onclick = () => send({ kind: "equip", target: item.id });
+    li.onmousedown = (e) => { if (e.button === 0) send({ kind: "equip", target: item.id }); };
     li.oncontextmenu = (e) => {
       e.preventDefault();
       send({ kind: "drop_item", target: item.id });
