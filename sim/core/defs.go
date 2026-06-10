@@ -64,6 +64,9 @@ type SkillKind uint8
 const (
 	SkillProjectile SkillKind = iota
 	SkillMelee
+	// SkillNova hits every hostile actor within AoERadius of the caster at
+	// the effect point. Self-centered; AimPoint is ignored.
+	SkillNova
 )
 
 type SkillDef struct {
@@ -89,6 +92,10 @@ type SkillDef struct {
 	ProjSpeed  fm.Fixed // units per second
 	ProjTTL    uint32   // ticks
 	ProjRadius fm.Fixed
+
+	// Nova field: blast radius measured from the caster's center to the
+	// target's circle edge.
+	AoERadius fm.Fixed
 
 	// Base chance for fire-damage hits to ignite, before IgniteChance stats.
 	IgniteChance fm.Fixed
@@ -130,9 +137,19 @@ type AffixDef struct {
 	Weight   uint32
 }
 
+// SlotFamily is the kind of slot a base item occupies; families with
+// multiple concrete slots (rings) are resolved at equip time.
+type SlotFamily uint8
+
+const (
+	FamilyRing SlotFamily = iota
+	FamilyBelt
+)
+
 type BaseItemDef struct {
 	ID   string
 	Name string
+	Slot SlotFamily
 }
 
 type LootTableDef struct {

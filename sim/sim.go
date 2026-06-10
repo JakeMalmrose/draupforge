@@ -73,6 +73,12 @@ func applyCommands(w *core.World, cmds []core.Command) {
 				a.Action = core.Action{}
 			}
 
+		case core.CmdEquip:
+			if a.Action.Kind == core.ActionSkill {
+				continue // no swapping rings mid-swing
+			}
+			items.Equip(w, a, c.TargetID)
+
 		case core.CmdUseSkill:
 			if a.Action.Kind == core.ActionSkill {
 				continue

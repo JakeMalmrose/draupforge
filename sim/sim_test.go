@@ -50,11 +50,44 @@ func mustSpawn(t *testing.T, s *sim.Sim, def string, x, y int64) core.EntityID {
 	return id
 }
 
+// stepSlice advances one tick, merging scheduled commands with the reactive
+// loot-pickup behavior: once the dummy's drop appears, the player walks to it
+// and equips it. Reacting to deterministic events keeps the trace stable
+// without hardcoding entity IDs or arrival ticks.
+type sliceState struct {
+	dropID   core.EntityID
+	dropPos  space.Vec2
+	equipped bool
+}
+
+func (st *sliceState) step(s *sim.Sim, scheduled []core.Command) {
+	cmds := scheduled
+	if st.dropID != 0 && !st.equipped {
+		cmds = append(append([]core.Command{}, cmds...),
+			core.Command{Actor: 1, Kind: core.CmdMove, Point: st.dropPos},
+			core.Command{Actor: 1, Kind: core.CmdEquip, TargetID: st.dropID},
+		)
+	}
+	s.Step(cmds)
+	for _, ev := range s.W.LastEvents {
+		switch {
+		case ev.Kind == core.EvDrop && st.dropID == 0:
+			st.dropID = ev.Other
+			if d := s.W.DropByID(ev.Other); d != nil {
+				st.dropPos = d.Pos
+			}
+		case ev.Kind == core.EvEquip && ev.Actor == 1:
+			st.equipped = true
+		}
+	}
+}
+
 func runSlice(t *testing.T) []uint64 {
 	s, cmds := sliceScenario(t)
+	st := &sliceState{}
 	hashes := make([]uint64, 0, sliceTicks)
 	for tick := uint64(1); tick <= sliceTicks; tick++ {
-		s.Step(cmds[tick])
+		st.step(s, cmds[tick])
 		hashes = append(hashes, s.W.Hash())
 	}
 	return hashes
@@ -105,14 +138,15 @@ func TestGoldenReplay(t *testing.T) {
 }
 
 // TestSliceOutcomes asserts the gameplay beats of the vertical slice
-// actually happen: the dummy dies to fireballs, loot drops, the zombie
-// reaches the player and deals damage.
+// actually happen: the dummy dies to fireballs, loot drops, the player walks
+// over and equips it, and the zombie lands hits along the way.
 func TestSliceOutcomes(t *testing.T) {
 	s, cmds := sliceScenario(t)
+	st := &sliceState{}
 
 	var sawDummyDeath, sawDrop, sawZombieHit bool
 	for tick := uint64(1); tick <= sliceTicks; tick++ {
-		s.Step(cmds[tick])
+		st.step(s, cmds[tick])
 		for _, ev := range s.W.LastEvents {
 			switch {
 			case ev.Kind == core.EvDeath && ev.Actor == 2:
@@ -134,6 +168,9 @@ func TestSliceOutcomes(t *testing.T) {
 	if !sawZombieHit {
 		t.Error("zombie never landed a hit on the player")
 	}
+	if !st.equipped {
+		t.Error("player never equipped the drop — the full loot loop must close")
+	}
 
 	player := s.W.ActorByID(1)
 	if player == nil {
@@ -142,8 +179,45 @@ func TestSliceOutcomes(t *testing.T) {
 	if player.Life >= player.MaxLife() {
 		t.Error("player took no damage in 10 seconds adjacent to a zombie")
 	}
-	if len(s.W.Drops) == 0 {
-		t.Error("no drops persisted in world state")
+	var hasEquipment bool
+	for _, item := range player.Equipment {
+		if item != nil {
+			hasEquipment = true
+		}
+	}
+	if st.equipped && !hasEquipment {
+		t.Error("equip event fired but no item is in an equipment slot")
+	}
+}
+
+// TestFrostNovaHitsAllInRange: the nova shape hits every hostile inside the
+// radius with an independent roll, and nothing outside it.
+func TestFrostNovaHitsAllInRange(t *testing.T) {
+	s := sim.New(content.DB(), 5)
+	player := mustSpawn(t, s, "player", 0, 0)
+	near1 := mustSpawn(t, s, "training_dummy", 2000, 0)  // inside 4u radius
+	near2 := mustSpawn(t, s, "training_dummy", 0, -3000) // inside
+	far := mustSpawn(t, s, "training_dummy", 10000, 0)   // outside
+
+	s.Step([]core.Command{{Actor: player, Kind: core.CmdUseSkill, Skill: "frost_nova"}})
+	for s.W.ActorByID(player).Action.Kind == core.ActionSkill {
+		s.Step(nil)
+	}
+
+	full := s.W.ActorByID(far).MaxLife()
+	if got := s.W.ActorByID(near1).Life; got >= full {
+		t.Error("dummy at 2u took no nova damage")
+	}
+	if got := s.W.ActorByID(near2).Life; got >= full {
+		t.Error("dummy at 3u took no nova damage")
+	}
+	if got := s.W.ActorByID(far).Life; got != full {
+		t.Errorf("dummy at 10u took damage (%d/%d) — outside the 4u nova", got, full)
+	}
+	// Independent rolls per target: identical damage on both would be a
+	// one-roll-shared bug (12–18 range makes a collision unlikely).
+	if s.W.ActorByID(near1).Life == s.W.ActorByID(near2).Life {
+		t.Log("warning: both nova targets took identical damage — possible shared roll (or 1-in-~6000 coincidence)")
 	}
 }
 

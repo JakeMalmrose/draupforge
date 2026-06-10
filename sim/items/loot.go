@@ -41,7 +41,7 @@ func RollLoot(w *core.World) {
 // drawn from the weighted pool with no two from the same group.
 func RollItem(w *core.World, table *core.LootTableDef) core.Item {
 	baseID := table.Bases[w.RNGLoot.Uint64n(uint64(len(table.Bases)))]
-	item := core.Item{Base: w.Content.BaseItems[baseID]}
+	item := core.Item{ID: w.AllocID(), Base: w.Content.BaseItems[baseID]}
 
 	switch roll := w.RNGLoot.Uint64n(100); {
 	case roll < 50:

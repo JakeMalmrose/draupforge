@@ -66,7 +66,22 @@ func skillDefs() []*core.SkillDef {
 	slam.BaseMin[core.Physical] = fm.FromInt(8)
 	slam.BaseMax[core.Physical] = fm.FromInt(12)
 
-	return []*core.SkillDef{fireball, slam}
+	frostNova := &core.SkillDef{
+		ID:            "frost_nova",
+		Name:          "Frost Nova",
+		Kind:          core.SkillNova,
+		Tags:          stats.T(stats.TagSpell, stats.TagCold),
+		Effectiveness: fm.FromMilli(800), // AoE pays an added-damage tax
+		ManaCost:      fm.FromInt(15),
+		WindupTicks:   12, // 0.4s base cast
+		RecoveryTicks: 9,
+		SpeedStat:     stats.CastSpeed,
+		AoERadius:     fm.FromInt(4),
+	}
+	frostNova.BaseMin[core.Cold] = fm.FromInt(12)
+	frostNova.BaseMax[core.Cold] = fm.FromInt(18)
+
+	return []*core.SkillDef{fireball, slam, frostNova}
 }
 
 func baseStats(pairs map[stats.StatID]fm.Fixed) [stats.StatCount]fm.Fixed {
@@ -99,7 +114,7 @@ func actorDefs() []*core.ActorDef {
 			stats.Armour:     fm.FromInt(20),
 			stats.CritChance: fm.FromMilli(50), // 5%
 		}),
-		Skills: []string{"fireball"},
+		Skills: []string{"fireball", "frost_nova"},
 	}
 
 	zombie := &core.ActorDef{
@@ -152,8 +167,18 @@ func affixDefs() []*core.AffixDef {
 			Min: fm.FromInt(15), Max: fm.FromInt(40), Weight: 80,
 		},
 		{
+			ID: "flat_cold_damage", Group: "added_cold", Kind: core.Prefix,
+			Stat: stats.Damage, Layer: stats.LayerFlat, Tags: stats.T(stats.TagCold),
+			Min: fm.FromInt(2), Max: fm.FromInt(5), Weight: 100,
+		},
+		{
 			ID: "fire_resistance", Group: "fire_res", Kind: core.Suffix,
 			Stat: stats.FireRes, Layer: stats.LayerFlat,
+			Min: fm.FromMilli(100), Max: fm.FromMilli(200), Weight: 100, // 10–20%
+		},
+		{
+			ID: "cold_resistance", Group: "cold_res", Kind: core.Suffix,
+			Stat: stats.ColdRes, Layer: stats.LayerFlat,
 			Min: fm.FromMilli(100), Max: fm.FromMilli(200), Weight: 100, // 10–20%
 		},
 		{
@@ -171,8 +196,8 @@ func affixDefs() []*core.AffixDef {
 
 func baseItemDefs() []*core.BaseItemDef {
 	return []*core.BaseItemDef{
-		{ID: "iron_ring", Name: "Iron Ring"},
-		{ID: "leather_belt", Name: "Leather Belt"},
+		{ID: "iron_ring", Name: "Iron Ring", Slot: core.FamilyRing},
+		{ID: "leather_belt", Name: "Leather Belt", Slot: core.FamilyBelt},
 	}
 }
 

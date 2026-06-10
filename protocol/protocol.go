@@ -5,7 +5,7 @@
 package protocol
 
 // Command is the wire form of player intent. Kind is one of "move",
-// "use_skill", "stop".
+// "use_skill", "stop", "equip" (Target = ground drop entity).
 type Command struct {
 	Tick   uint64 `json:"tick,omitempty"` // used by script files; live play is "now"
 	Actor  uint64 `json:"actor"`
@@ -32,6 +32,12 @@ type ActorSnap struct {
 	MaxMana int64  `json:"max_mana"`
 	ES      int64  `json:"es,omitempty"`
 	Action  string `json:"action"`
+	Equipment []EquippedSnap `json:"equipment,omitempty"`
+}
+
+type EquippedSnap struct {
+	Slot string   `json:"slot"`
+	Item ItemSnap `json:"item"`
 }
 
 type ProjectileSnap struct {

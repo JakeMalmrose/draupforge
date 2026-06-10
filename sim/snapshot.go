@@ -15,6 +15,15 @@ func (s *Sim) BuildSnapshot() protocol.Snapshot {
 	snap := protocol.Snapshot{Tick: w.Tick}
 
 	for _, a := range w.Actors {
+		var equipment []protocol.EquippedSnap
+		for slot := core.EquipSlot(0); slot < core.EquipSlotCount; slot++ {
+			if item := a.Equipment[slot]; item != nil {
+				equipment = append(equipment, protocol.EquippedSnap{
+					Slot: slot.String(),
+					Item: itemSnap(*item),
+				})
+			}
+		}
 		snap.Actors = append(snap.Actors, protocol.ActorSnap{
 			ID:      uint64(a.ID),
 			Def:     a.Def.ID,
@@ -26,6 +35,7 @@ func (s *Sim) BuildSnapshot() protocol.Snapshot {
 			MaxMana: a.MaxMana().Milli(),
 			ES:      a.ES.Milli(),
 			Action:  actionString(a.Action),
+			Equipment: equipment,
 		})
 	}
 	for _, p := range w.Projectiles {
@@ -34,11 +44,7 @@ func (s *Sim) BuildSnapshot() protocol.Snapshot {
 		})
 	}
 	for _, d := range w.Drops {
-		item := protocol.ItemSnap{Base: d.Item.Base.ID, Rarity: d.Item.Rarity.String()}
-		for _, af := range d.Item.Affixes {
-			item.Affixes = append(item.Affixes, protocol.AffixSnap{ID: af.Def.ID, Value: af.Value.Milli()})
-		}
-		snap.Drops = append(snap.Drops, protocol.DropSnap{ID: uint64(d.ID), Pos: vec(d.Pos), Item: item})
+		snap.Drops = append(snap.Drops, protocol.DropSnap{ID: uint64(d.ID), Pos: vec(d.Pos), Item: itemSnap(d.Item)})
 	}
 	for _, ev := range w.LastEvents {
 		snap.Events = append(snap.Events, protocol.EventSnap{
@@ -54,6 +60,14 @@ func (s *Sim) BuildSnapshot() protocol.Snapshot {
 
 func vec(v space.Vec2) protocol.Vec {
 	return protocol.Vec{X: v.X.Milli(), Y: v.Y.Milli()}
+}
+
+func itemSnap(item core.Item) protocol.ItemSnap {
+	out := protocol.ItemSnap{Base: item.Base.ID, Rarity: item.Rarity.String()}
+	for _, af := range item.Affixes {
+		out.Affixes = append(out.Affixes, protocol.AffixSnap{ID: af.Def.ID, Value: af.Value.Milli()})
+	}
+	return out
 }
 
 func actionString(a core.Action) string {
@@ -85,6 +99,8 @@ func DecodeCommand(c protocol.Command) (core.Command, error) {
 		out.Kind = core.CmdUseSkill
 	case "stop":
 		out.Kind = core.CmdStop
+	case "equip":
+		out.Kind = core.CmdEquip
 	default:
 		return core.Command{}, fmt.Errorf("protocol: unknown command kind %q", c.Kind)
 	}
