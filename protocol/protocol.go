@@ -83,6 +83,15 @@ type Snapshot struct {
 	Events      []EventSnap      `json:"events,omitempty"`
 }
 
+// ServerMsg is one server→client frame (newline-delimited JSON). "welcome"
+// carries the client's assigned actor ID; "snapshot" carries one tick's
+// world state.
+type ServerMsg struct {
+	Type     string    `json:"type"` // "welcome" | "snapshot"
+	Actor    uint64    `json:"actor,omitempty"`
+	Snapshot *Snapshot `json:"snapshot,omitempty"`
+}
+
 // Script is the headless runner's input: a scenario plus scheduled commands.
 type Script struct {
 	Spawns []ScriptSpawn `json:"spawns"`

@@ -1,0 +1,9 @@
+{
+  "spawns": [
+    { "def": "training_dummy", "x": 6000, "y": 0 },
+    { "def": "zombie", "x": 12000, "y": 8000 },
+    { "def": "zombie", "x": -10000, "y": -9000 },
+    { "def": "zombie", "x": 0, "y": 14000 }
+  ],
+  "commands": []
+}
