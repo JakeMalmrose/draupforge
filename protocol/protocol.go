@@ -27,6 +27,7 @@ type ActorSnap struct {
 	Def     string `json:"def"`
 	Team    uint8  `json:"team"`
 	Pos     Vec    `json:"pos"`
+	Radius  int64  `json:"radius"`
 	Life    int64  `json:"life"`
 	MaxLife int64  `json:"max_life"`
 	Mana    int64  `json:"mana"`
@@ -43,9 +44,10 @@ type EquippedSnap struct {
 }
 
 type ProjectileSnap struct {
-	ID    uint64 `json:"id"`
-	Skill string `json:"skill"`
-	Pos   Vec    `json:"pos"`
+	ID     uint64 `json:"id"`
+	Skill  string `json:"skill"`
+	Pos    Vec    `json:"pos"`
+	Radius int64  `json:"radius"`
 }
 
 type AffixSnap struct {
@@ -54,6 +56,7 @@ type AffixSnap struct {
 }
 
 type ItemSnap struct {
+	ID      uint64      `json:"id"` // stable item identity; the target for equip/unequip/drop_item
 	Base    string      `json:"base"`
 	Rarity  string      `json:"rarity"`
 	Affixes []AffixSnap `json:"affixes,omitempty"`

@@ -18,12 +18,14 @@ import (
 )
 
 func main() {
-	addr := flag.String("addr", ":7777", "listen address")
+	addr := flag.String("addr", ":7777", "TCP/NDJSON listen address")
+	httpAddr := flag.String("http", ":8080", "HTTP listen address for /ws and the web client (\"\" disables)")
+	webDir := flag.String("web", "web", "static web client directory")
 	seed := flag.Uint64("seed", 1, "world seed")
 	scenario := flag.String("scenario", "", "scenario script (JSON); only spawns are used")
 	flag.Parse()
 
-	cfg := server.Config{Addr: *addr, Seed: *seed}
+	cfg := server.Config{Addr: *addr, HTTPAddr: *httpAddr, StaticDir: *webDir, Seed: *seed}
 	if *scenario != "" {
 		raw, err := os.ReadFile(*scenario)
 		if err != nil {
@@ -40,7 +42,12 @@ func main() {
 	if err != nil {
 		fatal(err)
 	}
-	go func() { fmt.Println("listening on", in.Addr()) }()
+	go func() {
+		fmt.Println("tcp listening on", in.Addr())
+		if *httpAddr != "" {
+			fmt.Printf("web client on http://localhost%s\n", *httpAddr)
+		}
+	}()
 	if err := in.ListenAndServe(context.Background()); err != nil {
 		fatal(err)
 	}

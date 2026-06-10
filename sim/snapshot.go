@@ -33,6 +33,7 @@ func (s *Sim) BuildSnapshot() protocol.Snapshot {
 			Def:     a.Def.ID,
 			Team:    uint8(a.Team),
 			Pos:     vec(a.Pos),
+			Radius:  a.Def.Radius.Milli(),
 			Life:    a.Life.Milli(),
 			MaxLife: a.MaxLife().Milli(),
 			Mana:    a.Mana.Milli(),
@@ -45,7 +46,7 @@ func (s *Sim) BuildSnapshot() protocol.Snapshot {
 	}
 	for _, p := range w.Projectiles {
 		snap.Projectiles = append(snap.Projectiles, protocol.ProjectileSnap{
-			ID: uint64(p.ID), Skill: p.Skill.ID, Pos: vec(p.Pos),
+			ID: uint64(p.ID), Skill: p.Skill.ID, Pos: vec(p.Pos), Radius: p.Skill.ProjRadius.Milli(),
 		})
 	}
 	for _, d := range w.Drops {
@@ -68,7 +69,7 @@ func vec(v space.Vec2) protocol.Vec {
 }
 
 func itemSnap(item core.Item) protocol.ItemSnap {
-	out := protocol.ItemSnap{Base: item.Base.ID, Rarity: item.Rarity.String()}
+	out := protocol.ItemSnap{ID: uint64(item.ID), Base: item.Base.ID, Rarity: item.Rarity.String()}
 	for _, af := range item.Affixes {
 		out.Affixes = append(out.Affixes, protocol.AffixSnap{ID: af.Def.ID, Value: af.Value.Milli()})
 	}

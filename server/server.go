@@ -10,11 +10,11 @@
 package server
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
 	"net"
+	"net/http"
 	"sort"
 	"sync"
 	"time"
@@ -36,8 +36,13 @@ const (
 )
 
 type Config struct {
+	// Addr is the TCP/NDJSON listen address.
 	Addr string
-	Seed uint64
+	// HTTPAddr, if set, serves the WebSocket endpoint at /ws and (with
+	// StaticDir) the web client at /.
+	HTTPAddr  string
+	StaticDir string
+	Seed      uint64
 	// TickInterval defaults to one real tick (1s / core.TicksPerSecond).
 	// Tests shrink it; the sim itself never reads the clock.
 	TickInterval time.Duration
@@ -63,7 +68,7 @@ type Instance struct {
 }
 
 type client struct {
-	conn  net.Conn
+	tr    transport
 	actor core.EntityID
 	// early buffers commands that arrive before the tick loop has spawned
 	// this client's actor (a fast client races its own welcome); they flush
@@ -109,6 +114,9 @@ func (in *Instance) ListenAndServe(ctx context.Context) error {
 		ln.Close()
 	}()
 	go in.acceptLoop(ctx, ln)
+	if in.cfg.HTTPAddr != "" {
+		go in.serveHTTP(ctx)
+	}
 
 	ticker := time.NewTicker(in.cfg.TickInterval)
 	defer ticker.Stop()
@@ -116,7 +124,7 @@ func (in *Instance) ListenAndServe(ctx context.Context) error {
 		select {
 		case <-ctx.Done():
 			for _, c := range in.clients {
-				c.conn.Close()
+				c.tr.Close()
 			}
 			return ctx.Err()
 		case <-ticker.C:
@@ -131,7 +139,7 @@ func (in *Instance) acceptLoop(ctx context.Context, ln net.Listener) {
 		if err != nil {
 			return // listener closed
 		}
-		c := &client{conn: conn}
+		c := &client{tr: newTCPTransport(conn)}
 		in.mu.Lock()
 		in.joins = append(in.joins, c)
 		in.mu.Unlock()
@@ -144,20 +152,19 @@ func (in *Instance) acceptLoop(ctx context.Context, ln net.Listener) {
 // themselves, whatever they claim.
 func (in *Instance) readLoop(ctx context.Context, c *client) {
 	defer func() {
-		c.conn.Close()
+		c.tr.Close()
 		in.mu.Lock()
 		in.leaves = append(in.leaves, c)
 		in.mu.Unlock()
 	}()
-	scanner := bufio.NewScanner(c.conn)
-	scanner.Buffer(make([]byte, 0, 4096), maxLineBytes)
-	for scanner.Scan() {
-		if ctx.Err() != nil {
+	for {
+		frame, err := c.tr.ReadFrame()
+		if err != nil || ctx.Err() != nil {
 			return
 		}
 		var wc protocol.Command
-		if err := json.Unmarshal(scanner.Bytes(), &wc); err != nil {
-			continue // garbage line; the sim never sees it
+		if err := json.Unmarshal(frame, &wc); err != nil {
+			continue // garbage frame; the sim never sees it
 		}
 		cmd, err := sim.DecodeCommand(wc)
 		if err != nil {
@@ -211,7 +218,7 @@ func (in *Instance) tick() {
 	}
 	for _, c := range in.clients {
 		if !c.send(frame) {
-			c.conn.Close() // readLoop notices and files the leave
+			c.tr.Close() // readLoop notices and files the leave
 		}
 	}
 }
@@ -221,7 +228,7 @@ func (in *Instance) spawnClient(c *client) bool {
 	pos := space.V(fm.FromInt(int64(in.joinCount*2)), 0)
 	id, err := in.sim.Spawn(in.cfg.PlayerDef, pos)
 	if err != nil {
-		c.conn.Close()
+		c.tr.Close()
 		return false
 	}
 	in.joinCount++
@@ -256,10 +263,21 @@ func (in *Instance) removeClient(c *client) {
 func (c *client) send(frame []byte) bool {
 	c.wmu.Lock()
 	defer c.wmu.Unlock()
-	c.conn.SetWriteDeadline(time.Now().Add(writeTimeout))
-	if _, err := c.conn.Write(frame); err != nil {
-		return false
+	return c.tr.WriteFrame(frame) == nil
+}
+
+// serveHTTP hosts the WebSocket endpoint (and the web client, if a static
+// dir is configured) until ctx ends.
+func (in *Instance) serveHTTP(ctx context.Context) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/ws", in.HandleWS)
+	if in.cfg.StaticDir != "" {
+		mux.Handle("/", http.FileServer(http.Dir(in.cfg.StaticDir)))
 	}
-	_, err := c.conn.Write([]byte{'\n'})
-	return err == nil
+	srv := &http.Server{Addr: in.cfg.HTTPAddr, Handler: mux}
+	go func() {
+		<-ctx.Done()
+		srv.Close()
+	}()
+	srv.ListenAndServe()
 }
