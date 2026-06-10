@@ -5,6 +5,12 @@ a work session meaningfully moves the project. Read `README.md` for what this
 project is, `DESIGN.md` for the foundational decisions — this file is only
 the current state.
 
+**Keep this doc small.** When updating, prune as you go: drop shipped next
+steps, shortcuts that got fixed, invariants that graduated into DESIGN.md or
+tests, and session-log entries older than a few sessions (git history is the
+archive). If this file outgrows ~150 lines, it has stopped being a status doc
+and started being a changelog — cut it back.
+
 **Last updated: 2026-06-10** (session 1: design + sim spine + vertical slice)
 
 ## Where things stand
