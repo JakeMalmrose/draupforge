@@ -4,9 +4,17 @@
 // raw milli-units (int64); clients divide by 1000 for display.
 package protocol
 
+// Version is the wire protocol version, carried in the welcome frame. Bump
+// it on any change a deployed client could misread — renamed/removed JSON
+// fields (omitempty makes those fail silently) or any binary frame layout
+// change. Clients hard-fail on mismatch instead of limping.
+const Version = 1
+
 // Command is the wire form of player intent. Kind is one of "move",
-// "use_skill", "stop", or the item verbs "pickup", "equip", "unequip",
-// "drop_item" (Target = the drop/item entity ID).
+// "use_skill", "stop", the item verbs "pickup", "equip", "unequip",
+// "drop_item" (Target = the drop/item entity ID), or "ack" (Tick = the
+// latest view tick received; consumed by the server's delta encoder, never
+// forwarded to the sim).
 type Command struct {
 	Tick   uint64 `json:"tick,omitempty"` // used by script files; live play is "now"
 	Actor  uint64 `json:"actor"`
@@ -23,17 +31,17 @@ type Vec struct {
 }
 
 type ActorSnap struct {
-	ID      uint64 `json:"id"`
-	Def     string `json:"def"`
-	Team    uint8  `json:"team"`
-	Pos     Vec    `json:"pos"`
-	Radius  int64  `json:"radius"`
-	Life    int64  `json:"life"`
-	MaxLife int64  `json:"max_life"`
-	Mana    int64  `json:"mana"`
-	MaxMana int64  `json:"max_mana"`
-	ES      int64  `json:"es,omitempty"`
-	Action  string `json:"action"`
+	ID        uint64         `json:"id"`
+	Def       string         `json:"def"`
+	Team      uint8          `json:"team"`
+	Pos       Vec            `json:"pos"`
+	Radius    int64          `json:"radius"`
+	Life      int64          `json:"life"`
+	MaxLife   int64          `json:"max_life"`
+	Mana      int64          `json:"mana"`
+	MaxMana   int64          `json:"max_mana"`
+	ES        int64          `json:"es,omitempty"`
+	Action    string         `json:"action"`
 	Equipment []EquippedSnap `json:"equipment,omitempty"`
 	Inventory []ItemSnap     `json:"inventory,omitempty"`
 }
@@ -76,8 +84,10 @@ type EventSnap struct {
 	Note   string `json:"note,omitempty"`
 }
 
-// Snapshot is one tick's full visible state. v1 sends the whole world;
-// delta encoding and interest management are a server-layer concern.
+// Snapshot is one client's view of one tick — with interest management,
+// different clients legitimately see different state, and the omniscient
+// debug wires are just the radius-unlimited case. Events may span several
+// ticks when the send rate is below the tick rate.
 type Snapshot struct {
 	Tick        uint64           `json:"tick"`
 	Actors      []ActorSnap      `json:"actors"`
@@ -86,19 +96,24 @@ type Snapshot struct {
 	Events      []EventSnap      `json:"events,omitempty"`
 }
 
-// ServerMsg is one server→client frame (newline-delimited JSON). "welcome"
-// carries the client's assigned actor ID; "snapshot" carries one tick's
-// world state.
+// ServerMsg is one server→client JSON frame. "welcome" carries the protocol
+// version, the client's assigned actor ID, and the tick/send cadence (so
+// clients can size interpolation buffers); "snapshot" carries one view in
+// full JSON (the TCP/nc wire and the ?format=json debug mode — the binary
+// WS wire sends view frames instead, see binary.go).
 type ServerMsg struct {
-	Type     string    `json:"type"` // "welcome" | "snapshot"
-	Actor    uint64    `json:"actor,omitempty"`
-	Snapshot *Snapshot `json:"snapshot,omitempty"`
+	Type      string    `json:"type"` // "welcome" | "snapshot"
+	V         int       `json:"v,omitempty"`
+	Actor     uint64    `json:"actor,omitempty"`
+	TickHz    int       `json:"tick_hz,omitempty"`
+	SendEvery int       `json:"send_every,omitempty"`
+	Snapshot  *Snapshot `json:"snapshot,omitempty"`
 }
 
 // Script is the headless runner's input: a scenario plus scheduled commands.
 type Script struct {
-	Spawns []ScriptSpawn `json:"spawns"`
-	Commands []Command   `json:"commands"`
+	Spawns   []ScriptSpawn `json:"spawns"`
+	Commands []Command     `json:"commands"`
 }
 
 // ScriptSpawn places an actor at startup. Entity IDs are assigned in spawn

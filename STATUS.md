@@ -11,7 +11,7 @@ tests, and session-log entries older than a few sessions (git history is the
 archive). If this file outgrows ~150 lines, it has stopped being a status doc
 and started being a changelog — cut it back.
 
-**Last updated: 2026-06-10** (session 5: netcode overhaul planned, not yet built)
+**Last updated: 2026-06-10** (session 6: netcode overhaul built — deltas, interest, interpolation, versioned protocol)
 
 ## Where things stand
 
@@ -41,11 +41,11 @@ All foundational machinery from DESIGN.md is real, not stubbed:
 | Loot: rarity, weighted affixes, group caps | `sim/items` | done, tested |
 | Equipment: slots, equip command, affix→sheet | `sim/items/equip.go` | done, tested |
 | Inventory: pickup/unequip/drop_item, capacity | `sim/items/equip.go` | done, tested |
-| Server: TCP + WebSocket transports, joins/leaves | `server/` | done, race-tested |
-| Web client: canvas, input, inventory UI | `web/` | working POC, no build step |
+| Server: TCP + WS transports, joins/leaves, send-rate decoupling, interest culling, binary deltas + acks | `server/` | done, race-tested |
+| Web client: canvas, input, inventory UI, delta decoding, interpolation | `web/` | working, no build step |
 | AI (`melee_chaser`) | `sim/ai` | minimal but real |
 | Phase order + command validation | `sim/sim.go` | done — this IS the determinism contract |
-| Wire types (commands/snapshots, JSON) | `protocol/` | done for debug use |
+| Wire types: versioned welcome, JSON snapshots, binary delta view codec | `protocol/` | done, tested |
 | Content tables | `content/` | fireball, frost_nova (AoE), zombie_slam, 3 actors, 8 affixes, 2 bases |
 | Debug client | `cmd/headless` | done |
 | Determinism + golden replay tests | `sim/sim_test.go` | done |
@@ -64,6 +64,9 @@ All foundational machinery from DESIGN.md is real, not stubbed:
 - Golden replay: any behavior change fails `TestGoldenReplay`. If the change
   is intentional, re-record: `DRAUPFORGE_UPDATE_GOLDEN=1 go test ./sim/ -run
   TestGoldenReplay` and commit the new `sim/testdata/golden_slice.txt`.
+- `protocol/binary.go` and `web/net.js` are a hand-maintained codec pair.
+  Any wire change updates both AND bumps `protocol.Version` — a stale client
+  fails loudly at the welcome instead of misreading frames.
 
 Structural risks live in `RISKS.md` — read it before building anything load-bearing (top two: no persistence story, fixed-point overflow under power creep).
 
@@ -75,12 +78,15 @@ Structural risks live in `RISKS.md` — read it before building anything load-be
 - Corpses compact away at tick end — fine until on-corpse mechanics matter.
 - Inventory is a flat ID-addressed bag — no spatial grid, no stacking.
 - Server: no auth, no persistence (disconnect deletes the actor and its
-  items), full-world snapshots every tick (no deltas/interest), one instance
-  per process, and a slow client can stall a tick for up to 1s (no per-client
-  send queues). All fine for a debug server; all on the list for a real one.
-- Web client renders raw 30Hz snapshots — no interpolation (slight stutter)
-  and no client prediction (input feels its latency). Both are known phase-2
-  work; prediction is the thing that would justify compiling sim/ to wasm.
+  items), one instance per process, and a slow client can stall a tick for
+  up to 1s (no per-client send queues). Fine for now; on the list.
+- No client prediction — input feels its latency. Prediction is the thing
+  that would justify compiling sim/ to wasm (DESIGN.md §13's optional layer).
+- Client interpolation buffers views by *arrival* time, not server tick
+  time, so network jitter leaks straight into render timing. Fine on
+  LAN/localhost; revisit with real latency.
+- Entities entering interest range pop in at full opacity; ones leaving
+  vanish. Cosmetic until the arena outgrows one screen.
 - WS endpoint accepts any origin (LAN-dev convenience); static files come
   from -web dir at runtime, not embedded.
 - Live server play is not replay-deterministic (network timing decides
@@ -94,37 +100,28 @@ Structural risks live in `RISKS.md` — read it before building anything load-be
 
 ## Natural next steps (in rough order of leverage)
 
-1. **Netcode overhaul — planned with Jake, build next session, one pass.**
-   Decision context lives in DESIGN.md §13 (replication spine; snapshot =
-   per-client view; lockstep/wasm demoted to optional later layer). Scope:
-   - *Send-rate decoupling*: sim stays 30Hz; network send rate ~10–15Hz,
-     configurable per instance.
-   - *Client interpolation*: web client buffers snapshots and renders
-     ~100–150ms behind, lerping entity positions — fixes the 30Hz stutter
-     and makes the lower send rate invisible.
-   - *WS compression*: permessage-deflate via coder/websocket options.
-   - *Interest management*: per-client relevance (radius around the player
-     to start), server-side culling at snapshot build. BuildSnapshot grows a
-     viewer argument. Events filtered to relevant entities too.
-   - *Binary delta encoding*: per-client baseline of last-acked view; send
-     field-level diffs + entered/left-view entity lists; client acks by tick;
-     full-baseline resend on ack gap. Keep full-JSON snapshots available as
-     a debug mode and for the TCP/nc wire.
-   - Sim itself should need no changes (snapshot building and transport
-     only); golden trace should survive untouched — treat any golden diff
-     as a red flag.
-2. **Chill/shock ailments** — cold/lightning hits should do something besides
+1. **Chill/shock ailments** — cold/lightning hits should do something besides
    damage; chill wants a status-effect notion beyond DoTs (a slow), which is
    the small system ignite didn't force.
-3. Map gen + pathing behind `space.Walkable`.
-4. Server hardening: replay log, per-client send queues.
-5. World persistence (RISKS.md #1) + the server dashboard parked at the
+2. Map gen + pathing behind `space.Walkable`.
+3. Server hardening: replay log, per-client send queues.
+4. World persistence (RISKS.md #1) + the server dashboard parked at the
    bottom of RISKS.md (observe/save/load/rollback) — natural pair.
+5. Client prediction for own-character feel (the wasm question) — only if
+   input latency starts to grate; interpolation covers everything else.
 
 ## Session log
 
-- **2026-06-10 (5)** — Planned the netcode overhaul (see next steps #1) and
-  recorded the networking model decision in DESIGN.md §13. No code.
+- **2026-06-10 (6)** — Netcode overhaul, one pass as planned: sim stays
+  30Hz, views send every N ticks (default 3) with events accumulated;
+  `BuildSnapshotFor(viewer, radius, events)` does server-side interest
+  culling; WS wire is now binary delta frames (`protocol/binary.go` +
+  `web/net.js` mirror, verified byte-identical over a real fight) with
+  client acks, keyframe fallback, and permessage-deflate; web client
+  reconstructs views and renders ~150ms behind with position lerping.
+  Welcome frame now carries `protocol.Version` + cadence (closed RISKS.md
+  #5). TCP/nc wire unchanged (full-world JSON); `/ws?format=json` debugs a
+  culled view. No sim behavior changes; golden replay untouched.
 - **2026-06-10 (4)** — Web client. Server refactored onto a transport
   interface (TCP/NDJSON + WebSocket via coder/websocket, first dependency);
   cmd/server serves /ws and the static client. web/ is vanilla JS + canvas.
@@ -135,9 +132,4 @@ Structural risks live in `RISKS.md` — read it before building anything load-be
   TCP/NDJSON instance hosting, joins/leaves at tick boundaries, command
   authority override, pre-welcome command buffering; race-tested). Golden
   re-recorded: slice now does pickup → equip-from-bag.
-- **2026-06-10 (2)** — Equipment (slots, `equip` command, affix→modifier via
-  item-ID source, displaced items drop at feet, pool clamping) and Frost Nova
-  (SkillNova AoE kind, independent roll per target). Golden re-recorded:
-  content pool + slice scenario changed (scenario now equips the drop).
-- **2026-06-10 (1)** — Architecture Q&A with Jake. Wrote DESIGN.md. Built the
-  whole sim spine + vertical slice with determinism/golden tests.
+- (older sessions pruned — git history is the archive)

@@ -1,18 +1,22 @@
-// draupforge web client — phase 1: a dumb terminal for the authoritative
-// server. No prediction, no interpolation; it renders the latest snapshot
-// and sends commands. The server is the game; this is a window into it.
+// draupforge web client — phase 2: still a window into the authoritative
+// server, now over the binary delta wire. The client reconstructs views from
+// delta frames (net.js), acks each one, and renders ~150ms behind the newest
+// view, interpolating entity positions between views — which hides both the
+// reduced send rate and snapshot quantization. No prediction yet: input
+// still feels its latency.
 
 "use strict";
 
 const SCALE = 42;          // pixels per world unit
 const PICKUP_RANGE = 1.9;  // world units; matches server (with margin)
 const LOG_LINES = 9;
+const VIEW_HISTORY = 32;   // kept as delta baselines; matches the server cap
 
 // ---------------------------------------------------------------- state
 
 let ws = null;
 let myId = 0;
-let snap = null;            // latest snapshot
+let snap = null;            // newest reconstructed view (HUD, log, input)
 let seenSelf = false;       // distinguishes "not spawned yet" from "died"
 let pendingPickup = 0;      // drop entity we're walking toward
 let lastPickupSent = 0;
@@ -20,21 +24,59 @@ let mouse = { x: 0, y: 0 }; // canvas px
 let cam = { x: 0, y: 0 };   // world units
 const names = new Map();    // entity id -> label, survives despawn
 
+// Interpolation: views buffered with arrival times; the renderer lerps
+// between the two views around (now - interpDelay).
+let interpDelay = 150;      // ms; refined from the welcome's send cadence
+const interpBuf = [];       // { at: ms, view }
+
+// Delta decoding: recently received views by tick, for use as baselines.
+const viewHistory = new Map();
+let awaitKeyframe = false;  // lost our baseline; ignore deltas until reset
+
 const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d");
 
 // ------------------------------------------------------------- network
 
 function connect() {
-  ws = new WebSocket(`ws://${location.host}/ws`);
+  ws = new WebSocket(`ws://${location.host}/ws${location.search}`);
+  ws.binaryType = "arraybuffer";
   ws.onmessage = (e) => {
-    const msg = JSON.parse(e.data);
-    if (msg.type === "welcome") {
-      myId = msg.actor;
-    } else if (msg.type === "snapshot") {
-      snap = msg.snapshot;
-      onSnapshot();
+    if (typeof e.data === "string") {
+      const msg = JSON.parse(e.data);
+      if (msg.type === "welcome") {
+        if (msg.v !== PROTOCOL_VERSION) {
+          showOverlay(`PROTOCOL MISMATCH (server v${msg.v}, client v${PROTOCOL_VERSION})`);
+          ws.close();
+          return;
+        }
+        myId = msg.actor;
+        if (msg.tick_hz && msg.send_every) {
+          // 1.5 send intervals behind: one interval to always have a newer
+          // view to lerp toward, half an interval of jitter slack.
+          const interval = (1000 * msg.send_every) / msg.tick_hz;
+          interpDelay = Math.min(Math.max(1.5 * interval, 100), 250);
+        }
+      } else if (msg.type === "snapshot") {
+        onView(jsonToView(msg.snapshot)); // ?format=json debug wire
+      }
+      return;
     }
+    const view = decodeViewFrame(e.data, (tick) => viewHistory.get(tick));
+    if (view.needBaseline) {
+      // We pruned the view this frame deltas against. Tell the server to
+      // start over; skip frames until the keyframe lands.
+      if (!awaitKeyframe) send({ kind: "ack", tick: 0 });
+      awaitKeyframe = true;
+      return;
+    }
+    awaitKeyframe = false;
+    viewHistory.set(view.tick, view);
+    while (viewHistory.size > VIEW_HISTORY) {
+      viewHistory.delete(viewHistory.keys().next().value);
+    }
+    send({ kind: "ack", tick: view.tick });
+    onView(view);
   };
   ws.onclose = () => showOverlay("DISCONNECTED");
 }
@@ -47,34 +89,37 @@ function send(cmd) {
 const toUnits = (milli) => milli / 1000;
 const toMilli = (units) => Math.round(units * 1000);
 
-// ------------------------------------------------------------ snapshot
+// ------------------------------------------------------------------ views
 
 function me() {
   if (!snap || !myId) return null;
-  return snap.actors.find((a) => a.id === myId) || null;
+  return snap.actors.get(myId) || null;
 }
 
-function onSnapshot() {
-  for (const a of snap.actors) names.set(a.id, a.def === "player" ? `player ${a.id}` : a.def.replace("_", " "));
+function onView(view) {
+  snap = view;
+  interpBuf.push({ at: performance.now(), view });
+
+  for (const a of view.actors.values()) {
+    names.set(a.id, a.def === "player" ? `player ${a.id}` : a.def.replace("_", " "));
+  }
 
   const self = me();
   if (self) {
     seenSelf = true;
-    cam.x = toUnits(self.pos.x);
-    cam.y = toUnits(self.pos.y);
     updateHUD(self);
   } else if (seenSelf) {
     showOverlay("YOU DIED");
   }
 
-  for (const ev of snap.events || []) logEvent(ev);
+  for (const ev of view.events) logEvent(ev);
   autoPickup(self);
   if (!panel.classList.contains("hidden")) renderPanel(self);
 }
 
 function autoPickup(self) {
   if (!pendingPickup || !self) return;
-  const drop = (snap.drops || []).find((d) => d.id === pendingPickup);
+  const drop = snap.drops.get(pendingPickup);
   if (!drop) { pendingPickup = 0; return; } // got it, or someone else did
   const dx = toUnits(drop.pos.x - self.pos.x);
   const dy = toUnits(drop.pos.y - self.pos.y);
@@ -103,14 +148,46 @@ const screenToWorldUnits = (px, py) => ({
   y: (py - canvas.height / 2) / SCALE + cam.y,
 });
 
+// span() picks the two buffered views around the render time and the blend
+// factor between them. Past the newest view we clamp rather than extrapolate.
+function span() {
+  if (interpBuf.length === 0) return null;
+  const rt = performance.now() - interpDelay;
+  while (interpBuf.length > 2 && interpBuf[1].at <= rt) interpBuf.shift();
+  const a = interpBuf[0];
+  const b = interpBuf.length > 1 ? interpBuf[1] : a;
+  let t = 0;
+  if (rt >= b.at) t = 1;
+  else if (rt > a.at) t = (rt - a.at) / (b.at - a.at);
+  return { from: a.view, to: b.view, t };
+}
+
+// lerpPos blends an entity's position across the span; entities that just
+// entered view have no "from" and simply appear at their current spot.
+function lerpPos(from, e, t) {
+  const prev = from.get(e.id);
+  if (!prev) return e.pos;
+  return {
+    x: prev.pos.x + (e.pos.x - prev.pos.x) * t,
+    y: prev.pos.y + (e.pos.y - prev.pos.y) * t,
+  };
+}
+
 function render() {
   ctx.fillStyle = "#0b0b10";
   ctx.fillRect(0, 0, canvas.width, canvas.height);
-  if (snap) {
+  const s = span();
+  if (s) {
+    const self = s.to.actors.get(myId);
+    if (self) {
+      const p = lerpPos(s.from.actors, self, s.t);
+      cam.x = toUnits(p.x);
+      cam.y = toUnits(p.y);
+    }
     drawGrid();
-    for (const d of snap.drops || []) drawDrop(d);
-    for (const a of snap.actors) drawActor(a);
-    for (const p of snap.projectiles || []) drawProjectile(p);
+    for (const d of s.to.drops.values()) drawDrop(d);
+    for (const a of s.to.actors.values()) drawActor(a, lerpPos(s.from.actors, a, s.t));
+    for (const p of s.to.projectiles.values()) drawProjectile(p, lerpPos(s.from.projectiles, p, s.t));
   }
   requestAnimationFrame(render);
 }
@@ -134,8 +211,8 @@ function drawGrid() {
   ctx.stroke();
 }
 
-function drawActor(a) {
-  const p = worldToScreen(a.pos.x, a.pos.y);
+function drawActor(a, pos) {
+  const p = worldToScreen(pos.x, pos.y);
   const r = toUnits(a.radius) * SCALE;
   const isMe = a.id === myId;
 
@@ -170,8 +247,8 @@ function drawActor(a) {
   ctx.fillText(names.get(a.id) || a.def, p.x, p.y - r - 16);
 }
 
-function drawProjectile(p) {
-  const s = worldToScreen(p.pos.x, p.pos.y);
+function drawProjectile(p, pos) {
+  const s = worldToScreen(pos.x, pos.y);
   const r = Math.max(toUnits(p.radius) * SCALE, 4);
   const grad = ctx.createRadialGradient(s.x, s.y, 1, s.x, s.y, r);
   grad.addColorStop(0, "#ffd27d");
@@ -205,9 +282,10 @@ canvas.addEventListener("mousemove", (e) => { mouse.x = e.offsetX; mouse.y = e.o
 canvas.addEventListener("mousedown", (e) => {
   if (e.button !== 0 || !snap) return;
   const w = screenToWorldUnits(e.offsetX, e.offsetY);
-  const drop = (snap.drops || []).find(
-    (d) => Math.hypot(toUnits(d.pos.x) - w.x, toUnits(d.pos.y) - w.y) < 0.8
-  );
+  let drop = null;
+  for (const d of snap.drops.values()) {
+    if (Math.hypot(toUnits(d.pos.x) - w.x, toUnits(d.pos.y) - w.y) < 0.8) { drop = d; break; }
+  }
   if (drop) {
     pendingPickup = drop.id;
     send({ kind: "move", x: drop.pos.x, y: drop.pos.y });
@@ -258,8 +336,8 @@ function itemLI(item, extra) {
 }
 
 // The panel only re-renders when its contents change. Rebuilding it every
-// snapshot (30Hz) destroys the element mid-click — mousedown lands on a node
-// that's gone by mouseup, so click events never fire.
+// view destroys the element mid-click — mousedown lands on a node that's
+// gone by mouseup, so click events never fire.
 let panelKey = "";
 
 function renderPanel(self, force) {

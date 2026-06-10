@@ -24,8 +24,8 @@ A PoE-like ARPG, starting from the simulation engine outward.
 draupforge/
 ├── sim/        # Deterministic sim core — pure, no I/O (see DESIGN.md for internals)
 ├── content/    # Game data as typed Go literals: skills, monsters, affix pools
-├── protocol/   # Command + snapshot wire types shared with future clients
-├── server/     # Hosts the sim over TCP/NDJSON: sessions, command intake, snapshot broadcast
+├── protocol/   # Command + snapshot wire types, versioned; binary delta view codec
+├── server/     # Hosts the sim over TCP/NDJSON (debug) + WebSocket: per-client delta views
 ├── web/        # Browser client: canvas renderer + WebSocket, no build step
 ├── scripts/    # Scenario scripts for the headless runner
 └── cmd/        # Entrypoints: headless debug runner, server binary

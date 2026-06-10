@@ -3,6 +3,7 @@ package server
 import (
 	"bufio"
 	"context"
+	"errors"
 	"io"
 	"net"
 	"net/http"
@@ -11,11 +12,12 @@ import (
 	"github.com/coder/websocket"
 )
 
-// transport is one client connection, whatever the wire. A frame is one JSON
-// document: a protocol.Command inbound, a protocol.ServerMsg outbound.
+// transport is one client connection, whatever the wire. Inbound frames are
+// JSON protocol.Commands; outbound frames are JSON protocol.ServerMsgs or,
+// when binary is set, protocol binary view frames (WS only).
 type transport interface {
 	ReadFrame() ([]byte, error)
-	WriteFrame([]byte) error
+	WriteFrame(frame []byte, binary bool) error
 	Close() error
 }
 
@@ -41,7 +43,10 @@ func (t *tcpTransport) ReadFrame() ([]byte, error) {
 	return t.sc.Bytes(), nil
 }
 
-func (t *tcpTransport) WriteFrame(frame []byte) error {
+func (t *tcpTransport) WriteFrame(frame []byte, binary bool) error {
+	if binary {
+		return errors.New("server: tcp transport is NDJSON-only")
+	}
 	t.conn.SetWriteDeadline(time.Now().Add(writeTimeout))
 	if _, err := t.conn.Write(frame); err != nil {
 		return err
@@ -62,10 +67,14 @@ func (t *wsTransport) ReadFrame() ([]byte, error) {
 	return data, err
 }
 
-func (t *wsTransport) WriteFrame(frame []byte) error {
+func (t *wsTransport) WriteFrame(frame []byte, binary bool) error {
 	ctx, cancel := context.WithTimeout(context.Background(), writeTimeout)
 	defer cancel()
-	return t.conn.Write(ctx, websocket.MessageText, frame)
+	kind := websocket.MessageText
+	if binary {
+		kind = websocket.MessageBinary
+	}
+	return t.conn.Write(ctx, kind, frame)
 }
 
 func (t *wsTransport) Close() error {
@@ -74,15 +83,23 @@ func (t *wsTransport) Close() error {
 
 // HandleWS upgrades an HTTP request to a WebSocket client of this instance.
 // It blocks until the client disconnects, like any connection read loop.
+// ?format=json swaps the binary delta wire for full-JSON views (debug).
 func (in *Instance) HandleWS(w http.ResponseWriter, r *http.Request) {
 	ws, err := websocket.Accept(w, r, &websocket.AcceptOptions{
 		// Dev server: accept any origin so LAN machines can join.
 		OriginPatterns: []string{"*"},
+		// permessage-deflate; context takeover compresses across frames,
+		// which suits view frames' heavy cross-frame redundancy.
+		CompressionMode: websocket.CompressionContextTakeover,
 	})
 	if err != nil {
 		return
 	}
-	c := &client{tr: &wsTransport{conn: ws}}
+	m := modeBinary
+	if r.URL.Query().Get("format") == "json" {
+		m = modeJSONView
+	}
+	c := &client{tr: &wsTransport{conn: ws}, mode: m}
 	in.mu.Lock()
 	in.joins = append(in.joins, c)
 	in.mu.Unlock()

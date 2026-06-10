@@ -9,12 +9,56 @@ import (
 	"github.com/JakeMalmrose/draupforge/sim/space"
 )
 
-// BuildSnapshot encodes the world's visible state after a Step.
+// BuildSnapshot encodes the full world plus this tick's events — the
+// omniscient debug view (headless runner, TCP/nc wire).
 func (s *Sim) BuildSnapshot() protocol.Snapshot {
+	return s.BuildSnapshotFor(0, 0, s.EncodeEvents())
+}
+
+// EncodeEvents returns this tick's events in wire form. The server collects
+// these every tick so that views sent at a lower rate still carry every
+// event from the ticks in between.
+func (s *Sim) EncodeEvents() []protocol.EventSnap {
+	var out []protocol.EventSnap
+	for _, ev := range s.W.LastEvents {
+		out = append(out, protocol.EventSnap{
+			Kind:   ev.Kind.String(),
+			Actor:  uint64(ev.Actor),
+			Other:  uint64(ev.Other),
+			Amount: ev.Amount.Milli(),
+			Note:   ev.Note,
+		})
+	}
+	return out
+}
+
+// BuildSnapshotFor encodes one viewer's view of the world: entities within
+// radius of the viewer (the viewer always included), plus the given events
+// filtered to entities in the view. A zero viewer, a non-positive radius, or
+// a viewer no longer in the world (death screens still want to see the
+// fight) all mean no filtering.
+func (s *Sim) BuildSnapshotFor(viewer core.EntityID, radius fm.Fixed, events []protocol.EventSnap) protocol.Snapshot {
 	w := s.W
 	snap := protocol.Snapshot{Tick: w.Tick}
 
+	filtering := false
+	var center space.Vec2
+	if viewer != 0 && radius > 0 {
+		if va := w.ActorByID(viewer); va != nil {
+			center, filtering = va.Pos, true
+		}
+	}
+	include := func(pos space.Vec2) bool {
+		return !filtering || space.Dist(pos, center) <= radius
+	}
+	// seen is lookup-only (events filter below) — never iterated.
+	seen := make(map[uint64]bool)
+
 	for _, a := range w.Actors {
+		if !include(a.Pos) && a.ID != viewer {
+			continue
+		}
+		seen[uint64(a.ID)] = true
 		var equipment []protocol.EquippedSnap
 		for slot := core.EquipSlot(0); slot < core.EquipSlotCount; slot++ {
 			if item := a.Equipment[slot]; item != nil {
@@ -29,37 +73,48 @@ func (s *Sim) BuildSnapshot() protocol.Snapshot {
 			inventory = append(inventory, itemSnap(item))
 		}
 		snap.Actors = append(snap.Actors, protocol.ActorSnap{
-			ID:      uint64(a.ID),
-			Def:     a.Def.ID,
-			Team:    uint8(a.Team),
-			Pos:     vec(a.Pos),
-			Radius:  a.Def.Radius.Milli(),
-			Life:    a.Life.Milli(),
-			MaxLife: a.MaxLife().Milli(),
-			Mana:    a.Mana.Milli(),
-			MaxMana: a.MaxMana().Milli(),
-			ES:      a.ES.Milli(),
-			Action:  actionString(a.Action),
+			ID:        uint64(a.ID),
+			Def:       a.Def.ID,
+			Team:      uint8(a.Team),
+			Pos:       vec(a.Pos),
+			Radius:    a.Def.Radius.Milli(),
+			Life:      a.Life.Milli(),
+			MaxLife:   a.MaxLife().Milli(),
+			Mana:      a.Mana.Milli(),
+			MaxMana:   a.MaxMana().Milli(),
+			ES:        a.ES.Milli(),
+			Action:    actionString(a.Action),
 			Equipment: equipment,
 			Inventory: inventory,
 		})
 	}
 	for _, p := range w.Projectiles {
+		if !include(p.Pos) {
+			continue
+		}
+		seen[uint64(p.ID)] = true
 		snap.Projectiles = append(snap.Projectiles, protocol.ProjectileSnap{
 			ID: uint64(p.ID), Skill: p.Skill.ID, Pos: vec(p.Pos), Radius: p.Skill.ProjRadius.Milli(),
 		})
 	}
 	for _, d := range w.Drops {
+		if !include(d.Pos) {
+			continue
+		}
+		seen[uint64(d.ID)] = true
 		snap.Drops = append(snap.Drops, protocol.DropSnap{ID: uint64(d.ID), Pos: vec(d.Pos), Item: itemSnap(d.Item)})
 	}
-	for _, ev := range w.LastEvents {
-		snap.Events = append(snap.Events, protocol.EventSnap{
-			Kind:   ev.Kind.String(),
-			Actor:  uint64(ev.Actor),
-			Other:  uint64(ev.Other),
-			Amount: ev.Amount.Milli(),
-			Note:   ev.Note,
-		})
+	for _, ev := range events {
+		// An event is relevant if either participant is in view or is the
+		// viewer itself (your own death outlives your actor); participant-less
+		// events are global.
+		relevant := !filtering ||
+			(ev.Actor == 0 && ev.Other == 0) ||
+			seen[ev.Actor] || seen[ev.Other] ||
+			ev.Actor == uint64(viewer) || ev.Other == uint64(viewer)
+		if relevant {
+			snap.Events = append(snap.Events, ev)
+		}
 	}
 	return snap
 }

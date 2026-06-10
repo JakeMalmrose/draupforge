@@ -53,20 +53,18 @@ semantics leak into AI, command validation, and netcode feel — grow this
 deliberately (status-effect container first, channelling later) rather than
 discovering it mid-feature.
 
-## 5. Protocol has no versioning
-
-No version field in the handshake; renamed JSON fields fail *silently* via
-omitempty. One line now; a compatibility matrix after clients proliferate.
-**Land with the netcode overhaul.**
-
 ## Smaller, recoverable (listed for honesty)
 
 - Content-as-Go-code: balance changes need recompile+redeploy. Fine until
   live-ops; migration to data files is mechanical.
 - Collision/AoE are O(actors×projectiles) scans; add a spatial grid when
   density demands it.
-- Per-tick JSON marshal + pointer-heavy state will eventually make the GC
-  visible; the netcode overhaul (binary deltas) removes most of it.
+- Pointer-heavy sim state will eventually make the GC visible. Binary deltas
+  (2026-06-10) removed the per-tick JSON marshal for game clients; the debug
+  wires (TCP, ?format=json) still pay it.
+- protocol/binary.go and web/net.js are a hand-maintained codec pair — drift
+  is caught only by the version bump discipline and play-testing, not by a
+  shared schema or a cross-language test in CI.
 - Replays/goldens are version-locked to the code that produced them. Fine as
   tests; never let anything durable (saves, trade history) depend on
   replay-by-reexecution.

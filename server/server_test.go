@@ -59,6 +59,9 @@ func dial(t *testing.T, addr net.Addr) *testClient {
 	if msg.Type != "welcome" || msg.Actor == 0 {
 		t.Fatalf("first frame = %+v, want a welcome with an actor", msg)
 	}
+	if msg.V != protocol.Version {
+		t.Fatalf("welcome protocol version = %d, want %d", msg.V, protocol.Version)
+	}
 	c.actor = msg.Actor
 	return c
 }
