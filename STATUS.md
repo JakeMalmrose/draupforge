@@ -65,6 +65,8 @@ All foundational machinery from DESIGN.md is real, not stubbed:
   is intentional, re-record: `DRAUPFORGE_UPDATE_GOLDEN=1 go test ./sim/ -run
   TestGoldenReplay` and commit the new `sim/testdata/golden_slice.txt`.
 
+Structural risks live in `RISKS.md` — read it before building anything load-bearing (top two: no persistence story, fixed-point overflow under power creep).
+
 ## Known shortcuts (deliberate, fine for now)
 
 - Conversion stage in the pipeline is identity — the slot in the order is
