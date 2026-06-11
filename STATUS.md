@@ -95,7 +95,7 @@ All foundational machinery from DESIGN.md is real, not stubbed:
   Any wire change updates both AND bumps `protocol.Version` — a stale client
   fails loudly at the welcome instead of misreading frames.
 
-Structural risks live in `RISKS.md` — read it before building anything load-bearing. Top risks #1 (persistence) and #2 (TagSet) closed 2026-06-11; the action model (channelling/stun/interrupt) is the register's top entry now.
+Structural risks live in `RISKS.md` — read it before building anything load-bearing (top entry: the action model is still one-thing-at-a-time — no channelling/stun/interrupt).
 
 ## Known shortcuts (deliberate, fine for now)
 
