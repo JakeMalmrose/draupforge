@@ -48,7 +48,8 @@ Intentional behavior changes re-record the golden trace:
 `DRAUPFORGE_UPDATE_GOLDEN=1 go test ./sim/ -run TestGoldenReplay`
 
 See `DESIGN.md` for the foundational decisions (stat algebra, damage
-pipeline, determinism rules, package layout).
+pipeline, determinism rules, package layout), and `SHOWCASE.md` for the
+engineering tour — what the determinism discipline actually buys.
 
 ## Conventions
 
