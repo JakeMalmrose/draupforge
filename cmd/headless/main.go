@@ -96,6 +96,10 @@ func printEvent(ev core.Event) {
 		fmt.Printf("[tick %4d] %d picked up %s (item %d)\n", ev.Tick, ev.Actor, ev.Note, ev.Other)
 	case core.EvUnequip:
 		fmt.Printf("[tick %4d] %d unequipped %s (item %d)\n", ev.Tick, ev.Actor, ev.Note, ev.Other)
+	case core.EvChill:
+		fmt.Printf("[tick %4d] %d chilled %d (%s slow)\n", ev.Tick, ev.Actor, ev.Other, fixedStr(ev.Amount))
+	case core.EvShock:
+		fmt.Printf("[tick %4d] %d shocked %d (+%s taken)\n", ev.Tick, ev.Actor, ev.Other, fixedStr(ev.Amount))
 	}
 }
 

@@ -129,7 +129,10 @@ function onView(view) {
       // re-converges instead of clamping at the newest view forever.
       clockOffset -= Math.min(0.05 * (st - newest.st), clockOffset - off);
     }
-    if (newest) diffFades(newest.view, view, now);
+    if (newest) {
+      diffFades(newest.view, view, now);
+      diffCastVFX(newest.view, view);
+    }
     interpBuf.push({ st, view });
     while (interpBuf.length > INTERP_BUF_MAX) interpBuf.shift();
   }
@@ -146,7 +149,15 @@ function onView(view) {
     showOverlay("YOU DIED");
   }
 
-  for (const ev of view.events) logEvent(ev);
+  for (const ev of view.events) {
+    logEvent(ev);
+    if (ev.kind === "hit") {
+      const v = IMPACT_VFX[ev.note];
+      const target = view.actors.get(ev.other);
+      if (v && target) spawnImpact(target.pos, view.tick * tickMs, v);
+      if (ev.other === myId) shakeUntil = performance.now() + SHAKE_MS;
+    }
+  }
   autoPickup(self);
   if (!panel.classList.contains("hidden")) renderPanel(self);
 }
@@ -236,14 +247,19 @@ function render() {
   ctx.fillRect(0, 0, canvas.width, canvas.height);
   const s = span();
   if (s) {
+    const now = performance.now();
     const self = s.to.actors.get(myId);
     if (self) {
       const p = lerpPos(s.from.actors, self, s.t);
       cam.x = toUnits(p.x);
       cam.y = toUnits(p.y);
     }
+    if (now < shakeUntil) {
+      const k = (SHAKE_PX * (shakeUntil - now)) / SHAKE_MS / SCALE;
+      cam.x += (Math.random() * 2 - 1) * k;
+      cam.y += (Math.random() * 2 - 1) * k;
+    }
     drawGrid();
-    const now = performance.now();
     // Fade-out ghosts go under live entities; a ghost whose id reappears
     // (re-entered interest range) yields to the live drawing immediately.
     for (let i = ghosts.length - 1; i >= 0; i--) {
@@ -267,6 +283,20 @@ function render() {
     }
     ctx.globalAlpha = 1;
     for (const p of s.to.projectiles.values()) drawProjectile(p, lerpPos(s.from.projectiles, p, s.t));
+
+    // Client VFX run on the same delayed server-timeline clock as span();
+    // an effect whose moment hasn't been rendered yet (t < 0) just waits.
+    const rt = now + clockOffset - interpDelay;
+    for (let i = effects.length - 1; i >= 0; i--) {
+      const e = effects[i];
+      const t = (rt - e.st) / e.dur;
+      if (t >= 1) {
+        effects.splice(i, 1);
+        continue;
+      }
+      if (t > 0) e.draw(t);
+    }
+    ctx.globalAlpha = 1;
   }
   requestAnimationFrame(render);
 }
@@ -312,6 +342,18 @@ function drawActor(a, pos) {
     ctx.stroke();
   }
 
+  // ailment rings: ignite/chill/shock from the ail bitmask, stacked outward
+  let ringR = r + 7;
+  for (const [bit, color] of AILMENT_RINGS) {
+    if (!(a.ail & bit)) continue;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, ringR, 0, Math.PI * 2);
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ringR += 3;
+  }
+
   // health bar
   const w = Math.max(r * 2, 28);
   const frac = a.max_life > 0 ? a.life / a.max_life : 0;
@@ -326,12 +368,24 @@ function drawActor(a, pos) {
   ctx.fillText(names.get(a.id) || a.def, p.x, p.y - r - 16);
 }
 
+const AILMENT_RINGS = [
+  [1, "#e67e22cc"], // ignited
+  [2, "#7fd4ffcc"], // chilled
+  [4, "#f5e25fcc"], // shocked
+];
+
+const PROJ_COLORS = {
+  fireball: ["#ffd27d", "#d35400"],
+  spark: ["#ffffff", "#5fa8f5"],
+};
+
 function drawProjectile(p, pos) {
   const s = worldToScreen(pos.x, pos.y);
   const r = Math.max(toUnits(p.radius) * SCALE, 4);
+  const [inner, outer] = PROJ_COLORS[p.skill] || PROJ_COLORS.fireball;
   const grad = ctx.createRadialGradient(s.x, s.y, 1, s.x, s.y, r);
-  grad.addColorStop(0, "#ffd27d");
-  grad.addColorStop(1, "#d35400");
+  grad.addColorStop(0, inner);
+  grad.addColorStop(1, outer);
   ctx.beginPath();
   ctx.arc(s.x, s.y, r, 0, Math.PI * 2);
   ctx.fillStyle = grad;
@@ -353,6 +407,137 @@ function drawDrop(d) {
   ctx.textAlign = "center";
   ctx.fillText(d.item.base.replace("_", " "), p.x, p.y - 12);
 }
+
+// ----------------------------------------------------------- client VFX
+//
+// Ephemeral client-side-only effects: cast flashes and impact bursts.
+// Spawned from view diffs and hit events, timestamped on the SERVER
+// timeline (tick × tickMs) so they stay in sync with the interpolated
+// entities they decorate — the renderer runs them through the same
+// clockOffset − interpDelay clock as everything else.
+
+const effects = []; // { st, dur, draw(t) } with t in [0,1]
+const EFFECTS_MAX = 64;
+
+function spawnEffect(st, dur, draw) {
+  effects.push({ st, dur, draw });
+  while (effects.length > EFFECTS_MAX) effects.shift();
+}
+
+const easeOut = (t) => 1 - (1 - t) * (1 - t);
+
+// Cast effects key off the windup→done action transition between
+// consecutive views, not off hit events — a nova that hits nothing still
+// reads as a cast. Windups are several views long, so the transition is
+// always observed.
+const CAST_VFX = {
+  frost_nova: spawnNova,
+  zombie_slam: spawnSlam,
+};
+
+function diffCastVFX(prev, view) {
+  const st = view.tick * tickMs;
+  for (const [id, a] of view.actors) {
+    const before = prev.actors.get(id);
+    if (!before || !before.action.startsWith("windup:")) continue;
+    if (a.action === before.action) continue;
+    const fx = CAST_VFX[before.action.slice(7)];
+    if (fx) fx(a.pos, st);
+  }
+}
+
+// Frost nova: a shard-spoked ring expanding out to the skill's real 4-unit
+// blast radius, so the visual is also the hitbox telegraph.
+function spawnNova(pos, st) {
+  spawnEffect(st, 500, (t) => {
+    const p = worldToScreen(pos.x, pos.y);
+    const r = (0.5 + 3.5 * easeOut(t)) * SCALE;
+    ctx.globalAlpha = 1 - t;
+    ctx.strokeStyle = "#bfeaff";
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.strokeStyle = "#7fd4ff";
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, r * 0.72, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.beginPath();
+    for (let i = 0; i < 8; i++) {
+      const ang = (Math.PI / 4) * i + 0.4 * t;
+      ctx.moveTo(p.x + Math.cos(ang) * r * 0.85, p.y + Math.sin(ang) * r * 0.85);
+      ctx.lineTo(p.x + Math.cos(ang) * r * 1.12, p.y + Math.sin(ang) * r * 1.12);
+    }
+    ctx.stroke();
+  });
+}
+
+// Zombie slam: a jagged ground-crack star under the zombie, shaped once
+// per slam so each smash cracks differently.
+function spawnSlam(pos, st) {
+  const n = 12;
+  const jags = [];
+  for (let i = 0; i < n; i++) {
+    jags.push(i % 2 ? 0.45 + Math.random() * 0.2 : 0.9 + Math.random() * 0.25);
+  }
+  spawnEffect(st, 350, (t) => {
+    const p = worldToScreen(pos.x, pos.y);
+    const r = (0.6 + 1.3 * easeOut(t)) * SCALE;
+    ctx.globalAlpha = 1 - t;
+    ctx.beginPath();
+    for (let i = 0; i <= n; i++) {
+      const ang = (Math.PI * 2 * i) / n;
+      const rr = r * jags[i % n];
+      const x = p.x + Math.cos(ang) * rr;
+      const y = p.y + Math.sin(ang) * rr;
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.closePath();
+    ctx.fillStyle = "#3a2a2066";
+    ctx.fill();
+    ctx.strokeStyle = "#c89b6a";
+    ctx.lineWidth = 2;
+    ctx.stroke();
+  });
+}
+
+const IMPACT_VFX = {
+  fireball: { core: "#ffd27d", glow: "#d35400", r: 0.9 },
+  spark: { core: "#ffffff", glow: "#5fa8f5", r: 0.7 },
+  frost_nova: { core: "#e8fbff", glow: "#7fd4ff", r: 0.6 },
+  zombie_slam: { core: "#ffe8d0", glow: "#a32626", r: 0.7 },
+};
+
+// Impact burst at whoever got hit: a six-ray starburst in the skill's
+// palette around a shrinking core.
+function spawnImpact(pos, st, v) {
+  const base = Math.random() * Math.PI;
+  spawnEffect(st, 250, (t) => {
+    const p = worldToScreen(pos.x, pos.y);
+    const r = v.r * SCALE * (0.4 + 0.6 * easeOut(t));
+    ctx.globalAlpha = 1 - t;
+    ctx.strokeStyle = v.glow;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    for (let i = 0; i < 6; i++) {
+      const ang = base + (Math.PI / 3) * i;
+      ctx.moveTo(p.x + Math.cos(ang) * r * 0.35, p.y + Math.sin(ang) * r * 0.35);
+      ctx.lineTo(p.x + Math.cos(ang) * r, p.y + Math.sin(ang) * r);
+    }
+    ctx.stroke();
+    ctx.fillStyle = v.core;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, Math.max(1, r * 0.3 * (1 - t)), 0, Math.PI * 2);
+    ctx.fill();
+  });
+}
+
+// Camera shake when something connects with *you*.
+let shakeUntil = 0;
+const SHAKE_MS = 220;
+const SHAKE_PX = 5;
 
 // --------------------------------------------------------------- input
 
@@ -385,6 +570,11 @@ window.addEventListener("keydown", (e) => {
     case "e":
       send({ kind: "use_skill", skill: "frost_nova" });
       break;
+    case "r": {
+      const w = screenToWorldUnits(mouse.x, mouse.y);
+      send({ kind: "use_skill", skill: "spark", x: toMilli(w.x), y: toMilli(w.y) });
+      break;
+    }
     case "i":
       panel.classList.toggle("hidden");
       if (!panel.classList.contains("hidden")) renderPanel(me(), true);
@@ -485,6 +675,12 @@ function logEvent(ev) {
       break;
     case "ignite":
       text = `${nameOf(ev.other)} is burning`;
+      break;
+    case "chill":
+      text = `${nameOf(ev.other)} is chilled (${Math.round(ev.amount / 10)}% slow)`;
+      break;
+    case "shock":
+      text = `${nameOf(ev.other)} is shocked (+${Math.round(ev.amount / 10)}% damage taken)`;
       break;
     case "drop":
       text = `${ev.note.replace("_", " ")} dropped`;

@@ -40,6 +40,7 @@ const (
 	actorAction
 	actorEquipment
 	actorInventory
+	actorAilments
 )
 
 // Projectile field-mask bits.
@@ -194,13 +195,17 @@ func encodeActors(w *bwriter, base, view []ActorSnap) {
 				w.item(it)
 			}
 		}
+		if c.mask&actorAilments != 0 {
+			w.u8(a.Ail)
+		}
 	}
 }
 
 func actorMask(b, a *ActorSnap) uint64 {
 	if b == nil {
 		return actorIdentity | actorPos | actorLife | actorMaxLife | actorMana |
-			actorMaxMana | actorES | actorAction | actorEquipment | actorInventory
+			actorMaxMana | actorES | actorAction | actorEquipment | actorInventory |
+			actorAilments
 	}
 	var mask uint64
 	if b.Def != a.Def || b.Team != a.Team || b.Radius != a.Radius {
@@ -232,6 +237,9 @@ func actorMask(b, a *ActorSnap) uint64 {
 	}
 	if !reflect.DeepEqual(b.Inventory, a.Inventory) {
 		mask |= actorInventory
+	}
+	if b.Ail != a.Ail {
+		mask |= actorAilments
 	}
 	return mask
 }
@@ -286,6 +294,9 @@ func decodeActors(r *breader, base []ActorSnap) []ActorSnap {
 			for n := r.uv(); n > 0 && r.err == nil; n-- {
 				a.Inventory = append(a.Inventory, r.item())
 			}
+		}
+		if mask&actorAilments != 0 {
+			a.Ail = r.u8()
 		}
 		changed[id] = actorDelta{a, mask}
 		order = append(order, id)
@@ -350,6 +361,9 @@ func mergeActor(b ActorSnap, d actorDelta) ActorSnap {
 	}
 	if d.mask&actorInventory != 0 {
 		a.Inventory = n.Inventory
+	}
+	if d.mask&actorAilments != 0 {
+		a.Ail = n.Ail
 	}
 	return a
 }

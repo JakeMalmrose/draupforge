@@ -10,11 +10,11 @@ import (
 )
 
 const (
-	maxResist     = fm.Fixed(750) // 75% resistance cap
-	maxArmourRed  = fm.Fixed(900) // 90% physical reduction cap
-	minHitChance  = fm.Fixed(50)  // attacks always have ≥5% to hit
-	igniteFrac    = fm.Fixed(500) // ignite dps = 50% of the fire hit
-	igniteTicks   = 4 * core.TicksPerSecond
+	maxResist    = fm.Fixed(750) // 75% resistance cap
+	maxArmourRed = fm.Fixed(900) // 90% physical reduction cap
+	minHitChance = fm.Fixed(50)  // attacks always have ≥5% to hit
+	igniteFrac   = fm.Fixed(500) // ignite dps = 50% of the fire hit
+	igniteTicks  = 4 * core.TicksPerSecond
 )
 
 // ResolveHits drains the world's pending-hit queue in order.
@@ -58,9 +58,12 @@ func resolve(w *core.World, h *core.Hit) {
 	// Stage: apply to pools, ES before life.
 	applyDamage(w, att, def, total, h.Skill.ID)
 
-	// Stage: post-hit effects.
+	// Stage: post-hit effects, fixed order (ignite → chill → shock; the
+	// order is part of the RNG-consumption contract).
 	if !def.Dead {
 		rollIgnite(w, att, def, h, tags)
+		applyChill(w, att, def, h)
+		rollShock(w, att, def, h, tags)
 	}
 }
 

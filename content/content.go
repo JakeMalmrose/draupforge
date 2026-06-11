@@ -81,7 +81,27 @@ func skillDefs() []*core.SkillDef {
 	frostNova.BaseMin[core.Cold] = fm.FromInt(12)
 	frostNova.BaseMax[core.Cold] = fm.FromInt(18)
 
-	return []*core.SkillDef{fireball, slam, frostNova}
+	spark := &core.SkillDef{
+		ID:            "spark",
+		Name:          "Spark",
+		Kind:          core.SkillProjectile,
+		Tags:          stats.T(stats.TagSpell, stats.TagProjectile, stats.TagLightning),
+		Effectiveness: fm.One,
+		ManaCost:      fm.FromInt(6),
+		WindupTicks:   9, // 0.3s base cast: the fast, spammy option
+		RecoveryTicks: 5,
+		SpeedStat:     stats.CastSpeed,
+		ProjSpeed:     fm.FromInt(28),
+		ProjTTL:       40,
+		ProjRadius:    fm.FromMilli(300),
+		ShockChance:   fm.FromMilli(300), // 30%
+	}
+	// Lightning identity: wild rolls. Averages below fireball, pays for the
+	// faster cast and the shock upside.
+	spark.BaseMin[core.Lightning] = fm.FromInt(3)
+	spark.BaseMax[core.Lightning] = fm.FromInt(28)
+
+	return []*core.SkillDef{fireball, slam, frostNova, spark}
 }
 
 func baseStats(pairs map[stats.StatID]fm.Fixed) [stats.StatCount]fm.Fixed {
@@ -114,7 +134,7 @@ func actorDefs() []*core.ActorDef {
 			stats.Armour:     fm.FromInt(20),
 			stats.CritChance: fm.FromMilli(50), // 5%
 		}),
-		Skills:        []string{"fireball", "frost_nova"},
+		Skills:        []string{"fireball", "frost_nova", "spark"},
 		InventorySize: 20,
 	}
 
@@ -173,6 +193,11 @@ func affixDefs() []*core.AffixDef {
 			Min: fm.FromInt(2), Max: fm.FromInt(5), Weight: 100,
 		},
 		{
+			ID: "flat_lightning_damage", Group: "added_lightning", Kind: core.Prefix,
+			Stat: stats.Damage, Layer: stats.LayerFlat, Tags: stats.T(stats.TagLightning),
+			Min: fm.FromInt(1), Max: fm.FromInt(7), Weight: 100,
+		},
+		{
 			ID: "fire_resistance", Group: "fire_res", Kind: core.Suffix,
 			Stat: stats.FireRes, Layer: stats.LayerFlat,
 			Min: fm.FromMilli(100), Max: fm.FromMilli(200), Weight: 100, // 10–20%
@@ -180,6 +205,11 @@ func affixDefs() []*core.AffixDef {
 		{
 			ID: "cold_resistance", Group: "cold_res", Kind: core.Suffix,
 			Stat: stats.ColdRes, Layer: stats.LayerFlat,
+			Min: fm.FromMilli(100), Max: fm.FromMilli(200), Weight: 100, // 10–20%
+		},
+		{
+			ID: "lightning_resistance", Group: "lightning_res", Kind: core.Suffix,
+			Stat: stats.LightningRes, Layer: stats.LayerFlat,
 			Min: fm.FromMilli(100), Max: fm.FromMilli(200), Weight: 100, // 10–20%
 		},
 		{

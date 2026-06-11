@@ -9,7 +9,7 @@
 
 "use strict";
 
-const PROTOCOL_VERSION = 2;
+const PROTOCOL_VERSION = 3;
 
 const FRAME_VIEW = 1;
 
@@ -23,6 +23,7 @@ const ACTOR_ES = 1 << 6;
 const ACTOR_ACTION = 1 << 7;
 const ACTOR_EQUIPMENT = 1 << 8;
 const ACTOR_INVENTORY = 1 << 9;
+const ACTOR_AILMENTS = 1 << 10; // bitmask: 1 ignited, 2 chilled, 4 shocked
 
 const PROJ_IDENTITY = 1 << 0; // skill, radius
 const PROJ_POS = 1 << 1;
@@ -142,6 +143,7 @@ function decodeViewFrame(buf, baseFor) {
       a.inventory = [];
       for (let m = r.uv(); m > 0; m--) a.inventory.push(readItem(r));
     }
+    if (mask & ACTOR_AILMENTS) a.ail = r.u8();
     view.actors.set(id, a);
   }
 

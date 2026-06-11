@@ -49,6 +49,42 @@ type DoT struct {
 	Source    EntityID
 }
 
+// StatusKind enumerates the non-damaging ailments: timed packages of stat
+// modifiers, as opposed to DoTs which deal damage and touch no stats.
+type StatusKind uint8
+
+const (
+	StatusChill StatusKind = iota // less action speed, from cold hits
+	StatusShock                   // increased damage taken, from lightning hits
+
+	StatusKindCount
+)
+
+func (k StatusKind) String() string {
+	switch k {
+	case StatusChill:
+		return "chill"
+	default:
+		return "shock"
+	}
+}
+
+// ModSource is the sheet modifier source a status grants its modifiers
+// under. The high bit keeps it disjoint from entity IDs (monotonic from 1),
+// which are the only other modifier sources in play.
+func (k StatusKind) ModSource() uint64 { return 1<<63 | uint64(k) }
+
+// Status is one active ailment. Its gameplay effect lives on the actor's
+// sheet as modifiers under Kind.ModSource(); the Status itself records
+// magnitude and remaining time so stronger applications can replace it and
+// expiry knows which modifiers to remove. One per kind, strongest wins.
+type Status struct {
+	Kind      StatusKind
+	Magnitude fm.Fixed // fraction: 0.30 = 30% slow / 30% increased taken
+	TicksLeft uint32
+	Source    EntityID // who inflicted it
+}
+
 type Actor struct {
 	ID    EntityID
 	Def   *ActorDef
@@ -59,8 +95,9 @@ type Actor struct {
 	// Current resource pools; maxima come from the stat sheet.
 	Life, Mana, ES fm.Fixed
 
-	Action Action
-	DoTs   []DoT
+	Action   Action
+	DoTs     []DoT
+	Statuses []Status
 
 	// Equipment by concrete slot; nil = empty. Equipped items grant their
 	// affixes as sheet modifiers sourced by the item's ID.
@@ -81,14 +118,14 @@ func (a *Actor) MaxMana() fm.Fixed { return a.Sheet.Eval(stats.Mana, 0) }
 func (a *Actor) MaxES() fm.Fixed   { return a.Sheet.Eval(stats.EnergyShield, 0) }
 
 type Projectile struct {
-	ID     EntityID
-	Source EntityID // firing actor; may die before the projectile lands
-	Team   Team
-	Skill  *SkillDef
-	Pos    space.Vec2
-	Vel    space.Vec2 // per tick
+	ID        EntityID
+	Source    EntityID // firing actor; may die before the projectile lands
+	Team      Team
+	Skill     *SkillDef
+	Pos       space.Vec2
+	Vel       space.Vec2 // per tick
 	TicksLeft uint32
-	Dead   bool
+	Dead      bool
 }
 
 type Rarity uint8
@@ -184,4 +221,6 @@ type Hit struct {
 	Crit    bool
 	Evaded  bool
 	Ignited bool
+	Chilled bool
+	Shocked bool
 }

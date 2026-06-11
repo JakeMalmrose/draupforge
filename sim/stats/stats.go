@@ -16,26 +16,27 @@ import (
 type StatID uint8
 
 const (
-	Life StatID = iota // maximum life
-	Mana               // maximum mana
-	EnergyShield       // maximum energy shield
-	LifeRegen          // life per second
-	ManaRegen          // mana per second
-	Damage             // queried with damage-type/skill tags
-	DamageTaken        // multiplier on incoming damage, base One
-	CritChance         // fraction: 0.05 = 5%
-	CritMulti          // multiplier: 1.5 = 150%
-	AttackSpeed        // multiplier, base One
-	CastSpeed          // multiplier, base One
-	MoveSpeed          // units per second
-	Accuracy           // rating vs Evasion
-	Evasion            // rating vs Accuracy
-	Armour             // physical hit mitigation rating
-	FireRes            // fraction, capped in the pipeline
+	Life         StatID = iota // maximum life
+	Mana                       // maximum mana
+	EnergyShield               // maximum energy shield
+	LifeRegen                  // life per second
+	ManaRegen                  // mana per second
+	Damage                     // queried with damage-type/skill tags
+	DamageTaken                // multiplier on incoming damage, base One
+	CritChance                 // fraction: 0.05 = 5%
+	CritMulti                  // multiplier: 1.5 = 150%
+	AttackSpeed                // multiplier, base One
+	CastSpeed                  // multiplier, base One
+	MoveSpeed                  // units per second
+	Accuracy                   // rating vs Evasion
+	Evasion                    // rating vs Accuracy
+	Armour                     // physical hit mitigation rating
+	FireRes                    // fraction, capped in the pipeline
 	ColdRes
 	LightningRes
 	ChaosRes
 	IgniteChance // fraction, added to skill base chance
+	ShockChance  // fraction, added to skill base chance
 
 	StatCount
 )
@@ -70,8 +71,8 @@ func T(tags ...Tag) TagSet {
 	return s
 }
 
-func (s TagSet) With(t Tag) TagSet      { return s | TagSet(1)<<t }
-func (s TagSet) Has(t Tag) bool         { return s&(TagSet(1)<<t) != 0 }
+func (s TagSet) With(t Tag) TagSet           { return s | TagSet(1)<<t }
+func (s TagSet) Has(t Tag) bool              { return s&(TagSet(1)<<t) != 0 }
 func (s TagSet) ContainsAll(req TagSet) bool { return s&req == req }
 
 type Layer uint8

@@ -11,16 +11,17 @@ tests, and session-log entries older than a few sessions (git history is the
 archive). If this file outgrows ~150 lines, it has stopped being a status doc
 and started being a changelog — cut it back.
 
-**Last updated: 2026-06-10** (session 7: tick-timeline interpolation + fades, server pause, admin dashboard, Mul overflow guard)
+**Last updated: 2026-06-10** (session 8: chill/shock ailments, spark skill, skill + impact VFX)
 
 ## Where things stand
 
 The game is playable in a browser: `cmd/server` hosts the sim (TCP/NDJSON
 and WebSocket, same frames) and serves `web/` — a no-build-step canvas
-client with click-to-move, Q fireball / E nova, drop pickup, an inventory
-panel (I), HUD orbs, an event log, and a death screen. The full item flow
-works (kill → drop → pickup → bag → equip → affixes on the sheet); damage
-runs the whole pipeline. Run it:
+client with click-to-move, Q fireball / E nova / R spark, drop pickup, an
+inventory panel (I), HUD orbs, an event log, and a death screen. The full
+item flow works (kill → drop → pickup → bag → equip → affixes on the
+sheet); damage runs the whole pipeline, and elemental hits inflict
+ailments (ignite/chill/shock) with client-side visuals. Run it:
 
 ```sh
 go test ./...                                    # ~30 tests, all green
@@ -38,17 +39,18 @@ All foundational machinery from DESIGN.md is real, not stubbed:
 | Stat algebra (flat/inc/more/override + tags) | `sim/stats` | done, tested, memoized |
 | World/Actor/Hit/defs, RNG, state hashing | `sim/core` | done |
 | Damage pipeline + DoTs + regen | `sim/combat` | done, tested |
+| Ailments: ignite (DoT) + chill/shock (timed sheet-modifier statuses, strongest-wins) | `sim/combat/ailments.go` | done, tested |
 | Actions (windup/recovery) + projectiles | `sim/skills` | done |
 | Loot: rarity, weighted affixes, group caps | `sim/items` | done, tested |
 | Equipment: slots, equip command, affix→sheet | `sim/items/equip.go` | done, tested |
 | Inventory: pickup/unequip/drop_item, capacity | `sim/items/equip.go` | done, tested |
 | Server: TCP + WS transports, joins/leaves, send-rate decoupling, interest culling, binary deltas + acks, pause | `server/` | done, race-tested |
 | Admin dashboard: observe (tick health, counts, bandwidth, events, world hash) + poke (pause/resume, spawn, kick), own port, embedded HTML | `server/admin.go` | done, tested; NO AUTH — localhost/tailnet only |
-| Web client: canvas, input, inventory UI, delta decoding, tick-timeline interpolation, fade-in/out | `web/` | working, no build step |
+| Web client: canvas, input, inventory UI, delta decoding, tick-timeline interpolation, fade-in/out, cast/impact VFX + ailment rings | `web/` | working, no build step |
 | AI (`melee_chaser`) | `sim/ai` | minimal but real |
 | Phase order + command validation | `sim/sim.go` | done — this IS the determinism contract |
 | Wire types: versioned welcome, JSON snapshots, binary delta view codec | `protocol/` | done, tested |
-| Content tables | `content/` | fireball, frost_nova (AoE), zombie_slam, 3 actors, 8 affixes, 2 bases |
+| Content tables | `content/` | fireball, frost_nova (AoE), spark, zombie_slam, 3 actors, 10 affixes, 2 bases |
 | Debug client | `cmd/headless` | done |
 | Determinism + golden replay tests | `sim/sim_test.go` | done |
 
@@ -63,6 +65,11 @@ All foundational machinery from DESIGN.md is real, not stubbed:
 - Per-damage-type stat queries REPLACE the damage-type tag in the context
   (see `damageTypeTags` in `sim/combat/pipeline.go`). Session 1 shipped and
   fixed a bug here — added-fire was leaking into other types' rolls.
+- Ailment statuses grant their sheet modifiers under
+  `StatusKind.ModSource()` (high bit set — disjoint from item-ID sources);
+  `TickStatuses` removes them at expiry. Chill consumes no combat RNG and
+  shock rolls only on lightning damage — `TestAilmentRNGConsumption` pins
+  the stream alignment so old fire-only replays stay stable.
 - Golden replay: any behavior change fails `TestGoldenReplay`. If the change
   is intentional, re-record: `DRAUPFORGE_UPDATE_GOLDEN=1 go test ./sim/ -run
   TestGoldenReplay` and commit the new `sim/testdata/golden_slice.txt`.
@@ -76,7 +83,12 @@ Structural risks live in `RISKS.md` — read it before building anything load-be
 
 - Conversion stage in the pipeline is identity — the slot in the order is
   reserved, no skill converts yet.
-- Leech, block, stun, chill/shock (only ignite exists), ES recharge: absent.
+- Leech, block, stun, ES recharge: absent.
+- Chill doesn't slow an action already in flight — windup/recovery tick
+  counts bind at use time, like cast speed. Movement slows immediately.
+- Client cast VFX key off windup→done action transitions between views;
+  a windup shorter than the send interval (~3 ticks) would slip through
+  unrendered. No current skill is that fast.
 - Corpses compact away at tick end — fine until on-corpse mechanics matter.
 - Inventory is a flat ID-addressed bag — no spatial grid, no stacking.
 - Server: no auth, no persistence (disconnect deletes the actor and its
@@ -99,19 +111,32 @@ Structural risks live in `RISKS.md` — read it before building anything load-be
 
 ## Natural next steps (in rough order of leverage)
 
-1. **Chill/shock ailments** — cold/lightning hits should do something besides
-   damage; chill wants a status-effect notion beyond DoTs (a slow), which is
-   the small system ignite didn't force.
-2. Map gen + pathing behind `space.Walkable`.
-3. Server hardening: replay log, per-client send queues.
-4. World persistence (RISKS.md #1) + the dashboard's operate tier
+1. Map gen + pathing behind `space.Walkable`.
+2. Server hardening: replay log, per-client send queues.
+3. World persistence (RISKS.md #1) + the dashboard's operate tier
    (save/load/rollback, parked at the bottom of RISKS.md) — natural pair;
    the observe/poke tiers already exist to receive it.
-5. Client prediction for own-character feel (the wasm question) — only if
+4. Client prediction for own-character feel (the wasm question) — only if
    input latency starts to grate; interpolation covers everything else.
+5. A second monster (ranged or caster) — the ailment/VFX machinery is in
+   place; one more AI behavior would make packs tactically interesting.
 
 ## Session log
 
+- **2026-06-10 (8)** — Ailments + game feel. Chill/shock as a status system
+  (`sim/combat/ailments.go`): timed sheet-modifier packages under
+  `StatusKind.ModSource()`, strongest-wins like ignite; chill = chance-free
+  More-layer slow on move/attack/cast scaled by hit size (5% floor, 30%
+  cap, 2s), shock = chance-rolled increased damage taken (50% cap, 2s).
+  New `spark` skill (fast lightning projectile, 30% shock, wild 3–28
+  rolls) on R; lightning affixes. Protocol v3: `ail` bitmask on actor
+  snaps (both codecs + JS mirror, parity-checked Go→node). Client: ailment
+  rings, spark colors, chill/shock log lines, and client-side VFX on the
+  server timeline — frost nova shard-ring out to the real 4u radius,
+  zombie-slam ground-crack star (keyed off windup→done transitions, so
+  whiffed casts still read), per-skill impact starbursts, camera shake
+  when you're hit. Verified in-browser via headless Chrome. Golden
+  re-recorded: slice's nova now chills, and the hash covers statuses.
 - **2026-06-10 (7)** — Quality-of-play pass. Client interpolation re-keyed
   from arrival time to the server tick timeline (`tick × tickMs` + a
   clock-offset estimate that locks to fastest arrivals, decays slowly, and
@@ -134,9 +159,4 @@ Structural risks live in `RISKS.md` — read it before building anything load-be
   Welcome frame now carries `protocol.Version` + cadence (closed RISKS.md
   #5). TCP/nc wire unchanged (full-world JSON); `/ws?format=json` debugs a
   culled view. No sim behavior changes; golden replay untouched.
-- **2026-06-10 (4)** — Web client. Server refactored onto a transport
-  interface (TCP/NDJSON + WebSocket via coder/websocket, first dependency);
-  cmd/server serves /ws and the static client. web/ is vanilla JS + canvas.
-  Protocol additions: radii on actor/projectile snaps, IDs on item snaps.
-  No sim changes; golden untouched.
 - (older sessions pruned — git history is the archive)

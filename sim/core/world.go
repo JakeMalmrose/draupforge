@@ -48,6 +48,8 @@ const (
 	EvEquip
 	EvPickup
 	EvUnequip
+	EvChill
+	EvShock
 )
 
 func (k EventKind) String() string {
@@ -66,6 +68,10 @@ func (k EventKind) String() string {
 		return "equip"
 	case EvPickup:
 		return "pickup"
+	case EvChill:
+		return "chill"
+	case EvShock:
+		return "shock"
 	default:
 		return "unequip"
 	}

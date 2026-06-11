@@ -84,6 +84,7 @@ func (s *Sim) BuildSnapshotFor(viewer core.EntityID, radius fm.Fixed, events []p
 			MaxMana:   a.MaxMana().Milli(),
 			ES:        a.ES.Milli(),
 			Action:    actionString(a.Action),
+			Ail:       ailmentBits(a),
 			Equipment: equipment,
 			Inventory: inventory,
 		})
@@ -117,6 +118,26 @@ func (s *Sim) BuildSnapshotFor(viewer core.EntityID, radius fm.Fixed, events []p
 		}
 	}
 	return snap
+}
+
+// ailmentBits folds an actor's active ailments into the wire bitmask, so
+// clients can paint burning/chilled/shocked without knowing the systems.
+func ailmentBits(a *core.Actor) uint8 {
+	var b uint8
+	for _, d := range a.DoTs {
+		if d.Type == core.Fire {
+			b |= protocol.AilIgnited
+		}
+	}
+	for _, st := range a.Statuses {
+		switch st.Kind {
+		case core.StatusChill:
+			b |= protocol.AilChilled
+		case core.StatusShock:
+			b |= protocol.AilShocked
+		}
+	}
+	return b
 }
 
 func vec(v space.Vec2) protocol.Vec {

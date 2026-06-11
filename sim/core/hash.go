@@ -57,6 +57,12 @@ func (w *World) Hash() uint64 {
 			s.i64(d.PerTick.Milli())
 			s.u64(uint64(d.TicksLeft))
 		}
+		s.u64(uint64(len(a.Statuses)))
+		for _, st := range a.Statuses {
+			s.u64(uint64(st.Kind))
+			s.i64(st.Magnitude.Milli())
+			s.u64(uint64(st.TicksLeft))
+		}
 		for slot := EquipSlot(0); slot < EquipSlotCount; slot++ {
 			item := a.Equipment[slot]
 			if item == nil {

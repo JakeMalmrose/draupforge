@@ -8,7 +8,7 @@ package protocol
 // it on any change a deployed client could misread — renamed/removed JSON
 // fields (omitempty makes those fail silently) or any binary frame layout
 // change. Clients hard-fail on mismatch instead of limping.
-const Version = 2 // v2: "pause" control frame
+const Version = 3 // v3: ailment bits on actor snaps
 
 // Command is the wire form of player intent. Kind is one of "move",
 // "use_skill", "stop", the item verbs "pickup", "equip", "unequip",
@@ -31,20 +31,29 @@ type Vec struct {
 }
 
 type ActorSnap struct {
-	ID        uint64         `json:"id"`
-	Def       string         `json:"def"`
-	Team      uint8          `json:"team"`
-	Pos       Vec            `json:"pos"`
-	Radius    int64          `json:"radius"`
-	Life      int64          `json:"life"`
-	MaxLife   int64          `json:"max_life"`
-	Mana      int64          `json:"mana"`
-	MaxMana   int64          `json:"max_mana"`
-	ES        int64          `json:"es,omitempty"`
-	Action    string         `json:"action"`
+	ID      uint64 `json:"id"`
+	Def     string `json:"def"`
+	Team    uint8  `json:"team"`
+	Pos     Vec    `json:"pos"`
+	Radius  int64  `json:"radius"`
+	Life    int64  `json:"life"`
+	MaxLife int64  `json:"max_life"`
+	Mana    int64  `json:"mana"`
+	MaxMana int64  `json:"max_mana"`
+	ES      int64  `json:"es,omitempty"`
+	Action  string `json:"action"`
+	// Ail is the active-ailment bitmask: 1 ignited, 2 chilled, 4 shocked.
+	Ail       uint8          `json:"ail,omitempty"`
 	Equipment []EquippedSnap `json:"equipment,omitempty"`
 	Inventory []ItemSnap     `json:"inventory,omitempty"`
 }
+
+// Ailment bits for ActorSnap.Ail.
+const (
+	AilIgnited uint8 = 1 << iota
+	AilChilled
+	AilShocked
+)
 
 type EquippedSnap struct {
 	Slot string   `json:"slot"`

@@ -73,6 +73,9 @@ body {
 }
 #log .ev-death { color: #c0392b; }
 #log .ev-drop, #log .ev-pickup, #log .ev-equip { color: #b8a44a; }
+#log .ev-ignite { color: #e67e22; }
+#log .ev-chill { color: #7fd4ff; }
+#log .ev-shock { color: #f5e25f; }
 
 /* --- overlays --- */
 #overlay {

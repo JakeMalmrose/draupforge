@@ -99,6 +99,10 @@ type SkillDef struct {
 
 	// Base chance for fire-damage hits to ignite, before IgniteChance stats.
 	IgniteChance fm.Fixed
+	// Base chance for lightning-damage hits to shock, before ShockChance
+	// stats. Chill has no chance: every cold-damage hit chills, magnitude
+	// scaled by hit size.
+	ShockChance fm.Fixed
 }
 
 type ActorDef struct {
