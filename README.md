@@ -40,6 +40,7 @@ go run ./cmd/headless -script scripts/slice.json -hash # per-tick state hashes
 
 go run ./cmd/server -scenario scripts/arena.json       # host an instance
 open http://localhost:8080                             # play it in the browser
+open http://localhost:9090                             # admin dashboard (no auth — keep it private)
 echo '{"kind":"move","x":5000,"y":0}' | nc localhost 7777   # or be a brave TCP client
 ```
 

@@ -35,6 +35,41 @@ func TestSqrt(t *testing.T) {
 	}
 }
 
+// TestMulWideIntermediate exercises products whose raw a*b would wrap an
+// int64 intermediate (the pre-bits.Mul64 implementation corrupted these
+// silently) but whose result still fits.
+func TestMulWideIntermediate(t *testing.T) {
+	// 5e12 * 3 = 1.5e13 units; raw milli product 1.5e19 > MaxInt64.
+	a, b := FromInt(5_000_000_000_000), FromInt(3)
+	if got := Mul(a, b); got != FromInt(15_000_000_000_000) {
+		t.Errorf("Mul wide = %d, want 1.5e13 units", got)
+	}
+	if got := Mul(-a, b); got != -FromInt(15_000_000_000_000) {
+		t.Errorf("Mul wide negative = %d", got)
+	}
+	if got := Mul(-a, -b); got != FromInt(15_000_000_000_000) {
+		t.Errorf("Mul wide double-negative = %d", got)
+	}
+}
+
+func TestMulOverflowPanics(t *testing.T) {
+	cases := []struct{ a, b Fixed }{
+		{FromInt(4_000_000_000_000), FromInt(4_000_000_000)},   // positive overflow
+		{-FromInt(4_000_000_000_000), FromInt(4_000_000_000)},  // negative overflow
+		{Fixed(1<<63 - 1), Fixed(1<<63 - 1)},                   // extreme operands
+	}
+	for _, c := range cases {
+		func() {
+			defer func() {
+				if recover() == nil {
+					t.Errorf("Mul(%d, %d) did not panic", c.a, c.b)
+				}
+			}()
+			Mul(c.a, c.b)
+		}()
+	}
+}
+
 func TestDivByZeroPanics(t *testing.T) {
 	defer func() {
 		if recover() == nil {

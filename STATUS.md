@@ -11,7 +11,7 @@ tests, and session-log entries older than a few sessions (git history is the
 archive). If this file outgrows ~150 lines, it has stopped being a status doc
 and started being a changelog — cut it back.
 
-**Last updated: 2026-06-10** (session 6: netcode overhaul built — deltas, interest, interpolation, versioned protocol)
+**Last updated: 2026-06-10** (session 7: tick-timeline interpolation + fades, server pause, admin dashboard, Mul overflow guard)
 
 ## Where things stand
 
@@ -23,9 +23,10 @@ works (kill → drop → pickup → bag → equip → affixes on the sheet); dam
 runs the whole pipeline. Run it:
 
 ```sh
-go test ./...                                    # ~25 tests, all green
+go test ./...                                    # ~30 tests, all green
 go run ./cmd/headless -script scripts/slice.json # watch the fight as events
 go run ./cmd/server -scenario scripts/arena.json # then open localhost:8080
+                                                 # admin dashboard: localhost:9090
 ```
 
 All foundational machinery from DESIGN.md is real, not stubbed:
@@ -41,8 +42,9 @@ All foundational machinery from DESIGN.md is real, not stubbed:
 | Loot: rarity, weighted affixes, group caps | `sim/items` | done, tested |
 | Equipment: slots, equip command, affix→sheet | `sim/items/equip.go` | done, tested |
 | Inventory: pickup/unequip/drop_item, capacity | `sim/items/equip.go` | done, tested |
-| Server: TCP + WS transports, joins/leaves, send-rate decoupling, interest culling, binary deltas + acks | `server/` | done, race-tested |
-| Web client: canvas, input, inventory UI, delta decoding, interpolation | `web/` | working, no build step |
+| Server: TCP + WS transports, joins/leaves, send-rate decoupling, interest culling, binary deltas + acks, pause | `server/` | done, race-tested |
+| Admin dashboard: observe (tick health, counts, bandwidth, events, world hash) + poke (pause/resume, spawn, kick), own port, embedded HTML | `server/admin.go` | done, tested; NO AUTH — localhost/tailnet only |
+| Web client: canvas, input, inventory UI, delta decoding, tick-timeline interpolation, fade-in/out | `web/` | working, no build step |
 | AI (`melee_chaser`) | `sim/ai` | minimal but real |
 | Phase order + command validation | `sim/sim.go` | done — this IS the determinism contract |
 | Wire types: versioned welcome, JSON snapshots, binary delta view codec | `protocol/` | done, tested |
@@ -68,7 +70,7 @@ All foundational machinery from DESIGN.md is real, not stubbed:
   Any wire change updates both AND bumps `protocol.Version` — a stale client
   fails loudly at the welcome instead of misreading frames.
 
-Structural risks live in `RISKS.md` — read it before building anything load-bearing (top two: no persistence story, fixed-point overflow under power creep).
+Structural risks live in `RISKS.md` — read it before building anything load-bearing (top one by far: no persistence story).
 
 ## Known shortcuts (deliberate, fine for now)
 
@@ -82,11 +84,8 @@ Structural risks live in `RISKS.md` — read it before building anything load-be
   up to 1s (no per-client send queues). Fine for now; on the list.
 - No client prediction — input feels its latency. Prediction is the thing
   that would justify compiling sim/ to wasm (DESIGN.md §13's optional layer).
-- Client interpolation buffers views by *arrival* time, not server tick
-  time, so network jitter leaks straight into render timing. Fine on
-  LAN/localhost; revisit with real latency.
-- Entities entering interest range pop in at full opacity; ones leaving
-  vanish. Cosmetic until the arena outgrows one screen.
+- Projectiles are excluded from the entity fade-in/out (too short-lived to
+  read as anything but mush); they still pop at interest-range edges.
 - WS endpoint accepts any origin (LAN-dev convenience); static files come
   from -web dir at runtime, not embedded.
 - Live server play is not replay-deterministic (network timing decides
@@ -105,13 +104,26 @@ Structural risks live in `RISKS.md` — read it before building anything load-be
    the small system ignite didn't force.
 2. Map gen + pathing behind `space.Walkable`.
 3. Server hardening: replay log, per-client send queues.
-4. World persistence (RISKS.md #1) + the server dashboard parked at the
-   bottom of RISKS.md (observe/save/load/rollback) — natural pair.
+4. World persistence (RISKS.md #1) + the dashboard's operate tier
+   (save/load/rollback, parked at the bottom of RISKS.md) — natural pair;
+   the observe/poke tiers already exist to receive it.
 5. Client prediction for own-character feel (the wasm question) — only if
    input latency starts to grate; interpolation covers everything else.
 
 ## Session log
 
+- **2026-06-10 (7)** — Quality-of-play pass. Client interpolation re-keyed
+  from arrival time to the server tick timeline (`tick × tickMs` + a
+  clock-offset estimate that locks to fastest arrivals, decays slowly, and
+  resnaps after stalls) — jitter no longer leaks into render timing; actors
+  and drops fade in/out at interest edges instead of popping. Server pause:
+  admin-driven, loop keeps ticking (joins, views, admin ops) but Step is
+  skipped and commands dropped; clients get a "pause" control frame
+  (protocol v2). Admin dashboard on its own port (`-admin`, default :9090,
+  NO AUTH): status/pause/spawn/kick JSON API + embedded HTML page; handlers
+  run closures on the tick goroutine, so no new locking of the world.
+  `fixmath.Mul` overflow guard closed RISKS.md #2 (entries renumbered). No
+  sim behavior changes; golden replay untouched.
 - **2026-06-10 (6)** — Netcode overhaul, one pass as planned: sim stays
   30Hz, views send every N ticks (default 3) with events accumulated;
   `BuildSnapshotFor(viewer, radius, events)` does server-side interest
@@ -127,9 +139,4 @@ Structural risks live in `RISKS.md` — read it before building anything load-be
   cmd/server serves /ws and the static client. web/ is vanilla JS + canvas.
   Protocol additions: radii on actor/projectile snaps, IDs on item snaps.
   No sim changes; golden untouched.
-- **2026-06-10 (3)** — Inventory (flat bag, pickup/unequip/drop_item commands,
-  displaced-item routing, capacity rules) and the server layer (`server/`:
-  TCP/NDJSON instance hosting, joins/leaves at tick boundaries, command
-  authority override, pre-welcome command buffering; race-tested). Golden
-  re-recorded: slice now does pickup → equip-from-bag.
 - (older sessions pruned — git history is the archive)

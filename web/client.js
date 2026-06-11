@@ -24,10 +24,23 @@ let mouse = { x: 0, y: 0 }; // canvas px
 let cam = { x: 0, y: 0 };   // world units
 const names = new Map();    // entity id -> label, survives despawn
 
-// Interpolation: views buffered with arrival times; the renderer lerps
-// between the two views around (now - interpDelay).
+// Interpolation: views buffered on the SERVER timeline (tick × tickMs), so
+// network jitter perturbs only the clock-offset estimate, not view spacing.
+// The renderer lerps between the two views around (now + clockOffset -
+// interpDelay). clockOffset locks onto the fastest-arriving views (max) and
+// decays slowly so a genuine latency increase re-converges; a huge backward
+// jump (server pause, long stall) resnaps instead of waiting out the decay.
 let interpDelay = 150;      // ms; refined from the welcome's send cadence
-const interpBuf = [];       // { at: ms, view }
+let tickMs = 1000 / 30;     // refined from the welcome's tick_hz
+let clockOffset = null;     // server-timeline ms minus performance.now() ms
+const interpBuf = [];       // { st: server-timeline ms, view }, tick order
+const INTERP_BUF_MAX = 60;  // hidden-tab safety: ws keeps delivering, rAF doesn't
+
+// Fade-in/out so interest-range edges (and deaths) don't pop: firstSeen
+// drives fade-in alpha; entities that leave the view linger as ghosts.
+const FADE_MS = 250;
+const firstSeen = new Map(); // entity id -> performance.now() at first sight
+const ghosts = [];           // { until, coll, e } pending fade-outs
 
 // Delta decoding: recently received views by tick, for use as baselines.
 const viewHistory = new Map();
@@ -54,9 +67,13 @@ function connect() {
         if (msg.tick_hz && msg.send_every) {
           // 1.5 send intervals behind: one interval to always have a newer
           // view to lerp toward, half an interval of jitter slack.
-          const interval = (1000 * msg.send_every) / msg.tick_hz;
+          tickMs = 1000 / msg.tick_hz;
+          const interval = tickMs * msg.send_every;
           interpDelay = Math.min(Math.max(1.5 * interval, 100), 250);
         }
+      } else if (msg.type === "pause") {
+        if (msg.paused) showOverlay("PAUSED");
+        else hideOverlay();
       } else if (msg.type === "snapshot") {
         onView(jsonToView(msg.snapshot)); // ?format=json debug wire
       }
@@ -98,7 +115,24 @@ function me() {
 
 function onView(view) {
   snap = view;
-  interpBuf.push({ at: performance.now(), view });
+  const now = performance.now();
+  const newest = interpBuf.length ? interpBuf[interpBuf.length - 1] : null;
+  // A paused server repeats its current tick to keep the wire warm; only
+  // advancing ticks enter the interpolation timeline.
+  if (!newest || view.tick > newest.view.tick) {
+    const st = view.tick * tickMs;
+    const off = st - now;
+    if (clockOffset === null || off > clockOffset || clockOffset - off > 4 * interpDelay) {
+      clockOffset = off; // first view, a faster path, or a stall/pause: resnap
+    } else if (newest) {
+      // Decay toward the observed offset so a genuinely slower connection
+      // re-converges instead of clamping at the newest view forever.
+      clockOffset -= Math.min(0.05 * (st - newest.st), clockOffset - off);
+    }
+    if (newest) diffFades(newest.view, view, now);
+    interpBuf.push({ st, view });
+    while (interpBuf.length > INTERP_BUF_MAX) interpBuf.shift();
+  }
 
   for (const a of view.actors.values()) {
     names.set(a.id, a.def === "player" ? `player ${a.id}` : a.def.replace("_", " "));
@@ -148,18 +182,42 @@ const screenToWorldUnits = (px, py) => ({
   y: (py - canvas.height / 2) / SCALE + cam.y,
 });
 
-// span() picks the two buffered views around the render time and the blend
-// factor between them. Past the newest view we clamp rather than extrapolate.
+// span() picks the two buffered views around the render time (on the server
+// timeline) and the blend factor between them. Past the newest view we clamp
+// rather than extrapolate.
 function span() {
   if (interpBuf.length === 0) return null;
-  const rt = performance.now() - interpDelay;
-  while (interpBuf.length > 2 && interpBuf[1].at <= rt) interpBuf.shift();
+  const rt = performance.now() + clockOffset - interpDelay;
+  while (interpBuf.length > 2 && interpBuf[1].st <= rt) interpBuf.shift();
   const a = interpBuf[0];
   const b = interpBuf.length > 1 ? interpBuf[1] : a;
   let t = 0;
-  if (rt >= b.at) t = 1;
-  else if (rt > a.at) t = (rt - a.at) / (b.at - a.at);
+  if (rt >= b.st) t = 1;
+  else if (rt > a.st) t = (rt - a.st) / (b.st - a.st);
   return { from: a.view, to: b.view, t };
+}
+
+// diffFades compares consecutive views: actors and drops entering the view
+// start a fade-in, ones leaving become fade-out ghosts. Projectiles are
+// excluded — they're too short-lived to read as anything but mush when
+// faded. (This covers interest-range edges, spawns, deaths, and pickups.)
+function diffFades(prev, view, now) {
+  for (const coll of ["actors", "drops"]) {
+    for (const id of view[coll].keys()) {
+      if (!prev[coll].has(id)) firstSeen.set(id, now);
+    }
+    for (const [id, e] of prev[coll]) {
+      if (!view[coll].has(id)) {
+        firstSeen.delete(id);
+        ghosts.push({ until: now + FADE_MS, coll, e });
+      }
+    }
+  }
+}
+
+function alphaFor(id, now) {
+  const t0 = firstSeen.get(id);
+  return t0 === undefined ? 1 : Math.min(1, (now - t0) / FADE_MS);
 }
 
 // lerpPos blends an entity's position across the span; entities that just
@@ -185,8 +243,29 @@ function render() {
       cam.y = toUnits(p.y);
     }
     drawGrid();
-    for (const d of s.to.drops.values()) drawDrop(d);
-    for (const a of s.to.actors.values()) drawActor(a, lerpPos(s.from.actors, a, s.t));
+    const now = performance.now();
+    // Fade-out ghosts go under live entities; a ghost whose id reappears
+    // (re-entered interest range) yields to the live drawing immediately.
+    for (let i = ghosts.length - 1; i >= 0; i--) {
+      const g = ghosts[i];
+      const a = (g.until - now) / FADE_MS;
+      if (a <= 0 || s.to[g.coll].has(g.e.id)) {
+        ghosts.splice(i, 1);
+        continue;
+      }
+      ctx.globalAlpha = a;
+      if (g.coll === "actors") drawActor(g.e, g.e.pos);
+      else drawDrop(g.e);
+    }
+    for (const d of s.to.drops.values()) {
+      ctx.globalAlpha = alphaFor(d.id, now);
+      drawDrop(d);
+    }
+    for (const a of s.to.actors.values()) {
+      ctx.globalAlpha = alphaFor(a.id, now);
+      drawActor(a, lerpPos(s.from.actors, a, s.t));
+    }
+    ctx.globalAlpha = 1;
     for (const p of s.to.projectiles.values()) drawProjectile(p, lerpPos(s.from.projectiles, p, s.t));
   }
   requestAnimationFrame(render);
@@ -441,6 +520,12 @@ function updateHUD(self) {
 function showOverlay(text) {
   document.getElementById("overlay-text").textContent = text;
   document.getElementById("overlay").classList.remove("hidden");
+}
+
+// hideOverlay only ends a pause: death re-asserts itself every view while
+// dead, and a closed socket can't deliver a resume, so neither is lost.
+function hideOverlay() {
+  document.getElementById("overlay").classList.add("hidden");
 }
 
 connect();

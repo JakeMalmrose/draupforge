@@ -18,33 +18,14 @@ Also silently blocks rollback netcode and mid-instance joins under lockstep
 referenced by string ID at the boundary, entity state as flat data. Don't
 wait for the "save system" feature to force it.
 
-## 2. Fixed-point overflow under power creep (silent corruption)
-
-`fixmath.Mul` computes `a*b/1000` in raw int64 — the *intermediate* wraps
-silently past ~9.2e18. Binding site: the stat evaluator's multiplier chain
-`(base+flat) × inc × more`. Practical ceiling ≈ 1e10–1e11 damage per hit
-under heavy multipliers — ~1000× PoE1's infamous 32-bit DoT cap (2^31
-damage-*per-minute* ÷ 60 ≈ 35.79M dps), but ARPG power creep is exponential
-by design.
-
-**Lessons from PoE1's cap:** the unit choice multiplies into the ceiling
-(their per-minute base cost 60×; our milli base costs 1000×), and the first
-thing to overflow is rarely the hit — it's rates and accumulators.
-
-**Rules:** `Fixed` is for sim quantities only; accumulators/meta-stats
-(total damage dealt, economy counters, XP) get plain integers with their own
-range analysis. **Mitigation (cheap, do before content tuning calcifies):**
-route `Mul` through `math/bits.Mul64` for a 128-bit intermediate and panic
-on result overflow so determinism tests catch it loudly.
-
-## 3. TagSet is uint64 — 64 tags, ever
+## 2. TagSet is uint64 — 64 tags, ever
 
 12 used so far. PoE-scale conditionality (weapon classes, ailment states,
 "while leeching", …) exceeds 64 eventually. Migration to a wider set is
 mechanical but touches the hottest path plus hashing → golden-invalidating.
 Watch the count; widen deliberately, not mid-feature.
 
-## 4. One-action-at-a-time actor model is too small for the genre
+## 3. One-action-at-a-time actor model is too small for the genre
 
 No buffs/debuffs with durations (only DoTs), no channelling, no
 cast-while-moving, no stun/interrupt semantics. The stat system is ready
@@ -55,6 +36,12 @@ discovering it mid-feature.
 
 ## Smaller, recoverable (listed for honesty)
 
+- Fixed-point overflow (was risk #2, closed 2026-06-10): `fixmath.Mul` now
+  runs a 128-bit intermediate via `math/bits.Mul64` and panics on result
+  overflow — power creep past the int64 ceiling crashes loudly instead of
+  corrupting silently. Standing rule kept from the old entry: `Fixed` is for
+  sim quantities only; accumulators/meta-stats (total damage, economy
+  counters, XP) get plain integers with their own range analysis.
 - Content-as-Go-code: balance changes need recompile+redeploy. Fine until
   live-ops; migration to data files is mechanical.
 - Collision/AoE are O(actors×projectiles) scans; add a spatial grid when
@@ -71,20 +58,19 @@ discovering it mid-feature.
 - Reconnect/session identity doesn't exist: disconnect = actor and items
   deleted. Needs an account/session layer alongside persistence.
 
-## Parked here (not a risk): server dashboard
+## Parked here (not a risk): server dashboard — operate tier
 
-Jake wants an admin dashboard for the server — doesn't belong in a risk
-register, but it lives here because it's the feature that *consumes* risk
-#1's mitigation, and whoever fixes #1 should design with it in mind:
+The observe/poke tiers shipped 2026-06-10 (`server/admin.go`: HTTP+JSON on
+its own port, default :9090 — tick health, entity/client counts, bandwidth
+per client, event stream, world hash; pause/resume, spawn, kick). What
+remains parked is the tier that *consumes* risk #1's mitigation, and whoever
+fixes #1 should design with it in mind:
 
-- **Observe:** instances, tick health (actual vs target rate), entity and
-  client counts, bandwidth per client, live event stream, world state hash.
 - **Operate (needs #1 solved):** save world to file, load world from file,
   rollback to an earlier tick — rollback = restore a saved state, or replay
   from a snapshot + command log (determinism makes both exact).
-- **Poke:** spawn entities, kick clients, adjust tick rate.
-- Needs an auth story before it's exposed anywhere; HTTP+JSON on a separate
-  admin port is fine, it does not need to be pretty.
+- Still no auth: the admin port must stay on localhost/tailnet until an
+  auth story exists. Adjustable tick rate also still missing.
 
 ## Non-risks (deliberate, stop re-evaluating)
 

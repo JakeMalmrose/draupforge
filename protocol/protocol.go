@@ -8,7 +8,7 @@ package protocol
 // it on any change a deployed client could misread — renamed/removed JSON
 // fields (omitempty makes those fail silently) or any binary frame layout
 // change. Clients hard-fail on mismatch instead of limping.
-const Version = 1
+const Version = 2 // v2: "pause" control frame
 
 // Command is the wire form of player intent. Kind is one of "move",
 // "use_skill", "stop", the item verbs "pickup", "equip", "unequip",
@@ -100,14 +100,17 @@ type Snapshot struct {
 // version, the client's assigned actor ID, and the tick/send cadence (so
 // clients can size interpolation buffers); "snapshot" carries one view in
 // full JSON (the TCP/nc wire and the ?format=json debug mode — the binary
-// WS wire sends view frames instead, see binary.go).
+// WS wire sends view frames instead, see binary.go); "pause" announces the
+// instance freezing or resuming (sent on transitions, and once to clients
+// that join while paused).
 type ServerMsg struct {
-	Type      string    `json:"type"` // "welcome" | "snapshot"
+	Type      string    `json:"type"` // "welcome" | "snapshot" | "pause"
 	V         int       `json:"v,omitempty"`
 	Actor     uint64    `json:"actor,omitempty"`
 	TickHz    int       `json:"tick_hz,omitempty"`
 	SendEvery int       `json:"send_every,omitempty"`
 	Snapshot  *Snapshot `json:"snapshot,omitempty"`
+	Paused    *bool     `json:"paused,omitempty"`
 }
 
 // Script is the headless runner's input: a scenario plus scheduled commands.

@@ -20,6 +20,7 @@ import (
 func main() {
 	addr := flag.String("addr", ":7777", "TCP/NDJSON listen address")
 	httpAddr := flag.String("http", ":8080", "HTTP listen address for /ws and the web client (\"\" disables)")
+	adminAddr := flag.String("admin", ":9090", "admin dashboard/API listen address (\"\" disables) — no auth, keep it off the open internet")
 	webDir := flag.String("web", "web", "static web client directory")
 	seed := flag.Uint64("seed", 1, "world seed")
 	scenario := flag.String("scenario", "", "scenario script (JSON); only spawns are used")
@@ -28,8 +29,8 @@ func main() {
 	flag.Parse()
 
 	cfg := server.Config{
-		Addr: *addr, HTTPAddr: *httpAddr, StaticDir: *webDir, Seed: *seed,
-		SendEvery: *sendEvery, InterestRadius: *interest * 1000,
+		Addr: *addr, HTTPAddr: *httpAddr, AdminAddr: *adminAddr, StaticDir: *webDir,
+		Seed: *seed, SendEvery: *sendEvery, InterestRadius: *interest * 1000,
 	}
 	if *scenario != "" {
 		raw, err := os.ReadFile(*scenario)
@@ -51,6 +52,9 @@ func main() {
 		fmt.Println("tcp listening on", in.Addr())
 		if *httpAddr != "" {
 			fmt.Printf("web client on http://localhost%s\n", *httpAddr)
+		}
+		if *adminAddr != "" {
+			fmt.Printf("admin dashboard on http://localhost%s\n", *adminAddr)
 		}
 	}()
 	if err := in.ListenAndServe(context.Background()); err != nil {

@@ -48,6 +48,10 @@ type Config struct {
 	// StaticDir) the web client at /.
 	HTTPAddr  string
 	StaticDir string
+	// AdminAddr, if set, serves the admin dashboard and JSON API (admin.go)
+	// on its own port. No auth — bind it somewhere trusted (localhost or a
+	// tailnet), never the open internet.
+	AdminAddr string
 	Seed      uint64
 	// TickInterval defaults to one real tick (1s / core.TicksPerSecond).
 	// Tests shrink it; the sim itself never reads the clock.
@@ -70,10 +74,11 @@ type Instance struct {
 	cfg Config
 	sim *sim.Sim
 
-	mu      sync.Mutex
-	pending []core.Command
-	joins   []*client
-	leaves  []*client
+	mu       sync.Mutex
+	pending  []core.Command
+	joins    []*client
+	leaves   []*client
+	adminOps []adminOp
 
 	clients   []*client
 	joinCount int
@@ -84,7 +89,32 @@ type Instance struct {
 	eventBuf  []protocol.EventSnap
 	sinceSend int
 
+	// Pause: pauseDesired is what admin asked for (written only by adminOps,
+	// which run on the tick goroutine); paused is the announced state. While
+	// paused the world doesn't Step and player commands are discarded, but
+	// the loop keeps ticking: joins/leaves land, views keep flowing (cheap
+	// no-change deltas), and admin ops still drain.
+	pauseDesired bool
+	paused       bool
+
+	// Admin telemetry, tick-goroutine-only (admin reads it via adminOps):
+	// recent tick wall-times for the actual-rate gauge, recent wire events.
+	tickTimes    []time.Time
+	recentEvents []adminEvent
+
 	listenerAddr chan net.Addr
+}
+
+// adminOp runs a closure on the tick goroutine, where touching the world and
+// client list is safe, and reports back to the waiting admin HTTP handler.
+type adminOp struct {
+	fn    func() (any, error)
+	reply chan adminReply
+}
+
+type adminReply struct {
+	v   any
+	err error
 }
 
 // mode is how a client's views travel.
@@ -123,6 +153,10 @@ type client struct {
 	baseline  *protocol.Snapshot
 	sent      map[uint64]*protocol.Snapshot
 	sentTicks []uint64
+
+	// bytesSent feeds the admin dashboard's bandwidth column. Sends happen
+	// only on the tick goroutine, which is also where admin ops read it.
+	bytesSent uint64
 }
 
 // maxUnackedViews bounds the per-client baseline candidates (~3s at the
@@ -172,6 +206,9 @@ func (in *Instance) ListenAndServe(ctx context.Context) error {
 	go in.acceptLoop(ctx, ln)
 	if in.cfg.HTTPAddr != "" {
 		go in.serveHTTP(ctx)
+	}
+	if in.cfg.AdminAddr != "" {
+		go in.serveAdmin(ctx)
 	}
 
 	ticker := time.NewTicker(in.cfg.TickInterval)
@@ -252,8 +289,25 @@ func (in *Instance) tick() {
 	joins := in.joins
 	leaves := in.leaves
 	cmds := in.pending
-	in.joins, in.leaves, in.pending = nil, nil, nil
+	ops := in.adminOps
+	in.joins, in.leaves, in.pending, in.adminOps = nil, nil, nil, nil
 	in.mu.Unlock()
+
+	// Admin ops run here, where world and client-list access is safe. They
+	// drain even while paused — that's how resume arrives.
+	for _, op := range ops {
+		v, err := op.fn()
+		op.reply <- adminReply{v, err}
+	}
+	if in.paused != in.pauseDesired {
+		in.paused = in.pauseDesired
+		in.sendPause(in.clients, in.paused)
+	}
+
+	in.tickTimes = append(in.tickTimes, time.Now())
+	if len(in.tickTimes) > tickRateWindow {
+		in.tickTimes = in.tickTimes[1:]
+	}
 
 	for _, c := range leaves {
 		in.removeClient(c)
@@ -265,11 +319,15 @@ func (in *Instance) tick() {
 		}
 	}
 
-	// Stable sort by actor: fair, and preserves each client's own command
-	// order. Arrival interleaving across clients is network timing — the
-	// server's ordering is the authoritative one.
-	sort.SliceStable(cmds, func(i, j int) bool { return cmds[i].Actor < cmds[j].Actor })
-	in.sim.Step(cmds)
+	if !in.paused {
+		// Stable sort by actor: fair, and preserves each client's own command
+		// order. Arrival interleaving across clients is network timing — the
+		// server's ordering is the authoritative one.
+		sort.SliceStable(cmds, func(i, j int) bool { return cmds[i].Actor < cmds[j].Actor })
+		in.sim.Step(cmds)
+	}
+	// (Paused: cmds are dropped, not queued — a long pause must not release
+	// a flood of stale intent on resume.)
 
 	for _, c := range welcomes {
 		welcome, _ := json.Marshal(protocol.ServerMsg{
@@ -278,10 +336,23 @@ func (in *Instance) tick() {
 		})
 		c.send(welcome, false)
 	}
+	if in.paused && len(welcomes) > 0 {
+		in.sendPause(welcomes, true) // joined mid-pause; tell them why nothing moves
+	}
 
 	// The sim runs every tick; views go out every SendEvery ticks, carrying
-	// the events of the whole window.
-	in.eventBuf = append(in.eventBuf, in.sim.EncodeEvents()...)
+	// the events of the whole window. A paused world re-reports its last
+	// step's events, so only harvest fresh ones.
+	if !in.paused {
+		fresh := in.sim.EncodeEvents()
+		in.eventBuf = append(in.eventBuf, fresh...)
+		for _, ev := range fresh {
+			in.recentEvents = append(in.recentEvents, adminEvent{Tick: in.sim.W.Tick, EventSnap: ev})
+		}
+		if len(in.recentEvents) > adminEventCap {
+			in.recentEvents = in.recentEvents[len(in.recentEvents)-adminEventCap:]
+		}
+	}
 	in.sinceSend++
 	if in.sinceSend < in.cfg.SendEvery {
 		return
@@ -394,7 +465,19 @@ func (in *Instance) removeClient(c *client) {
 func (c *client) send(frame []byte, binary bool) bool {
 	c.wmu.Lock()
 	defer c.wmu.Unlock()
+	c.bytesSent += uint64(len(frame))
 	return c.tr.WriteFrame(frame, binary) == nil
+}
+
+// sendPause announces a pause state change. Both wires speak this JSON
+// control frame; a failed write closes the client like any send.
+func (in *Instance) sendPause(cs []*client, paused bool) {
+	frame, _ := json.Marshal(protocol.ServerMsg{Type: "pause", Paused: &paused})
+	for _, c := range cs {
+		if !c.send(frame, false) {
+			c.tr.Close()
+		}
+	}
 }
 
 // serveHTTP hosts the WebSocket endpoint (and the web client, if a static

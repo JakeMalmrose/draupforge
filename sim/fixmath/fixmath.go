@@ -26,9 +26,35 @@ func (f Fixed) Int() int64 { return int64(f / Scale) }
 // Milli returns the raw milli-unit count.
 func (f Fixed) Milli() int64 { return int64(f) }
 
-// Mul multiplies two Fixed values. Safe while |a*b| stays under ~9.2e18
-// milli², i.e. operands up to ~3 billion milli-units — far beyond game scales.
-func Mul(a, b Fixed) Fixed { return a * b / Scale }
+// Mul multiplies two Fixed values through a 128-bit intermediate, so the
+// product can never silently wrap (RISKS.md #2 — the stat evaluator's
+// multiplier chain is where power creep lands first). A result outside the
+// Fixed range panics: determinism tests catch it loudly instead of the sim
+// shipping corrupted damage.
+func Mul(a, b Fixed) Fixed {
+	ua, ub := uint64(a), uint64(b)
+	if a < 0 {
+		ua = -ua
+	}
+	if b < 0 {
+		ub = -ub
+	}
+	hi, lo := bits.Mul64(ua, ub)
+	if hi >= uint64(Scale) {
+		panic("fixmath: Mul overflow")
+	}
+	q, _ := bits.Div64(hi, lo, uint64(Scale))
+	if (a < 0) != (b < 0) {
+		if q > 1<<63 {
+			panic("fixmath: Mul overflow")
+		}
+		return -Fixed(q) // q == 1<<63 negates to MinInt64 exactly
+	}
+	if q > 1<<63-1 {
+		panic("fixmath: Mul overflow")
+	}
+	return Fixed(q)
+}
 
 // Div divides a by b. Panics on division by zero: a zero divisor in the sim
 // is always a logic bug, and silently returning 0 would hide it.
