@@ -40,7 +40,7 @@ func TestEquipAppliesModifiersAndFillsSlots(t *testing.T) {
 
 	ring1 := makeRing(w, db, core.RolledAffix{Def: lifeAffix, Value: fm.FromInt(20)})
 	d1 := w.SpawnDrop(player.Pos, ring1)
-	if !items.Equip(w, player, d1.ID) {
+	if !items.Equip(w, player, d1.ID, core.EquipAuto) {
 		t.Fatal("equip of in-range drop failed")
 	}
 	if got := player.MaxLife(); got != baseMax+fm.FromInt(20) {
@@ -53,7 +53,7 @@ func TestEquipAppliesModifiersAndFillsSlots(t *testing.T) {
 	// Second ring goes to the empty ring2.
 	ring2 := makeRing(w, db, core.RolledAffix{Def: lifeAffix, Value: fm.FromInt(10)})
 	d2 := w.SpawnDrop(player.Pos, ring2)
-	items.Equip(w, player, d2.ID)
+	items.Equip(w, player, d2.ID, core.EquipAuto)
 	if player.Equipment[core.EquipRing2] == nil {
 		t.Fatal("second ring did not land in ring2")
 	}
@@ -72,11 +72,11 @@ func TestEquipReplaceDropsOldItemAndRemovesItsMods(t *testing.T) {
 	// Fill both ring slots.
 	for i := 0; i < 2; i++ {
 		d := w.SpawnDrop(player.Pos, makeRing(w, db, core.RolledAffix{Def: lifeAffix, Value: fm.FromInt(20)}))
-		items.Equip(w, player, d.ID)
+		items.Equip(w, player, d.ID, core.EquipAuto)
 	}
 	// Third ring must displace ring1; its +20 leaves, +5 arrives.
 	d := w.SpawnDrop(player.Pos, makeRing(w, db, core.RolledAffix{Def: lifeAffix, Value: fm.FromInt(5)}))
-	items.Equip(w, player, d.ID)
+	items.Equip(w, player, d.ID, core.EquipAuto)
 
 	if got := player.MaxLife(); got != baseMax+fm.FromInt(25) {
 		t.Errorf("max life after replace = %d, want %d (20 removed, 5 added)", got, baseMax+fm.FromInt(25))
@@ -101,7 +101,7 @@ func TestEquipDisplacedFallsToGroundWhenBagFull(t *testing.T) {
 
 	for i := 0; i < 3; i++ { // third equip displaces ring1 with a full bag
 		d := w.SpawnDrop(player.Pos, makeRing(w, db))
-		items.Equip(w, player, d.ID)
+		items.Equip(w, player, d.ID, core.EquipAuto)
 	}
 	if got := liveDrops(w); got != 1 {
 		t.Errorf("live drops = %d, want 1 (full bag overflows displaced item to ground)", got)
@@ -124,7 +124,7 @@ func TestPickupAndEquipFromInventory(t *testing.T) {
 	}
 	baseMax := player.MaxLife() // picked up but not worn: no stats yet
 
-	if !items.Equip(w, player, ring.ID) {
+	if !items.Equip(w, player, ring.ID, core.EquipAuto) {
 		t.Fatal("equip from inventory failed")
 	}
 	if len(player.Inventory) != 0 {
@@ -164,7 +164,7 @@ func TestUnequipToInventory(t *testing.T) {
 
 	ring := makeRing(w, db, core.RolledAffix{Def: lifeAffix, Value: fm.FromInt(20)})
 	d := w.SpawnDrop(player.Pos, ring)
-	items.Equip(w, player, d.ID)
+	items.Equip(w, player, d.ID, core.EquipAuto)
 
 	if !items.Unequip(w, player, ring.ID) {
 		t.Fatal("unequip failed")
@@ -189,7 +189,7 @@ func TestUnequipRejectedWhenBagFull(t *testing.T) {
 
 	ring := makeRing(w, db)
 	d := w.SpawnDrop(player.Pos, ring)
-	items.Equip(w, player, d.ID)
+	items.Equip(w, player, d.ID, core.EquipAuto)
 	player.Inventory = append(player.Inventory, makeRing(w, db)) // fill the bag
 
 	if items.Unequip(w, player, ring.ID) {
@@ -230,13 +230,13 @@ func TestEquipClampsPoolsWhenMaxShrinks(t *testing.T) {
 	// Equip +25 life, top off, then replace it (ring2 also full) with an
 	// armour ring: max drops by 25 and current life must follow it down.
 	d1 := w.SpawnDrop(player.Pos, makeRing(w, db, core.RolledAffix{Def: lifeAffix, Value: fm.FromInt(25)}))
-	items.Equip(w, player, d1.ID)
+	items.Equip(w, player, d1.ID, core.EquipAuto)
 	d2 := w.SpawnDrop(player.Pos, makeRing(w, db))
-	items.Equip(w, player, d2.ID)
+	items.Equip(w, player, d2.ID, core.EquipAuto)
 	player.Life = player.MaxLife()
 
 	d3 := w.SpawnDrop(player.Pos, makeRing(w, db, core.RolledAffix{Def: armourAffix, Value: fm.FromInt(15)}))
-	items.Equip(w, player, d3.ID)
+	items.Equip(w, player, d3.ID, core.EquipAuto)
 
 	if player.Life > player.MaxLife() {
 		t.Errorf("life %d exceeds max %d after unequip — pools must clamp", player.Life, player.MaxLife())
@@ -249,15 +249,15 @@ func TestEquipRejectsOutOfRangeAndTakenDrops(t *testing.T) {
 	player := w.SpawnActor(db.Actors["player"], space.V(0, 0))
 
 	far := w.SpawnDrop(space.V(fm.FromInt(10), 0), makeRing(w, db))
-	if items.Equip(w, player, far.ID) {
+	if items.Equip(w, player, far.ID, core.EquipAuto) {
 		t.Error("equipped a drop 10 units away (pickup range is 2)")
 	}
 
 	near := w.SpawnDrop(player.Pos, makeRing(w, db))
-	if !items.Equip(w, player, near.ID) {
+	if !items.Equip(w, player, near.ID, core.EquipAuto) {
 		t.Fatal("first equip of near drop failed")
 	}
-	if items.Equip(w, player, near.ID) {
+	if items.Equip(w, player, near.ID, core.EquipAuto) {
 		t.Error("equipped the same (taken) drop twice")
 	}
 }
@@ -270,4 +270,71 @@ func liveDrops(w *core.World) int {
 		}
 	}
 	return n
+}
+
+func TestEquipToExplicitSlot(t *testing.T) {
+	db := content.DB()
+	w := core.NewWorld(db, 1)
+	player := w.SpawnActor(db.Actors["player"], space.V(0, 0))
+
+	// A ring aimed at ring2 must land there even with ring1 empty.
+	d := w.SpawnDrop(player.Pos, makeRing(w, db))
+	if !items.Equip(w, player, d.ID, core.EquipRing2) {
+		t.Fatal("explicit-slot equip failed")
+	}
+	if player.Equipment[core.EquipRing1] != nil || player.Equipment[core.EquipRing2] == nil {
+		t.Fatal("ring did not land in the named ring2 slot")
+	}
+
+	// Replacing in the same named slot displaces the old ring to the bag.
+	d2 := w.SpawnDrop(player.Pos, makeRing(w, db))
+	if !items.Equip(w, player, d2.ID, core.EquipRing2) {
+		t.Fatal("replace-in-slot equip failed")
+	}
+	if len(player.Inventory) != 1 {
+		t.Fatalf("displaced ring not in bag (bag holds %d)", len(player.Inventory))
+	}
+}
+
+func TestEquipRejectsWrongSlot(t *testing.T) {
+	db := content.DB()
+	w := core.NewWorld(db, 1)
+	player := w.SpawnActor(db.Actors["player"], space.V(0, 0))
+
+	d := w.SpawnDrop(player.Pos, makeRing(w, db))
+	if items.Equip(w, player, d.ID, core.EquipHelmet) {
+		t.Fatal("a ring equipped into the helmet slot")
+	}
+	// The rejected equip must leave the world untouched: drop still on the
+	// ground, nothing equipped, bag empty.
+	if w.DropByID(d.ID) == nil {
+		t.Error("rejected equip consumed the ground drop")
+	}
+	if len(player.Inventory) != 0 || player.Equipment[core.EquipHelmet] != nil {
+		t.Error("rejected equip moved the item anyway")
+	}
+}
+
+func TestEveryFamilyEquipsSomewhere(t *testing.T) {
+	db := content.DB()
+	w := core.NewWorld(db, 1)
+	player := w.SpawnActor(db.Actors["player"], space.V(0, 0))
+
+	for id, base := range db.BaseItems {
+		item := core.Item{ID: w.AllocID(), Base: base, Rarity: core.RarityNormal}
+		d := w.SpawnDrop(player.Pos, item)
+		if !items.Equip(w, player, d.ID, core.EquipAuto) {
+			t.Errorf("base %q would not auto-equip", id)
+		}
+	}
+	filled := 0
+	for _, it := range player.Equipment {
+		if it != nil {
+			filled++
+		}
+	}
+	// 9 bases over 10 slots: every slot but the second ring.
+	if filled != 9 {
+		t.Errorf("equipped %d slots, want 9 (one base per family)", filled)
+	}
 }

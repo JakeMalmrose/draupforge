@@ -175,6 +175,13 @@ func DecodeCommand(c protocol.Command) (core.Command, error) {
 		Skill:    c.Skill,
 		TargetID: core.EntityID(c.Target),
 	}
+	if c.Slot != "" {
+		slot, ok := core.ParseEquipSlot(c.Slot)
+		if !ok {
+			return core.Command{}, fmt.Errorf("protocol: unknown equip slot %q", c.Slot)
+		}
+		out.Slot, out.HasSlot = slot, true
+	}
 	switch c.Kind {
 	case "move":
 		out.Kind = core.CmdMove

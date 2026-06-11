@@ -175,39 +175,64 @@ type Drop struct {
 type EquipSlot uint8
 
 const (
-	EquipRing1 EquipSlot = iota
+	EquipWeapon EquipSlot = iota
+	EquipOffhand
+	EquipHelmet
+	EquipBody
+	EquipGloves
+	EquipBoots
+	EquipAmulet
+	EquipRing1
 	EquipRing2
 	EquipBelt
 
 	EquipSlotCount
+
+	// EquipAuto is the "server picks" sentinel for equip commands that
+	// don't name a slot: first empty slot in family preference order.
+	EquipAuto = EquipSlotCount
 )
 
+var equipSlotNames = [EquipSlotCount]string{
+	"weapon", "offhand", "helmet", "body", "gloves", "boots",
+	"amulet", "ring1", "ring2", "belt",
+}
+
 func (s EquipSlot) String() string {
-	switch s {
-	case EquipRing1:
-		return "ring1"
-	case EquipRing2:
-		return "ring2"
-	default:
-		return "belt"
+	if s < EquipSlotCount {
+		return equipSlotNames[s]
 	}
+	return "auto"
+}
+
+// ParseEquipSlot maps a wire slot name back to the enum; ok is false for
+// anything that isn't exactly a concrete slot name.
+func ParseEquipSlot(name string) (EquipSlot, bool) {
+	for s := EquipSlot(0); s < EquipSlotCount; s++ {
+		if equipSlotNames[s] == name {
+			return s, true
+		}
+	}
+	return EquipAuto, false
 }
 
 // SlotsFor maps an item's slot family to the concrete slots it can occupy,
 // in fill-preference order. Read-only package data.
 func SlotsFor(f SlotFamily) []EquipSlot {
-	switch f {
-	case FamilyRing:
-		return ringSlots
-	default:
-		return beltSlots
-	}
+	return familySlots[f]
 }
 
-var (
-	ringSlots = []EquipSlot{EquipRing1, EquipRing2}
-	beltSlots = []EquipSlot{EquipBelt}
-)
+var familySlots = [...][]EquipSlot{
+	FamilyWeapon:  {EquipWeapon},
+	FamilyOffhand: {EquipOffhand},
+	FamilyHelmet:  {EquipHelmet},
+	FamilyBody:    {EquipBody},
+	FamilyGloves:  {EquipGloves},
+	FamilyBoots:   {EquipBoots},
+	FamilyAmulet:  {EquipAmulet},
+	FamilyRing:    {EquipRing1, EquipRing2},
+	FamilyBelt:    {EquipBelt},
+}
 
 // Hit is one resolved-or-pending strike flowing through the damage pipeline.
 // It is created with attacker/skill identity; the pipeline fills in outcomes.

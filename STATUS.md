@@ -11,7 +11,7 @@ tests, and session-log entries older than a few sessions (git history is the
 archive). If this file outgrows ~150 lines, it has stopped being a status doc
 and started being a changelog — cut it back.
 
-**Last updated: 2026-06-10** (session 9: drag-drop inventory grid with icons + tooltips, protocol v4)
+**Last updated: 2026-06-10** (session 10: full equipment slot set, slot-addressed equip, bag rearranging)
 
 ## Where things stand
 
@@ -43,7 +43,7 @@ All foundational machinery from DESIGN.md is real, not stubbed:
 | Ailments: ignite (DoT) + chill/shock (timed sheet-modifier statuses, strongest-wins) | `sim/combat/ailments.go` | done, tested |
 | Actions (windup/recovery) + projectiles | `sim/skills` | done |
 | Loot: rarity, weighted affixes, group caps | `sim/items` | done, tested |
-| Equipment: slots, equip command, affix→sheet | `sim/items/equip.go` | done, tested |
+| Equipment: 10 slots (weapon…belt), slot-addressed equip command (auto fallback), affix→sheet | `sim/items/equip.go` | done, tested |
 | Inventory: pickup/unequip/drop_item, capacity | `sim/items/equip.go` | done, tested |
 | Server: TCP + WS transports, joins/leaves, send-rate decoupling, interest culling, binary deltas + acks, pause | `server/` | done, race-tested |
 | Admin dashboard: observe (tick health, counts, bandwidth, events, world hash) + poke (pause/resume, spawn, kick), own port, embedded HTML | `server/admin.go` | done, tested; NO AUTH — localhost/tailnet only |
@@ -51,7 +51,7 @@ All foundational machinery from DESIGN.md is real, not stubbed:
 | AI (`melee_chaser`) | `sim/ai` | minimal but real |
 | Phase order + command validation | `sim/sim.go` | done — this IS the determinism contract |
 | Wire types: versioned welcome, JSON snapshots, binary delta view codec | `protocol/` | done, tested |
-| Content tables | `content/` | fireball, frost_nova (AoE), spark, zombie_slam, 3 actors, 10 affixes, 2 bases |
+| Content tables | `content/` | fireball, frost_nova (AoE), spark, zombie_slam, 3 actors, 10 affixes, 9 bases (one per slot family) |
 | Debug client | `cmd/headless` | done |
 | Determinism + golden replay tests | `sim/sim_test.go` | done |
 
@@ -91,13 +91,12 @@ Structural risks live in `RISKS.md` — read it before building anything load-be
   a windup shorter than the send interval (~3 ticks) would slip through
   unrendered. No current skill is that fast.
 - Corpses compact away at tick end — fine until on-corpse mechanics matter.
-- Inventory is a flat ID-addressed bag — no stacking; the client's grid is
-  visual only (items compact to the front, slots aren't addressable).
-- Drag-to-equip can't target a concrete ring slot — CmdEquip carries only
-  an item ID and the server picks the slot. Needs a slot field on the
-  command if per-slot targeting ever matters.
-- Item icons are hand-drawn inline SVGs keyed by base id (2 so far);
-  unknown bases fall back to a diamond.
+- Inventory is a flat ID-addressed bag — no stacking. Bag *arrangement* is
+  client-side presentation state (`bagLayout` in client.js): rearranging
+  cells sends nothing, and the layout dies with the page (no localStorage).
+- Item icons are hand-drawn inline SVGs keyed by base id; unknown bases
+  fall back to a diamond. The client's `BASE_SLOTS` map mirrors the
+  server's slot families by hand — new base items must update both.
 - Server: no auth, no persistence (disconnect deletes the actor and its
   items), one instance per process, and a slow client can stall a tick for
   up to 1s (no per-client send queues). Fine for now; on the list.
@@ -130,6 +129,19 @@ Structural risks live in `RISKS.md` — read it before building anything load-be
 
 ## Session log
 
+- **2026-06-10 (10)** — Full equipment + slot-addressed equip. EquipSlot
+  grows to the real set (weapon/offhand/helmet/body/gloves/boots/amulet/
+  ring1/ring2/belt), one slot family each, one base item per family in
+  content (all in the zombie drop table). `CmdEquip` now carries an
+  optional slot (`HasSlot` guards the zero value); the sim validates
+  family-vs-slot before moving anything, `EquipAuto` keeps the old
+  pick-for-me behavior for scripts and gap-drops. Client: equipment is a
+  10-cell labeled grid, drags highlight only legal slots (`BASE_SLOTS`
+  mirror), drops equip into the named slot, and bag cells are
+  rearrangeable client-side (drag to cell swaps; unequip lands in the
+  cell you dropped on). Protocol v5. Golden re-recorded (hash covers 10
+  slots; loot table widened). Verified in headless Chrome: illegal drop
+  bounces, ring2-style targeting, rearrange, unequip-into-cell.
 - **2026-06-10 (9)** — Inventory UX. Panel rebuilt: fixed labeled
   equipment slots + a capacity-sized inventory grid (one item per cell),
   procedural SVG icons tinted by rarity, hover tooltips (name/rarity/

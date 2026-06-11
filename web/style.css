@@ -37,6 +37,8 @@ body {
 /* --- inventory panel --- */
 #panel {
   position: fixed;
+  user-select: none;
+  -webkit-user-select: none;
   right: 16px; top: 16px;
   width: 280px; max-height: 75vh;
   overflow-y: auto;
@@ -48,7 +50,6 @@ body {
 #panel h2 { font-size: 13px; color: #8d8678; text-transform: uppercase; letter-spacing: 1px; margin: 8px 0 6px; }
 #panel .hint { font-size: 11px; color: #55504a; margin-top: 10px; }
 
-.equip-row { display: flex; gap: 6px; }
 .inv-grid {
   display: grid;
   grid-template-columns: repeat(5, 1fr);
@@ -66,7 +67,6 @@ body {
   align-items: center;
   justify-content: center;
 }
-.equip-row .slot { width: 46px; height: 46px; flex: none; }
 .slot .slot-label {
   position: absolute;
   bottom: 1px; left: 0; right: 0;

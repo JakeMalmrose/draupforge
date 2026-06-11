@@ -80,7 +80,11 @@ func applyCommands(w *core.World, cmds []core.Command) {
 			}
 			switch c.Kind {
 			case core.CmdEquip:
-				items.Equip(w, a, c.TargetID)
+				slot := core.EquipAuto
+				if c.HasSlot {
+					slot = c.Slot
+				}
+				items.Equip(w, a, c.TargetID, slot)
 			case core.CmdPickup:
 				items.Pickup(w, a, c.TargetID)
 			case core.CmdUnequip:

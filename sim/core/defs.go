@@ -148,7 +148,14 @@ type AffixDef struct {
 type SlotFamily uint8
 
 const (
-	FamilyRing SlotFamily = iota
+	FamilyWeapon SlotFamily = iota
+	FamilyOffhand
+	FamilyHelmet
+	FamilyBody
+	FamilyGloves
+	FamilyBoots
+	FamilyAmulet
+	FamilyRing
 	FamilyBelt
 )
 

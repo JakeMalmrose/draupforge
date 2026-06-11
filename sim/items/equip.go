@@ -24,22 +24,37 @@ func Pickup(w *core.World, a *core.Actor, dropID core.EntityID) bool {
 	return true
 }
 
-// Equip wears the item named by id, sourcing it from the inventory if it's
-// there, else from a ground drop in pickup range. A displaced item goes to
-// the inventory, or the ground if the bag is full.
-func Equip(w *core.World, a *core.Actor, id core.EntityID) bool {
+// Equip wears the item named by id in the given slot (EquipAuto = first
+// empty slot in family preference order), sourcing the item from the
+// inventory if it's there, else from a ground drop in pickup range. The
+// slot must accept the item's family — a ring goes in either ring slot and
+// nowhere else. A displaced item goes to the inventory, or the ground if
+// the bag is full.
+func Equip(w *core.World, a *core.Actor, id core.EntityID, slot core.EquipSlot) bool {
+	// Resolve and validate before moving anything, so a rejected equip
+	// leaves the world untouched.
 	var item core.Item
-	if idx := inventoryIndex(a, id); idx >= 0 {
+	idx := inventoryIndex(a, id)
+	var drop *core.Drop
+	if idx >= 0 {
 		item = a.Inventory[idx]
-		a.Inventory = append(a.Inventory[:idx], a.Inventory[idx+1:]...)
-	} else if drop := w.DropByID(id); drop != nil && inPickupRange(a, drop) {
+	} else if drop = w.DropByID(id); drop != nil && inPickupRange(a, drop) {
 		item = drop.Item
-		drop.Taken = true
 	} else {
 		return false
 	}
+	if slot == core.EquipAuto {
+		slot = chooseSlot(a, item.Base.Slot)
+	} else if !slotAccepts(slot, item.Base.Slot) {
+		return false
+	}
 
-	slot := chooseSlot(a, item.Base.Slot)
+	if idx >= 0 {
+		a.Inventory = append(a.Inventory[:idx], a.Inventory[idx+1:]...)
+	} else {
+		drop.Taken = true
+	}
+
 	if old := a.Equipment[slot]; old != nil {
 		a.Sheet.RemoveSource(uint64(old.ID))
 		if hasRoom(a) {
@@ -127,6 +142,16 @@ func chooseSlot(a *core.Actor, f core.SlotFamily) core.EquipSlot {
 		}
 	}
 	return candidates[0]
+}
+
+// slotAccepts reports whether a concrete slot can hold items of a family.
+func slotAccepts(slot core.EquipSlot, f core.SlotFamily) bool {
+	for _, s := range core.SlotsFor(f) {
+		if s == slot {
+			return true
+		}
+	}
+	return false
 }
 
 // clampPools pulls current resources down to their (possibly shrunken)

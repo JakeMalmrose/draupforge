@@ -34,7 +34,13 @@ type Command struct {
 	Kind     CommandKind
 	Point    space.Vec2 // move target or projectile aim
 	Skill    string
-	TargetID EntityID // melee target
+	TargetID EntityID // melee target, or the item/drop an item verb names
+	// Slot is the concrete equipment slot for CmdEquip, honored only when
+	// HasSlot is set — so the struct's zero value means "sim picks by
+	// family preference", and hand-built commands can't accidentally
+	// target the weapon slot (slot 0).
+	Slot    EquipSlot
+	HasSlot bool
 }
 
 type EventKind uint8

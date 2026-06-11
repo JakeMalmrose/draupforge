@@ -596,11 +596,50 @@ const inventoryEl = document.getElementById("inventory");
 const invCountEl = document.getElementById("inv-count");
 const tooltipEl = document.getElementById("tooltip");
 
-const EQUIP_SLOTS = ["ring1", "ring2", "belt"];
+const EQUIP_SLOTS = [
+  "weapon", "offhand", "helmet", "body", "gloves",
+  "boots", "amulet", "ring1", "ring2", "belt",
+];
+
+// Which equipment slots each base item may occupy — mirrors the server's
+// slot families, used for drop-target highlighting and slot-addressed
+// equips. The server validates regardless.
+const BASE_SLOTS = {
+  rusty_sword: ["weapon"],
+  wooden_shield: ["offhand"],
+  leather_cap: ["helmet"],
+  leather_vest: ["body"],
+  leather_gloves: ["gloves"],
+  leather_boots: ["boots"],
+  bone_amulet: ["amulet"],
+  iron_ring: ["ring1", "ring2"],
+  leather_belt: ["belt"],
+};
 
 // Procedural item icons: inline SVG keyed by base id, tinted by rarity via
 // currentColor. Unknown bases fall back to the drops' diamond.
 const ICONS = {
+  rusty_sword:
+    '<svg viewBox="0 0 24 24"><rect x="10.5" y="2" width="3" height="13" fill="currentColor"/>' +
+    '<rect x="7" y="14" width="10" height="2.5" fill="currentColor"/>' +
+    '<rect x="10.5" y="16.5" width="3" height="5" fill="currentColor"/></svg>',
+  wooden_shield:
+    '<svg viewBox="0 0 24 24"><path d="M12 2.5 L20 5.5 V12 C20 17 16.5 20.5 12 21.5 C7.5 20.5 4 17 4 12 V5.5 Z" ' +
+    'fill="none" stroke="currentColor" stroke-width="2.5"/></svg>',
+  leather_cap:
+    '<svg viewBox="0 0 24 24"><path d="M5 14 A7 7 0 0 1 19 14 Z" fill="currentColor"/>' +
+    '<rect x="3" y="14.5" width="18" height="3" rx="1.5" fill="currentColor"/></svg>',
+  leather_vest:
+    '<svg viewBox="0 0 24 24"><path d="M8 3 L4 8 V21 H20 V8 L16 3 L12 6.5 Z" fill="currentColor"/></svg>',
+  leather_gloves:
+    '<svg viewBox="0 0 24 24"><rect x="8" y="4" width="9" height="13" rx="2" fill="currentColor"/>' +
+    '<rect x="4.5" y="9" width="5" height="3.5" rx="1.5" fill="currentColor"/>' +
+    '<rect x="8" y="18" width="9" height="3" fill="currentColor"/></svg>',
+  leather_boots:
+    '<svg viewBox="0 0 24 24"><path d="M7 3 H13 V13 H20 V20 H7 Z" fill="currentColor"/></svg>',
+  bone_amulet:
+    '<svg viewBox="0 0 24 24"><path d="M5 4 A 9 9 0 0 0 19 4" fill="none" stroke="currentColor" stroke-width="2"/>' +
+    '<rect x="9" y="11" width="6" height="6" transform="rotate(45 12 14)" fill="currentColor"/></svg>',
   iron_ring:
     '<svg viewBox="0 0 24 24"><circle cx="12" cy="13.5" r="6" fill="none" stroke="currentColor" stroke-width="3"/>' +
     '<rect x="9.5" y="2" width="5" height="5" transform="rotate(45 12 4.5)" fill="currentColor"/></svg>',
@@ -647,18 +686,28 @@ function hideTooltip() {
 
 // --- drag and drop
 
-let drag = null; // { id, from: "inv" | "equip" }
+let drag = null; // { id, from: "inv" | "equip", base }
+
+function legalEquipSlots(base) {
+  return BASE_SLOTS[base] || [];
+}
 
 function makeDraggable(el, item, from) {
   el.draggable = true;
   el.addEventListener("dragstart", (e) => {
-    drag = { id: item.id, from };
+    drag = { id: item.id, from, base: item.base };
     el.classList.add("dragging");
     hideTooltip();
     e.dataTransfer.effectAllowed = "move";
     e.dataTransfer.setData("text/plain", String(item.id));
-    const targets = from === "inv" ? equipmentEl : inventoryEl;
-    for (const s of targets.children) s.classList.add("drop-ok");
+    // Highlight legal targets: matching equipment slots for bag items,
+    // plus all bag cells (rearrange, or the unequip destination).
+    if (from === "inv") {
+      for (const s of equipmentEl.children) {
+        if (legalEquipSlots(item.base).includes(s.dataset.slot)) s.classList.add("drop-ok");
+      }
+    }
+    for (const s of inventoryEl.children) s.classList.add("drop-ok");
   });
   el.addEventListener("dragend", () => {
     drag = null;
@@ -673,6 +722,50 @@ function clearDropHighlights() {
   }
 }
 
+// equipSlotZone makes one labeled equipment slot accept bag items whose
+// base belongs there, equipping into THIS slot — a ring dragged onto ring2
+// goes to ring2.
+function equipSlotZone(div, name) {
+  div.dataset.slot = name;
+  div.addEventListener("dragover", (e) => {
+    if (drag && drag.from === "inv" && legalEquipSlots(drag.base).includes(name)) {
+      e.preventDefault();
+    }
+  });
+  div.addEventListener("drop", (e) => {
+    if (!drag || drag.from !== "inv" || !legalEquipSlots(drag.base).includes(name)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    send({ kind: "equip", target: drag.id, slot: name });
+    drag = null;
+    clearDropHighlights();
+  });
+}
+
+// bagCellZone makes one bag cell accept drags: bag→cell rearranges (pure
+// client state), equipment→cell unequips with the item landing in that
+// cell.
+function bagCellZone(div, idx) {
+  div.addEventListener("dragover", (e) => {
+    if (drag) e.preventDefault();
+  });
+  div.addEventListener("drop", (e) => {
+    if (!drag) return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (drag.from === "inv") {
+      moveBagItem(drag.id, idx);
+    } else {
+      bagLayout.set(drag.id, idx);
+      send({ kind: "unequip", target: drag.id });
+    }
+    drag = null;
+    clearDropHighlights();
+  });
+}
+
+// Container-level fallbacks for drops that land in the gaps: equipment
+// area picks the slot automatically, bag area takes unequips wherever.
 function makeDropZone(el, accepts, action) {
   el.addEventListener("dragover", (e) => {
     if (drag && drag.from === accepts) e.preventDefault();
@@ -690,6 +783,46 @@ makeDropZone(equipmentEl, "inv", (id) => send({ kind: "equip", target: id }));
 makeDropZone(inventoryEl, "equip", (id) => send({ kind: "unequip", target: id }));
 makeDropZone(canvas, "inv", (id) => send({ kind: "drop_item", target: id }));
 
+// --- bag layout: which cell each item sits in. Client-side only — the
+// server's bag is an ordered list; the arrangement is presentation state,
+// reconciled against the server's contents every render.
+
+const bagLayout = new Map(); // item id -> cell index
+
+function layoutBag(inv, cap) {
+  for (const id of [...bagLayout.keys()]) {
+    if (!inv.some((i) => i.id === id)) bagLayout.delete(id);
+  }
+  const used = new Set();
+  for (const [id, c] of [...bagLayout]) {
+    if (c >= cap || used.has(c)) bagLayout.delete(id);
+    else used.add(c);
+  }
+  const cells = new Array(cap).fill(null);
+  let next = 0;
+  for (const it of inv) {
+    let c = bagLayout.get(it.id);
+    if (c === undefined) {
+      while (used.has(next) && next < cap) next++;
+      c = Math.min(next, cap - 1);
+      bagLayout.set(it.id, c);
+      used.add(c);
+    }
+    cells[c] = it;
+  }
+  return cells;
+}
+
+// moveBagItem reassigns an item to a cell, swapping with any occupant.
+function moveBagItem(id, idx) {
+  const from = bagLayout.get(id);
+  for (const [oid, c] of bagLayout) {
+    if (c === idx && oid !== id && from !== undefined) bagLayout.set(oid, from);
+  }
+  bagLayout.set(id, idx);
+  renderPanel(me(), true);
+}
+
 // --- slot rendering
 
 function slotDiv(label) {
@@ -706,6 +839,7 @@ function slotDiv(label) {
 
 function fillSlot(div, item, from, where) {
   div.classList.add("filled", `rarity-${item.rarity}`);
+  div.dataset.base = item.base;
   div.insertAdjacentHTML("afterbegin", ICONS[item.base] || ICON_FALLBACK);
   makeDraggable(div, item, from);
   div.addEventListener("mouseenter", (e) => showTooltip(item, where, e));
@@ -739,6 +873,7 @@ function renderPanel(self, force) {
   for (const eq of self.equipment || []) bySlot.set(eq.slot, eq.item);
   for (const name of EQUIP_SLOTS) {
     const div = slotDiv(name);
+    equipSlotZone(div, name);
     const item = bySlot.get(name);
     if (item) fillSlot(div, item, "equip", name);
     equipmentEl.appendChild(div);
@@ -747,9 +882,11 @@ function renderPanel(self, force) {
   const inv = self.inventory || [];
   const cap = self.inv_size || inv.length;
   invCountEl.textContent = `(${inv.length}/${cap})`;
+  const cells = layoutBag(inv, cap);
   for (let i = 0; i < cap; i++) {
     const div = slotDiv();
-    if (i < inv.length) fillSlot(div, inv[i], "inv", null);
+    bagCellZone(div, i);
+    if (cells[i]) fillSlot(div, cells[i], "inv", legalEquipSlots(cells[i].base).join("/"));
     inventoryEl.appendChild(div);
   }
 }

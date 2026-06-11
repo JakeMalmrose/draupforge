@@ -227,6 +227,13 @@ func affixDefs() []*core.AffixDef {
 
 func baseItemDefs() []*core.BaseItemDef {
 	return []*core.BaseItemDef{
+		{ID: "rusty_sword", Name: "Rusty Sword", Slot: core.FamilyWeapon},
+		{ID: "wooden_shield", Name: "Wooden Shield", Slot: core.FamilyOffhand},
+		{ID: "leather_cap", Name: "Leather Cap", Slot: core.FamilyHelmet},
+		{ID: "leather_vest", Name: "Leather Vest", Slot: core.FamilyBody},
+		{ID: "leather_gloves", Name: "Leather Gloves", Slot: core.FamilyGloves},
+		{ID: "leather_boots", Name: "Leather Boots", Slot: core.FamilyBoots},
+		{ID: "bone_amulet", Name: "Bone Amulet", Slot: core.FamilyAmulet},
 		{ID: "iron_ring", Name: "Iron Ring", Slot: core.FamilyRing},
 		{ID: "leather_belt", Name: "Leather Belt", Slot: core.FamilyBelt},
 	}
@@ -237,7 +244,11 @@ func lootTableDefs() []*core.LootTableDef {
 		{
 			ID:         "zombie_drops",
 			DropChance: fm.One, // always, while loot is the thing being proven
-			Bases:      []string{"iron_ring", "leather_belt"},
+			Bases: []string{
+				"rusty_sword", "wooden_shield", "leather_cap", "leather_vest",
+				"leather_gloves", "leather_boots", "bone_amulet", "iron_ring",
+				"leather_belt",
+			},
 		},
 	}
 }

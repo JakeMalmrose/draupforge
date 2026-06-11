@@ -8,7 +8,7 @@ package protocol
 // it on any change a deployed client could misread — renamed/removed JSON
 // fields (omitempty makes those fail silently) or any binary frame layout
 // change. Clients hard-fail on mismatch instead of limping.
-const Version = 4 // v4: inventory capacity on actor snaps
+const Version = 5 // v5: full equipment slot set; slot-addressed equip commands
 
 // Command is the wire form of player intent. Kind is one of "move",
 // "use_skill", "stop", the item verbs "pickup", "equip", "unequip",
@@ -23,6 +23,9 @@ type Command struct {
 	Y      int64  `json:"y,omitempty"`
 	Skill  string `json:"skill,omitempty"`
 	Target uint64 `json:"target,omitempty"`
+	// Slot names the concrete equipment slot for "equip" ("weapon",
+	// "ring2", ...); empty lets the sim pick by family preference.
+	Slot string `json:"slot,omitempty"`
 }
 
 type Vec struct {
