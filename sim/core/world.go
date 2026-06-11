@@ -56,6 +56,7 @@ const (
 	EvUnequip
 	EvChill
 	EvShock
+	EvBuff
 )
 
 func (k EventKind) String() string {
@@ -78,6 +79,8 @@ func (k EventKind) String() string {
 		return "chill"
 	case EvShock:
 		return "shock"
+	case EvBuff:
+		return "buff"
 	default:
 		return "unequip"
 	}
@@ -110,6 +113,12 @@ type World struct {
 
 	// Hits queued this tick, resolved in queue order by the combat phase.
 	PendingHits []Hit
+
+	// Buffs queued this tick (skill effect points), applied in queue order
+	// by the combat phase before hits resolve — chronologically faithful,
+	// since effect points fire in the action phase. Same pattern as hits so
+	// skills stays a leaf package.
+	PendingBuffs []PendingBuff
 
 	// Independent streams so adding a roll in one system doesn't reshuffle
 	// the others in replays.
@@ -193,6 +202,15 @@ func (w *World) SpawnDrop(pos space.Vec2, item Item) *Drop {
 func (w *World) ActorByID(id EntityID) *Actor { return w.idx[id] }
 
 func (w *World) QueueHit(h Hit) { w.PendingHits = append(w.PendingHits, h) }
+
+// PendingBuff is one queued buff application awaiting the combat phase.
+type PendingBuff struct {
+	Target EntityID
+	Buff   *BuffDef
+	Source EntityID
+}
+
+func (w *World) QueueBuff(b PendingBuff) { w.PendingBuffs = append(w.PendingBuffs, b) }
 
 func (w *World) Emit(e Event) {
 	e.Tick = w.Tick

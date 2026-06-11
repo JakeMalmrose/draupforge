@@ -67,6 +67,9 @@ const (
 	// SkillNova hits every hostile actor within AoERadius of the caster at
 	// the effect point. Self-centered; AimPoint is ignored.
 	SkillNova
+	// SkillBuff applies the skill's SelfBuff to the caster at the effect
+	// point. No hits, no targets, no RNG.
+	SkillBuff
 )
 
 type SkillDef struct {
@@ -103,6 +106,42 @@ type SkillDef struct {
 	// stats. Chill has no chance: every cold-damage hit chills, magnitude
 	// scaled by hit size.
 	ShockChance fm.Fixed
+
+	// SelfBuff names the BuffDef a SkillBuff skill applies to its caster.
+	SelfBuff string
+}
+
+// BuffMod is one modifier a buff grants, exactly as authored — buffs are
+// fixed packages, unlike ailments whose magnitude scales with the hit.
+type BuffMod struct {
+	Stat  stats.StatID
+	Layer stats.Layer
+	Value fm.Fixed
+	Tags  stats.TagSet
+}
+
+// BuffDef is a content-defined timed status: a package of stat modifiers
+// with a duration. Reapplication refreshes the timer; one instance per def
+// per actor.
+type BuffDef struct {
+	ID            string
+	Name          string
+	DurationTicks uint32
+	Mods          []BuffMod
+}
+
+// ModSource is the sheet source a buff's modifiers are granted under. The
+// top two bits mark buff-space — disjoint from entity IDs (high bit clear)
+// and ailment sources (bit 62 clear) — and the rest is an FNV-1a of the
+// buff ID, so the source survives content reordering and save/restore.
+// content.DB() asserts no two buffs collide.
+func (b *BuffDef) ModSource() uint64 {
+	h := uint64(fnvOffset)
+	for i := 0; i < len(b.ID); i++ {
+		h ^= uint64(b.ID[i])
+		h *= fnvPrime
+	}
+	return 3<<62 | h&^(uint64(3)<<62)
 }
 
 type ActorDef struct {
@@ -183,4 +222,5 @@ type ContentDB struct {
 	Affixes    []*AffixDef
 	BaseItems  map[string]*BaseItemDef
 	LootTables map[string]*LootTableDef
+	Buffs      map[string]*BuffDef
 }

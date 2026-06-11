@@ -8,7 +8,7 @@ package protocol
 // it on any change a deployed client could misread — renamed/removed JSON
 // fields (omitempty makes those fail silently) or any binary frame layout
 // change. Clients hard-fail on mismatch instead of limping.
-const Version = 6 // v6: welcome carries the terrain map (tile grid)
+const Version = 7 // v7: AilBuffed bit, "buff" events, adrenaline on T
 
 // Command is the wire form of player intent. Kind is one of "move",
 // "use_skill", "stop", the item verbs "pickup", "equip", "unequip",
@@ -45,7 +45,8 @@ type ActorSnap struct {
 	MaxMana int64  `json:"max_mana"`
 	ES      int64  `json:"es,omitempty"`
 	Action  string `json:"action"`
-	// Ail is the active-ailment bitmask: 1 ignited, 2 chilled, 4 shocked.
+	// Ail is the active-status bitmask: 1 ignited, 2 chilled, 4 shocked,
+	// 8 buffed.
 	Ail uint8 `json:"ail,omitempty"`
 	// InvSize is the bag capacity (0 = carries nothing). Static per def;
 	// travels in the identity field group on the binary wire.
@@ -59,6 +60,7 @@ const (
 	AilIgnited uint8 = 1 << iota
 	AilChilled
 	AilShocked
+	AilBuffed // any content-defined buff is active
 )
 
 type EquippedSnap struct {

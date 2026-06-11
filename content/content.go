@@ -30,7 +30,32 @@ func DB() *core.ContentDB {
 	for _, t := range lootTableDefs() {
 		db.LootTables[t.ID] = t
 	}
+	db.Buffs = map[string]*core.BuffDef{}
+	sources := map[uint64]string{}
+	for _, b := range buffDefs() {
+		// ModSource hashes the ID — astronomically unlikely to collide, but
+		// a collision would silently merge two buffs' modifiers, so check.
+		if other, dup := sources[b.ModSource()]; dup {
+			panic("content: buff mod-source collision: " + b.ID + " vs " + other)
+		}
+		sources[b.ModSource()] = b.ID
+		db.Buffs[b.ID] = b
+	}
 	return db
+}
+
+func buffDefs() []*core.BuffDef {
+	return []*core.BuffDef{
+		{
+			ID:            "adrenaline",
+			Name:          "Adrenaline",
+			DurationTicks: 4 * core.TicksPerSecond,
+			Mods: []core.BuffMod{
+				{Stat: stats.MoveSpeed, Layer: stats.LayerIncreased, Value: fm.FromMilli(300)},
+				{Stat: stats.Damage, Layer: stats.LayerIncreased, Value: fm.FromMilli(200)},
+			},
+		},
+	}
 }
 
 func skillDefs() []*core.SkillDef {
@@ -117,7 +142,19 @@ func skillDefs() []*core.SkillDef {
 	boneArrow.BaseMin[core.Physical] = fm.FromInt(5)
 	boneArrow.BaseMax[core.Physical] = fm.FromInt(9)
 
-	return []*core.SkillDef{fireball, slam, frostNova, spark, boneArrow}
+	adrenaline := &core.SkillDef{
+		ID:            "adrenaline",
+		Name:          "Adrenaline",
+		Kind:          core.SkillBuff,
+		Tags:          stats.T(stats.TagSpell),
+		ManaCost:      fm.FromInt(15),
+		WindupTicks:   6, // 0.2s — a quick shout, not a cast
+		RecoveryTicks: 9,
+		SpeedStat:     stats.CastSpeed,
+		SelfBuff:      "adrenaline",
+	}
+
+	return []*core.SkillDef{fireball, slam, frostNova, spark, boneArrow, adrenaline}
 }
 
 func baseStats(pairs map[stats.StatID]fm.Fixed) [stats.StatCount]fm.Fixed {
@@ -150,7 +187,7 @@ func actorDefs() []*core.ActorDef {
 			stats.Armour:     fm.FromInt(20),
 			stats.CritChance: fm.FromMilli(50), // 5%
 		}),
-		Skills:        []string{"fireball", "frost_nova", "spark"},
+		Skills:        []string{"fireball", "frost_nova", "spark", "adrenaline"},
 		InventorySize: 20,
 	}
 

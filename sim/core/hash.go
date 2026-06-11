@@ -68,6 +68,9 @@ func (w *World) Hash() uint64 {
 		s.u64(uint64(len(a.Statuses)))
 		for _, st := range a.Statuses {
 			s.u64(uint64(st.Kind))
+			if st.Buff != nil {
+				s.str(st.Buff.ID)
+			}
 			s.i64(st.Magnitude.Milli())
 			s.u64(uint64(st.TicksLeft))
 		}

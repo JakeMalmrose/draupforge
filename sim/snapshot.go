@@ -158,6 +158,8 @@ func ailmentBits(a *core.Actor) uint8 {
 			b |= protocol.AilChilled
 		case core.StatusShock:
 			b |= protocol.AilShocked
+		case core.StatusBuff:
+			b |= protocol.AilBuffed
 		}
 	}
 	return b

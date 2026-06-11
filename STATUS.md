@@ -11,15 +11,15 @@ tests, and session-log entries older than a few sessions (git history is the
 archive). If this file outgrows ~150 lines, it has stopped being a status doc
 and started being a changelog — cut it back.
 
-**Last updated: 2026-06-10** (session 11: map gen + A* pathing behind the
-Walkable seam, skeleton archer with ranged-kiter AI)
+**Last updated: 2026-06-11** (session 12: risk burndown — TagSet widened,
+world save/restore + dashboard operate tier, content-defined buffs)
 
 ## Where things stand
 
 The game is playable in a browser, now in a generated dungeon: `cmd/server`
 hosts the sim (TCP/NDJSON and WebSocket, same frames) and serves `web/` — a
 no-build-step canvas client with click-to-move (pathing around walls),
-Q fireball / E nova / R spark, drop pickup, a drag-drop inventory panel (I)
+Q fireball / E nova / R spark / T adrenaline (self-buff), drop pickup, a drag-drop inventory panel (I)
 with item icons and hover tooltips, HUD orbs, an event log, and a death
 screen. The full item flow works (kill → drop → pickup → bag → equip →
 affixes on the sheet); damage runs the whole pipeline; elemental hits
@@ -43,7 +43,8 @@ All foundational machinery from DESIGN.md is real, not stubbed:
 | Stat algebra (flat/inc/more/override + tags) | `sim/stats` | done, tested, memoized |
 | World/Actor/Hit/defs, RNG, state hashing | `sim/core` | done |
 | Damage pipeline + DoTs + regen | `sim/combat` | done, tested |
-| Ailments: ignite (DoT) + chill/shock (timed sheet-modifier statuses, strongest-wins) | `sim/combat/ailments.go` | done, tested |
+| Statuses: ignite (DoT) + chill/shock (hit-scaled, strongest-wins) + content buffs (`BuffDef` packages, refresh-not-stack, `SkillBuff` skills via pending-buff queue) | `sim/combat/ailments.go`, `buff.go` | done, tested |
+| Persistence: `World.Save`/`LoadWorld` (versioned JSON, content by string ID, bit-exact continuation), admin `POST /api/save`, `cmd/server -load` | `sim/core/save.go`, `sim/space/save.go` | done, tested |
 | Actions (windup/recovery) + projectiles | `sim/skills` | done |
 | Loot: rarity, weighted affixes, group caps | `sim/items` | done, tested |
 | Equipment: 10 slots (weapon…belt), slot-addressed equip command (auto fallback), affix→sheet | `sim/items/equip.go` | done, tested |
@@ -69,11 +70,17 @@ All foundational machinery from DESIGN.md is real, not stubbed:
 - Per-damage-type stat queries REPLACE the damage-type tag in the context
   (see `damageTypeTags` in `sim/combat/pipeline.go`). Session 1 shipped and
   fixed a bug here — added-fire was leaking into other types' rolls.
-- Ailment statuses grant their sheet modifiers under
-  `StatusKind.ModSource()` (high bit set — disjoint from item-ID sources);
-  `TickStatuses` removes them at expiry. Chill consumes no combat RNG and
-  shock rolls only on lightning damage — `TestAilmentRNGConsumption` pins
+- Statuses grant their sheet modifiers under `Status.ModSource()`: ailments
+  use `StatusKind.ModSource()` (high bit set, bit 62 clear), buffs use
+  `BuffDef.ModSource()` (top two bits set + FNV of the buff ID — stable
+  across content reordering and saves; content.DB() panics on collision).
+  Both spaces are disjoint from item-ID sources. `TickStatuses` removes
+  them at expiry. Chill consumes no combat RNG, shock rolls only on
+  lightning damage, buffs consume none — `TestAilmentRNGConsumption` pins
   the stream alignment so old fire-only replays stay stable.
+- Saves are durable state: any new world state ships its save-format
+  support (and a `SaveVersion` bump on shape changes) in the same commit.
+  Save only at tick boundaries; `World.Save` refuses pending hits/buffs.
 - Golden replays: any behavior change fails `TestGoldenReplay` (open plane,
   `golden_slice.txt`) and/or `TestGoldenDungeon` (generated map + pathing +
   ranged AI, `golden_dungeon.txt`). If intentional, re-record both:
@@ -88,7 +95,7 @@ All foundational machinery from DESIGN.md is real, not stubbed:
   Any wire change updates both AND bumps `protocol.Version` — a stale client
   fails loudly at the welcome instead of misreading frames.
 
-Structural risks live in `RISKS.md` — read it before building anything load-bearing (top one by far: no persistence story).
+Structural risks live in `RISKS.md` — read it before building anything load-bearing. Top risks #1 (persistence) and #2 (TagSet) closed 2026-06-11; the action model (channelling/stun/interrupt) is the register's top entry now.
 
 ## Known shortcuts (deliberate, fine for now)
 
@@ -135,33 +142,39 @@ Structural risks live in `RISKS.md` — read it before building anything load-be
 
 ## Natural next steps (in rough order of leverage)
 
-Standing recommendation (set 2026-06-10, after the mapgen/pathing run):
-**start with #1.** The sim loop is now feature-whole for a vertical slice —
-geometry, combat, loot, two AI archetypes — and the biggest remaining
-structural debt is that all of it evaporates on disconnect.
+Standing recommendation (set 2026-06-11, after the risk-burndown run): the
+foundations are no longer the bottleneck — pick by what makes play better.
 
-1. **World persistence (RISKS.md #1) + the dashboard's operate tier**
-   (save/load/rollback, parked at the bottom of RISKS.md) — natural pair;
-   the observe/poke tiers already exist to receive it. The retrofit grows
-   riskier every session (terrain just added another pointer graph:
-   `World.Grid`), and save/restore is also the foundation rollback netcode
-   and instance handoff need.
-2. **Quick bite that fits any session: base-item implicits.** Ten slots
-   shipped, but seven of the nine bases are stat-less affix-holders. An
-   implicit modifier per base (boots = move speed, shield = armour,
-   amulet = a resist) is a small `BaseItemDef` addition that makes the
-   slots meaningful and drops worth reading.
-3. **Dungeon playability pass**, if a play session grates: spawn-room
-   safety (no aggro pathing into the entry room for the first N seconds),
-   arrow projectile leading, a minimap or explored-fog overlay. All
-   client/AI polish, no new systems.
-4. Server hardening: replay log, per-client send queues — when strangers
+1. **Quick bite that fits any session: base-item implicits.** Seven of the
+   nine bases are stat-less affix-holders. An implicit modifier per base
+   (boots = move speed, shield = armour, amulet = a resist) is a small
+   `BaseItemDef` addition that makes the slots meaningful and drops worth
+   reading.
+2. **Dungeon playability pass**, if a play session grates: spawn-room
+   safety, arrow projectile leading, a minimap or explored-fog overlay.
+   All client/AI polish, no new systems.
+3. **Action-model growth (RISKS.md #1)** when a feature wants it:
+   channelling or stun/interrupt — design the action state machine
+   deliberately before the feature forces it.
+4. **Session identity + periodic autosave** — persistence exists; a small
+   account/session layer would make disconnects survivable for players,
+   not just worlds.
+5. Server hardening: replay log, per-client send queues — when strangers
    connect, not before.
-5. Client prediction for own-character feel (the wasm question) — only if
-   input latency starts to grate; interpolation covers everything else.
 
 ## Session log
 
+- **2026-06-11 (12)** — Risk burndown, top three in one run. (a) TagSet:
+  uint64 → compile-time-sized word array off `TagCount`; future widenings
+  are automatic and golden-invisible. (b) Persistence: `sim/core/save.go`
+  + `sim/space/save.go` serialize world ↔ versioned JSON; restored worlds
+  continue bit-identically (continuation tests); admin save button/API +
+  `cmd/server -load` (orphan player actors removed at load, gear dropped).
+  (c) Buffs: `Actor.Statuses` generalized — `BuffDef` content packages,
+  `SkillBuff` kind, pending-buff queue resolved before hits, `adrenaline`
+  player skill on T, AilBuffed ring. Protocol v7. Goldens untouched (all
+  three changes are behavior-neutral for existing scenarios); verified
+  live over the TCP wire and a save/restart cycle.
 - **2026-06-10 (11)** — Terrain. `sim/space` grows a tile Grid (one shared
   clearance radius, eroded walkability, fixed-point DDA `SegmentHit`,
   deterministic A* with seq-tie-broken heap + string-pulling smoothing) and

@@ -112,10 +112,11 @@ func grantStatusMods(a *core.Actor, kind core.StatusKind, mag fm.Fixed) {
 	}
 }
 
-// TickStatuses advances every status timer by one tick, removing the
-// granted modifiers at expiry. Note for actions in flight: chill slows
-// movement immediately (speed is read every tick) but a windup already
-// counted keeps its tick count — speeds bind at use time, like cast speed.
+// TickStatuses advances every status timer — ailment or buff — by one tick,
+// removing the granted modifiers at expiry. Note for actions in flight:
+// chill slows movement immediately (speed is read every tick) but a windup
+// already counted keeps its tick count — speeds bind at use time, like cast
+// speed.
 func TickStatuses(w *core.World) {
 	for _, a := range w.Actors {
 		if a.Dead || len(a.Statuses) == 0 {
@@ -128,7 +129,7 @@ func TickStatuses(w *core.World) {
 				out = append(out, s)
 				continue
 			}
-			a.Sheet.RemoveSource(s.Kind.ModSource())
+			a.Sheet.RemoveSource(s.ModSource())
 		}
 		a.Statuses = out
 	}

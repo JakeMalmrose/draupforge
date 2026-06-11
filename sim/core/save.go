@@ -79,6 +79,7 @@ type dotSave struct {
 
 type statusSave struct {
 	Kind      uint8    `json:"kind"`
+	Buff      string   `json:"buff,omitempty"` // BuffDef ID for StatusBuff entries
 	Magnitude fm.Fixed `json:"magnitude"`
 	TicksLeft uint32   `json:"ticks_left"`
 	Source    uint64   `json:"source"`
@@ -120,8 +121,8 @@ type dropSave struct {
 // Save serializes the world at a tick boundary.
 func (w *World) Save() ([]byte, error) {
 	// w.events may still hold last tick's drained events (BeginTick recycles
-	// the slice) — only unresolved hits mean we're genuinely mid-tick.
-	if len(w.PendingHits) > 0 {
+	// the slice) — only unresolved hits or buffs mean we're genuinely mid-tick.
+	if len(w.PendingHits) > 0 || len(w.PendingBuffs) > 0 {
 		return nil, errors.New("core: world can only be saved at a tick boundary")
 	}
 	sf := saveFile{
@@ -203,9 +204,13 @@ func encodeActor(a *Actor) actorSave {
 		})
 	}
 	for _, s := range a.Statuses {
-		as.Statuses = append(as.Statuses, statusSave{
+		ss := statusSave{
 			Kind: uint8(s.Kind), Magnitude: s.Magnitude, TicksLeft: s.TicksLeft, Source: uint64(s.Source),
-		})
+		}
+		if s.Buff != nil {
+			ss.Buff = s.Buff.ID
+		}
+		as.Statuses = append(as.Statuses, ss)
 	}
 	for slot, item := range a.Equipment {
 		if item != nil {
@@ -340,9 +345,16 @@ func decodeActor(db *ContentDB, affixes map[string]*AffixDef, as actorSave) (*Ac
 		})
 	}
 	for _, ss := range as.Statuses {
-		a.Statuses = append(a.Statuses, Status{
+		st := Status{
 			Kind: StatusKind(ss.Kind), Magnitude: ss.Magnitude, TicksLeft: ss.TicksLeft, Source: EntityID(ss.Source),
-		})
+		}
+		if st.Kind == StatusBuff {
+			st.Buff = db.Buffs[ss.Buff]
+			if st.Buff == nil {
+				return nil, fmt.Errorf("core: save references unknown buff %q", ss.Buff)
+			}
+		}
+		a.Statuses = append(a.Statuses, st)
 	}
 	if len(as.Equipment) > int(EquipSlotCount) {
 		return nil, fmt.Errorf("core: actor %d has %d equipment slots, this build knows %d", as.ID, len(as.Equipment), EquipSlotCount)

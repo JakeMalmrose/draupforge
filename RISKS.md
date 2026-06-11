@@ -4,14 +4,17 @@ Known structural risks, ranked by how hard they'd be to recover from — not a
 TODO list. Re-rank when one gets mitigated or a new one shows up; delete
 entries that stop being true (same pruning rule as STATUS.md).
 
-## 1. One-action-at-a-time actor model is too small for the genre
+## 1. Action model is still one-thing-at-a-time
 
-No buffs/debuffs with durations (only DoTs), no channelling, no
-cast-while-moving, no stun/interrupt semantics. The stat system is ready
-(sourced, removable modifiers) but nothing ticks temporary effects. Action
-semantics leak into AI, command validation, and netcode feel — grow this
-deliberately (status-effect container first, channelling later) rather than
-discovering it mid-feature.
+The status-effect container shipped 2026-06-11 (the first step this entry
+prescribed): `Actor.Statuses` now holds ailments and content-defined buffs
+(`BuffDef` = modifier package + duration; applied via `SkillBuff` skills
+through a pending-buff queue, refresh-not-stack, retired by the same
+`TickStatuses` as ailments) — "buffs/debuffs with durations" is no longer
+missing. What remains is the action model itself: no channelling, no
+cast-while-moving, no stun/interrupt semantics. Action semantics leak into
+AI, command validation, and netcode feel — grow them deliberately, not
+mid-feature.
 
 ## Smaller, recoverable (listed for honesty)
 

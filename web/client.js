@@ -431,6 +431,7 @@ const AILMENT_RINGS = [
   [1, "#e67e22cc"], // ignited
   [2, "#7fd4ffcc"], // chilled
   [4, "#f5e25fcc"], // shocked
+  [8, "#9fff9fcc"], // buffed
 ];
 
 const PROJ_COLORS = {
@@ -636,6 +637,9 @@ window.addEventListener("keydown", (e) => {
       send({ kind: "use_skill", skill: "spark", x: toMilli(w.x), y: toMilli(w.y) });
       break;
     }
+    case "t":
+      send({ kind: "use_skill", skill: "adrenaline" });
+      break;
     case "i":
       panel.classList.toggle("hidden");
       if (!panel.classList.contains("hidden")) renderPanel(me(), true);

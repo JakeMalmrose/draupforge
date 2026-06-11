@@ -95,8 +95,9 @@ func (s *Sim) Step(cmds []core.Command) {
 	combat.Upkeep(w)               // regen, so this tick's casts see fresh mana
 	applyCommands(w, cmds)         // player/network intent
 	applyCommands(w, ai.Decide(w)) // monster intent, same validation gate
-	skills.AdvanceActions(w)       // movement + windup/recovery; effects queue hits
+	skills.AdvanceActions(w)       // movement + windup/recovery; effects queue hits/buffs
 	skills.UpdateProjectiles(w)    // flight + collision; impacts queue hits
+	combat.ResolveBuffs(w)         // buff applications land before hits resolve
 	combat.ResolveHits(w)          // the damage pipeline, in queue order
 	combat.TickDoTs(w)             // ignites and friends
 	combat.TickStatuses(w)         // chill/shock timers; modifiers off at expiry

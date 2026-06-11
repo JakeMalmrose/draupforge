@@ -106,6 +106,10 @@ func fire(w *core.World, a *core.Actor) {
 			Skill:    sk,
 			Tags:     sk.Tags.With(stats.TagHit),
 		})
+	case core.SkillBuff:
+		if def := w.Content.Buffs[sk.SelfBuff]; def != nil {
+			w.QueueBuff(core.PendingBuff{Target: a.ID, Buff: def, Source: a.ID})
+		}
 	case core.SkillNova:
 		// One independent hit per target (own damage roll, own crit roll),
 		// queued in actor slice order.

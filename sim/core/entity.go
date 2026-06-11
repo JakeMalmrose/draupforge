@@ -55,13 +55,17 @@ type DoT struct {
 	Source    EntityID
 }
 
-// StatusKind enumerates the non-damaging ailments: timed packages of stat
-// modifiers, as opposed to DoTs which deal damage and touch no stats.
+// StatusKind discriminates the timed-status container's entries: built-in
+// ailments (magnitude scales with the hit, strongest wins) and
+// content-defined buffs (fixed modifier packages, duration refreshes). All
+// of them are packages of stat modifiers on a timer — DoTs deal damage and
+// touch no stats, so they live elsewhere.
 type StatusKind uint8
 
 const (
 	StatusChill StatusKind = iota // less action speed, from cold hits
 	StatusShock                   // increased damage taken, from lightning hits
+	StatusBuff                    // content-defined: Status.Buff names the def
 
 	StatusKindCount
 )
@@ -70,25 +74,37 @@ func (k StatusKind) String() string {
 	switch k {
 	case StatusChill:
 		return "chill"
-	default:
+	case StatusShock:
 		return "shock"
+	default:
+		return "buff"
 	}
 }
 
-// ModSource is the sheet modifier source a status grants its modifiers
-// under. The high bit keeps it disjoint from entity IDs (monotonic from 1),
-// which are the only other modifier sources in play.
+// ModSource is the sheet modifier source an ailment grants its modifiers
+// under. The high bit keeps it disjoint from entity IDs (monotonic from 1);
+// bit 62 stays clear, which is what keeps it disjoint from BuffDef sources.
 func (k StatusKind) ModSource() uint64 { return 1<<63 | uint64(k) }
 
-// Status is one active ailment. Its gameplay effect lives on the actor's
-// sheet as modifiers under Kind.ModSource(); the Status itself records
-// magnitude and remaining time so stronger applications can replace it and
-// expiry knows which modifiers to remove. One per kind, strongest wins.
+// Status is one active timed status. Its gameplay effect lives on the
+// actor's sheet as modifiers under ModSource(); the Status itself records
+// magnitude and remaining time so stronger applications can replace it
+// (ailments) or refresh it (buffs), and expiry knows which modifiers to
+// remove. One per ailment kind; one per buff def.
 type Status struct {
 	Kind      StatusKind
-	Magnitude fm.Fixed // fraction: 0.30 = 30% slow / 30% increased taken
+	Buff      *BuffDef // set iff Kind == StatusBuff
+	Magnitude fm.Fixed // ailments — fraction: 0.30 = 30% slow / 30% increased taken
 	TicksLeft uint32
 	Source    EntityID // who inflicted it
+}
+
+// ModSource is the sheet source this status granted its modifiers under.
+func (s Status) ModSource() uint64 {
+	if s.Buff != nil {
+		return s.Buff.ModSource()
+	}
+	return s.Kind.ModSource()
 }
 
 type Actor struct {
