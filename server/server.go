@@ -73,6 +73,12 @@ type Config struct {
 	Scatter []protocol.Scatter
 	// PlayerDef is the actor def spawned per connecting client.
 	PlayerDef string
+	// Load, if set, restores the world from a World.Save file instead of
+	// building one — Seed, Map, Spawns, and Scatter are ignored. Player-def
+	// actors in the save are removed at load (no session identity exists yet
+	// to reclaim them) with their gear dropped at their feet, so a restart
+	// never deletes items.
+	Load []byte
 }
 
 type Instance struct {
@@ -183,9 +189,19 @@ func New(db *core.ContentDB, cfg Config) (*Instance, error) {
 	}
 	in := &Instance{
 		cfg:          cfg,
-		sim:          sim.New(db, cfg.Seed),
 		listenerAddr: make(chan net.Addr, 1),
 	}
+	if cfg.Load != nil {
+		s, err := sim.Load(db, cfg.Load)
+		if err != nil {
+			return nil, fmt.Errorf("server: loading world: %w", err)
+		}
+		in.sim = s
+		reclaimOrphanPlayers(s.W, cfg.PlayerDef)
+		in.mapSnap = in.sim.EncodeMap()
+		return in, nil
+	}
+	in.sim = sim.New(db, cfg.Seed)
 	if cfg.Map != nil {
 		in.sim.GenerateMap(space.MapSpec{
 			Width: cfg.Map.Width, Height: cfg.Map.Height, Rooms: cfg.Map.Rooms,
@@ -203,6 +219,31 @@ func New(db *core.ContentDB, cfg Config) (*Instance, error) {
 		}
 	}
 	return in, nil
+}
+
+// reclaimOrphanPlayers removes saved player-def actors at load time. A fresh
+// process has no session to hand them to (reconnect/session identity doesn't
+// exist yet — RISKS.md), so they'd stand frozen forever; instead their gear
+// drops where they stood and the actor goes away. Runs before any client or
+// tick exists, so mutating the world directly is safe.
+func reclaimOrphanPlayers(w *core.World, playerDef string) {
+	for _, a := range w.Actors {
+		if a.Def.ID != playerDef {
+			continue
+		}
+		for slot, item := range a.Equipment {
+			if item != nil {
+				w.SpawnDrop(a.Pos, *item)
+				a.Equipment[slot] = nil
+			}
+		}
+		for _, item := range a.Inventory {
+			w.SpawnDrop(a.Pos, item)
+		}
+		a.Inventory = nil
+		a.Dead = true
+	}
+	w.EndTick() // compact the tombstones
 }
 
 // Addr returns the bound listen address once ListenAndServe is up — useful

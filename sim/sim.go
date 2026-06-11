@@ -23,6 +23,16 @@ func New(db *core.ContentDB, seed uint64) *Sim {
 	return &Sim{W: core.NewWorld(db, seed)}
 }
 
+// Load resumes a sim from a World.Save file. The restored world continues
+// bit-exactly: same hashes, same RNG streams, same in-flight actions.
+func Load(db *core.ContentDB, data []byte) (*Sim, error) {
+	w, err := core.LoadWorld(db, data)
+	if err != nil {
+		return nil, err
+	}
+	return &Sim{W: w}, nil
+}
+
 // Spawn places an actor by content ID and returns its entity ID. On grid
 // worlds the position is clamped to the nearest walkable spot, so scenario
 // coordinates authored against a different layout still land somewhere legal.

@@ -178,6 +178,22 @@ func NewSheet(base [StatCount]fm.Fixed) *Sheet {
 	return &Sheet{base: base, memo: make(map[memoKey]memoVal)}
 }
 
+// RestoreSheet rebuilds a sheet from saved state. The modifier list is
+// installed verbatim, in saved order — More multipliers compose in list
+// order under fixed-point rounding, so re-deriving mods from equipment
+// could drift a restored world by a milli. Exactness over elegance.
+func RestoreSheet(base [StatCount]fm.Fixed, mods []Modifier) *Sheet {
+	s := NewSheet(base)
+	s.mods = append(s.mods, mods...)
+	return s
+}
+
+// Mods returns a copy of the modifier list in evaluation order, for
+// serialization. Bases are read per-stat via Base.
+func (s *Sheet) Mods() []Modifier {
+	return append([]Modifier(nil), s.mods...)
+}
+
 func (s *Sheet) Base(stat StatID) fm.Fixed { return s.base[stat] }
 
 func (s *Sheet) SetBase(stat StatID, v fm.Fixed) {

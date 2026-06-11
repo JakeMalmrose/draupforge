@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"sort"
 	"time"
 
@@ -62,6 +63,13 @@ type adminStatus struct {
 	WorldHash string `json:"world_hash"`
 	ActorDefs    []string          `json:"actor_defs"`
 	Events       []adminEvent      `json:"events"`
+}
+
+// saveBlob carries a serialized world from the tick goroutine to the admin
+// handler that writes it out.
+type saveBlob struct {
+	data []byte
+	tick uint64
 }
 
 // runOnTick hands fn to the tick goroutine and waits for its result.
@@ -170,6 +178,40 @@ func (in *Instance) adminMux() *http.ServeMux {
 		})
 		adminReplyJSON(w, v, err)
 	})
+	mux.HandleFunc("POST /api/save", func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Path string `json:"path"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		// Serialize on the tick goroutine (a consistent between-ticks view);
+		// write the file here so disk latency never stalls the tick loop.
+		v, err := in.runOnTick(func() (any, error) {
+			data, err := in.sim.W.Save()
+			if err != nil {
+				return nil, err
+			}
+			return saveBlob{data: data, tick: in.sim.W.Tick}, nil
+		})
+		if err != nil {
+			adminReplyJSON(w, nil, err)
+			return
+		}
+		blob := v.(saveBlob)
+		path := req.Path
+		if path == "" {
+			path = fmt.Sprintf("draupforge-save-tick%d.json", blob.tick)
+		}
+		if err := os.WriteFile(path, blob.data, 0o644); err != nil {
+			adminReplyJSON(w, nil, err)
+			return
+		}
+		adminReplyJSON(w, map[string]any{
+			"path": path, "tick": blob.tick, "bytes": len(blob.data),
+		}, nil)
+	})
 	mux.HandleFunc("POST /api/kick", func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
 			Actor uint64 `json:"actor"`
@@ -242,6 +284,13 @@ const adminPage = `<!doctype html>
   x <input id="sx" value="0" size="5"> y <input id="sy" value="0" size="5"> (units)
   <button id="spawnbtn">spawn</button>
   <span id="spawnmsg"></span>
+</p>
+<h2>save</h2>
+<p>
+  path <input id="savepath" placeholder="(default: draupforge-save-tick&lt;N&gt;.json)" size="34">
+  <button id="savebtn">save world</button>
+  <span id="savemsg"></span>
+  — load with: <code>cmd/server -load &lt;path&gt;</code>
 </p>
 <h2>clients</h2>
 <table>
@@ -336,6 +385,15 @@ document.getElementById("spawnbtn").onclick = async () => {
     msg.innerHTML = '<span class="err">' + e.message + "</span>";
   }
   poll();
+};
+document.getElementById("savebtn").onclick = async () => {
+  const msg = document.getElementById("savemsg");
+  try {
+    const r = await api("/api/save", { path: document.getElementById("savepath").value || "" });
+    msg.textContent = "wrote " + r.path + " (tick " + r.tick + ", " + fmtBytes(r.bytes) + ")";
+  } catch (e) {
+    msg.innerHTML = '<span class="err">' + e.message + "</span>";
+  }
 };
 window.kick = async (actor) => { await api("/api/kick", { actor }); poll(); };
 

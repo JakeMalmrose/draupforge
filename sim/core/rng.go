@@ -74,5 +74,8 @@ func (r *RNG) Range(min, max fm.Fixed) fm.Fixed {
 	return min + fm.Fixed(r.Uint64n(span))
 }
 
-// State exposes the internal state for world hashing.
+// State exposes the internal state for world hashing and saves.
 func (r *RNG) State() [4]uint64 { return r.s }
+
+// RestoreRNG resumes a stream exactly where State captured it.
+func RestoreRNG(state [4]uint64) *RNG { return &RNG{s: state} }

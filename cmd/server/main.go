@@ -24,6 +24,7 @@ func main() {
 	webDir := flag.String("web", "web", "static web client directory")
 	seed := flag.Uint64("seed", 1, "world seed")
 	scenario := flag.String("scenario", "", "scenario script (JSON); only spawns are used")
+	load := flag.String("load", "", "world save file to restore (admin /api/save writes them); overrides -seed and -scenario")
 	sendEvery := flag.Int("sendevery", 3, "send a view every N sim ticks (3 = 10Hz at the 30Hz sim)")
 	interest := flag.Int64("interest", 60, "interest radius in world units for WS clients (0 = whole world)")
 	flag.Parse()
@@ -31,6 +32,13 @@ func main() {
 	cfg := server.Config{
 		Addr: *addr, HTTPAddr: *httpAddr, AdminAddr: *adminAddr, StaticDir: *webDir,
 		Seed: *seed, SendEvery: *sendEvery, InterestRadius: *interest * 1000,
+	}
+	if *load != "" {
+		raw, err := os.ReadFile(*load)
+		if err != nil {
+			fatal(err)
+		}
+		cfg.Load = raw
 	}
 	if *scenario != "" {
 		raw, err := os.ReadFile(*scenario)
