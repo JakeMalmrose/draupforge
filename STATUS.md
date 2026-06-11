@@ -113,19 +113,35 @@ Structural risks live in `RISKS.md` — read it before building anything load-be
 - No actor-actor collision; movement is straight-line on an open plane.
 - AI keys off a magic string (`"melee_chaser"`); fine until ~3 behaviors.
 - `zombie_drops` table is 100% drop chance — tuned for proving loot, not play.
-- Snapshots are full-world JSON; delta/interest management is a server concern.
 
 ## Natural next steps (in rough order of leverage)
 
-1. Map gen + pathing behind `space.Walkable`.
-2. Server hardening: replay log, per-client send queues.
-3. World persistence (RISKS.md #1) + the dashboard's operate tier
+Standing recommendation (set 2026-06-10, after the ailments/VFX/inventory
+run): **start with #1.** Three straight sessions went to game feel and UX;
+the one still-stubbed sim system is now what's holding the game loop back.
+
+1. **Map gen + pathing behind `space.Walkable`, with a ranged monster
+   riding along.** The seam has existed since day one and nothing uses it;
+   combat is "stand in the open and trade." Geometry is what makes the
+   tactics we already built real (chill kiting, chokepoints, dodging slams
+   around corners); a ranged monster only means something once rooms
+   exist, and a second AI behavior is what forces the AI layer past its
+   magic-string phase. There's also a retrofit clock running: movement and
+   AI code accrete open-plane assumptions every session.
+2. **World persistence (RISKS.md #1) + the dashboard's operate tier**
    (save/load/rollback, parked at the bottom of RISKS.md) — natural pair;
-   the observe/poke tiers already exist to receive it.
-4. Client prediction for own-character feel (the wasm question) — only if
+   the observe/poke tiers already exist to receive it. Promote this to #1
+   the moment anyone besides Jake plays regularly: until then, the loot
+   loop evaporating on disconnect is tolerable.
+3. **Quick bite that fits any session: base-item implicits.** Ten slots
+   shipped, but seven of the nine bases are stat-less affix-holders. An
+   implicit modifier per base (boots = move speed, shield = armour,
+   amulet = a resist) is a small `BaseItemDef` addition that makes the
+   slots meaningful and drops worth reading.
+4. Server hardening: replay log, per-client send queues — when strangers
+   connect, not before.
+5. Client prediction for own-character feel (the wasm question) — only if
    input latency starts to grate; interpolation covers everything else.
-5. A second monster (ranged or caster) — the ailment/VFX machinery is in
-   place; one more AI behavior would make packs tactically interesting.
 
 ## Session log
 
@@ -142,49 +158,16 @@ Structural risks live in `RISKS.md` — read it before building anything load-be
   cell you dropped on). Protocol v5. Golden re-recorded (hash covers 10
   slots; loot table widened). Verified in headless Chrome: illegal drop
   bounces, ring2-style targeting, rearrange, unequip-into-cell.
-- **2026-06-10 (9)** — Inventory UX. Panel rebuilt: fixed labeled
-  equipment slots + a capacity-sized inventory grid (one item per cell),
-  procedural SVG icons tinted by rarity, hover tooltips (name/rarity/
-  affixes), and HTML5 drag-drop — bag→equipment equips, equipment→bag
-  unequips, bag→canvas drops at your feet. Click-to-equip removed.
-  Protocol v4: `inv_size` rides the actor identity field group so the
-  client can draw real capacity. Client now logs unequips (it never had
-  that case). Verified end-to-end in headless Chrome, including all three
-  drag gestures over the binary wire. No sim changes; golden untouched.
-- **2026-06-10 (8)** — Ailments + game feel. Chill/shock as a status system
-  (`sim/combat/ailments.go`): timed sheet-modifier packages under
-  `StatusKind.ModSource()`, strongest-wins like ignite; chill = chance-free
-  More-layer slow on move/attack/cast scaled by hit size (5% floor, 30%
-  cap, 2s), shock = chance-rolled increased damage taken (50% cap, 2s).
-  New `spark` skill (fast lightning projectile, 30% shock, wild 3–28
-  rolls) on R; lightning affixes. Protocol v3: `ail` bitmask on actor
-  snaps (both codecs + JS mirror, parity-checked Go→node). Client: ailment
-  rings, spark colors, chill/shock log lines, and client-side VFX on the
-  server timeline — frost nova shard-ring out to the real 4u radius,
-  zombie-slam ground-crack star (keyed off windup→done transitions, so
-  whiffed casts still read), per-skill impact starbursts, camera shake
-  when you're hit. Verified in-browser via headless Chrome. Golden
-  re-recorded: slice's nova now chills, and the hash covers statuses.
-- **2026-06-10 (7)** — Quality-of-play pass. Client interpolation re-keyed
-  from arrival time to the server tick timeline (`tick × tickMs` + a
-  clock-offset estimate that locks to fastest arrivals, decays slowly, and
-  resnaps after stalls) — jitter no longer leaks into render timing; actors
-  and drops fade in/out at interest edges instead of popping. Server pause:
-  admin-driven, loop keeps ticking (joins, views, admin ops) but Step is
-  skipped and commands dropped; clients get a "pause" control frame
-  (protocol v2). Admin dashboard on its own port (`-admin`, default :9090,
-  NO AUTH): status/pause/spawn/kick JSON API + embedded HTML page; handlers
-  run closures on the tick goroutine, so no new locking of the world.
-  `fixmath.Mul` overflow guard closed RISKS.md #2 (entries renumbered). No
-  sim behavior changes; golden replay untouched.
-- **2026-06-10 (6)** — Netcode overhaul, one pass as planned: sim stays
-  30Hz, views send every N ticks (default 3) with events accumulated;
-  `BuildSnapshotFor(viewer, radius, events)` does server-side interest
-  culling; WS wire is now binary delta frames (`protocol/binary.go` +
-  `web/net.js` mirror, verified byte-identical over a real fight) with
-  client acks, keyframe fallback, and permessage-deflate; web client
-  reconstructs views and renders ~150ms behind with position lerping.
-  Welcome frame now carries `protocol.Version` + cadence (closed RISKS.md
-  #5). TCP/nc wire unchanged (full-world JSON); `/ws?format=json` debugs a
-  culled view. No sim behavior changes; golden replay untouched.
+- **2026-06-10 (9)** — Inventory UX. Panel rebuilt: labeled equipment
+  slots + a capacity-sized grid, procedural SVG icons tinted by rarity,
+  hover tooltips, HTML5 drag-drop (bag→equipment equips, equipment→bag
+  unequips, bag→canvas drops); click-to-equip removed. Protocol v4
+  (`inv_size` in the identity field group). No sim changes.
+- **2026-06-10 (8)** — Ailments + game feel. Chill/shock as timed
+  sheet-modifier statuses (`sim/combat/ailments.go`), strongest-wins;
+  chill = chance-free slow scaled by hit size (30% cap, 2s), shock =
+  chance-rolled increased damage taken (50% cap, 2s). New `spark` skill
+  on R + lightning affixes. Protocol v3 (`ail` bitmask). Client VFX on
+  the server timeline: nova shard-ring, slam ground-crack, impact
+  starbursts, ailment rings, camera shake. Golden re-recorded.
 - (older sessions pruned — git history is the archive)
