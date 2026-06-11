@@ -41,7 +41,9 @@ func main() {
 		if err := json.Unmarshal(raw, &script); err != nil {
 			fatal(fmt.Errorf("parsing scenario: %w", err))
 		}
+		cfg.Map = script.Map
 		cfg.Spawns = script.Spawns
+		cfg.Scatter = script.Scatter
 	}
 
 	in, err := server.New(content.DB(), cfg)

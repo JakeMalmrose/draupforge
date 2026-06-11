@@ -8,7 +8,7 @@ package protocol
 // it on any change a deployed client could misread — renamed/removed JSON
 // fields (omitempty makes those fail silently) or any binary frame layout
 // change. Clients hard-fail on mismatch instead of limping.
-const Version = 5 // v5: full equipment slot set; slot-addressed equip commands
+const Version = 6 // v6: welcome carries the terrain map (tile grid)
 
 // Command is the wire form of player intent. Kind is one of "move",
 // "use_skill", "stop", the item verbs "pickup", "equip", "unequip",
@@ -111,9 +111,20 @@ type Snapshot struct {
 	Events      []EventSnap      `json:"events,omitempty"`
 }
 
+// MapSnap is the terrain a client renders: a tile grid as one string row
+// per tile row, '#' solid / '.' floor. Terrain is immutable per instance,
+// so it rides the welcome frame once instead of every view.
+type MapSnap struct {
+	Width  int      `json:"w"`
+	Height int      `json:"h"`
+	Tile   int64    `json:"tile"` // milli-units per tile edge
+	Rows   []string `json:"rows"`
+}
+
 // ServerMsg is one server→client JSON frame. "welcome" carries the protocol
-// version, the client's assigned actor ID, and the tick/send cadence (so
-// clients can size interpolation buffers); "snapshot" carries one view in
+// version, the client's assigned actor ID, the tick/send cadence (so
+// clients can size interpolation buffers), and the terrain map when the
+// instance has one; "snapshot" carries one view in
 // full JSON (the TCP/nc wire and the ?format=json debug mode — the binary
 // WS wire sends view frames instead, see binary.go); "pause" announces the
 // instance freezing or resuming (sent on transitions, and once to clients
@@ -124,14 +135,34 @@ type ServerMsg struct {
 	Actor     uint64    `json:"actor,omitempty"`
 	TickHz    int       `json:"tick_hz,omitempty"`
 	SendEvery int       `json:"send_every,omitempty"`
+	Map       *MapSnap  `json:"map,omitempty"`
 	Snapshot  *Snapshot `json:"snapshot,omitempty"`
 	Paused    *bool     `json:"paused,omitempty"`
 }
 
 // Script is the headless runner's input: a scenario plus scheduled commands.
+// A non-nil Map generates terrain (consuming the world's map RNG stream)
+// before any spawns; Scatter then places monsters on random walkable tiles.
 type Script struct {
+	Map      *MapSpec      `json:"map,omitempty"`
 	Spawns   []ScriptSpawn `json:"spawns"`
+	Scatter  []Scatter     `json:"scatter,omitempty"`
 	Commands []Command     `json:"commands"`
+}
+
+// MapSpec asks the sim to generate a rooms-and-corridors map. Tile size and
+// clearance are engine defaults; scenarios only choose the footprint.
+type MapSpec struct {
+	Width  int `json:"width"`  // tiles
+	Height int `json:"height"` // tiles
+	Rooms  int `json:"rooms"`
+}
+
+// Scatter places Count actors of Def on random walkable tiles, away from
+// the player spawn. Requires a generated map.
+type Scatter struct {
+	Def   string `json:"def"`
+	Count int    `json:"count"`
 }
 
 // ScriptSpawn places an actor at startup. Entity IDs are assigned in spawn

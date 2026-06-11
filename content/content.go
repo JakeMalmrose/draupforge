@@ -101,7 +101,23 @@ func skillDefs() []*core.SkillDef {
 	spark.BaseMin[core.Lightning] = fm.FromInt(3)
 	spark.BaseMax[core.Lightning] = fm.FromInt(28)
 
-	return []*core.SkillDef{fireball, slam, frostNova, spark}
+	boneArrow := &core.SkillDef{
+		ID:            "bone_arrow",
+		Name:          "Bone Arrow",
+		Kind:          core.SkillProjectile,
+		Tags:          stats.T(stats.TagAttack, stats.TagProjectile, stats.TagPhysical),
+		Effectiveness: fm.One,
+		WindupTicks:   12, // 0.4s draw — dodgeable at range
+		RecoveryTicks: 9,
+		SpeedStat:     stats.AttackSpeed,
+		ProjSpeed:     fm.FromInt(16),
+		ProjTTL:       50,
+		ProjRadius:    fm.FromMilli(350),
+	}
+	boneArrow.BaseMin[core.Physical] = fm.FromInt(5)
+	boneArrow.BaseMax[core.Physical] = fm.FromInt(9)
+
+	return []*core.SkillDef{fireball, slam, frostNova, spark, boneArrow}
 }
 
 func baseStats(pairs map[stats.StatID]fm.Fixed) [stats.StatCount]fm.Fixed {
@@ -155,6 +171,26 @@ func actorDefs() []*core.ActorDef {
 		LootTable:   "zombie_drops",
 	}
 
+	// Squishy backline: keeps its distance and plinks arrows; falls fast
+	// once you reach it. Exists to make rooms and corners matter.
+	archer := &core.ActorDef{
+		ID:     "skeleton_archer",
+		Name:   "Skeleton Archer",
+		Team:   core.TeamMonsters,
+		Radius: fm.FromMilli(500),
+		BaseStats: baseStats(map[stats.StatID]fm.Fixed{
+			stats.Life:       fm.FromInt(35),
+			stats.MoveSpeed:  fm.FromInt(4),
+			stats.Accuracy:   fm.FromInt(90),
+			stats.CritChance: fm.FromMilli(50),
+		}),
+		Skills:         []string{"bone_arrow"},
+		AI:             "ranged_kiter",
+		AggroRadius:    fm.FromInt(18),
+		PreferredRange: fm.FromInt(12),
+		LootTable:      "zombie_drops",
+	}
+
 	// Stationary target for tests and tuning; drops like a zombie.
 	dummy := &core.ActorDef{
 		ID:     "training_dummy",
@@ -167,7 +203,7 @@ func actorDefs() []*core.ActorDef {
 		LootTable: "zombie_drops",
 	}
 
-	return []*core.ActorDef{player, zombie, dummy}
+	return []*core.ActorDef{player, zombie, archer, dummy}
 }
 
 func affixDefs() []*core.AffixDef {

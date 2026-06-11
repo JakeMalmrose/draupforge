@@ -42,12 +42,26 @@ func main() {
 	}
 
 	s := sim.New(content.DB(), *seed)
+	if script.Map != nil {
+		s.GenerateMap(space.MapSpec{
+			Width: script.Map.Width, Height: script.Map.Height, Rooms: script.Map.Rooms,
+		})
+		for _, row := range s.EncodeMap().Rows {
+			fmt.Println(row)
+		}
+	}
 	for i, sp := range script.Spawns {
 		id, err := s.Spawn(sp.Def, space.V(fm.FromMilli(sp.X), fm.FromMilli(sp.Y)))
 		if err != nil {
 			fatal(err)
 		}
 		fmt.Printf("spawned %s as entity %d (spawn #%d)\n", sp.Def, id, i+1)
+	}
+	for _, sc := range script.Scatter {
+		if err := s.ScatterSpawn(sc.Def, sc.Count); err != nil {
+			fatal(err)
+		}
+		fmt.Printf("scattered %d × %s\n", sc.Count, sc.Def)
 	}
 
 	byTick := map[uint64][]core.Command{}

@@ -64,8 +64,13 @@ type Config struct {
 	// range (milli-units) of its actor. 0 disables culling. The TCP wire is
 	// debug-omniscient and ignores it.
 	InterestRadius int64
-	// Spawns places the map's starting actors (monsters, dummies).
+	// Map, if set, generates rooms-and-corridors terrain before any spawns.
+	Map *protocol.MapSpec
+	// Spawns places the map's starting actors (monsters, dummies). On grid
+	// worlds positions are clamped to the nearest walkable tile.
 	Spawns []protocol.ScriptSpawn
+	// Scatter places monsters on random walkable tiles (needs Map).
+	Scatter []protocol.Scatter
 	// PlayerDef is the actor def spawned per connecting client.
 	PlayerDef string
 }
@@ -73,6 +78,8 @@ type Config struct {
 type Instance struct {
 	cfg Config
 	sim *sim.Sim
+	// mapSnap is the terrain encoded once at startup; rides every welcome.
+	mapSnap *protocol.MapSnap
 
 	mu       sync.Mutex
 	pending  []core.Command
@@ -179,9 +186,20 @@ func New(db *core.ContentDB, cfg Config) (*Instance, error) {
 		sim:          sim.New(db, cfg.Seed),
 		listenerAddr: make(chan net.Addr, 1),
 	}
+	if cfg.Map != nil {
+		in.sim.GenerateMap(space.MapSpec{
+			Width: cfg.Map.Width, Height: cfg.Map.Height, Rooms: cfg.Map.Rooms,
+		})
+		in.mapSnap = in.sim.EncodeMap()
+	}
 	for _, sp := range cfg.Spawns {
 		if _, err := in.sim.Spawn(sp.Def, space.V(fm.FromMilli(sp.X), fm.FromMilli(sp.Y))); err != nil {
 			return nil, fmt.Errorf("server: scenario spawn: %w", err)
+		}
+	}
+	for _, sc := range cfg.Scatter {
+		if err := in.sim.ScatterSpawn(sc.Def, sc.Count); err != nil {
+			return nil, fmt.Errorf("server: scatter spawn: %w", err)
 		}
 	}
 	return in, nil
@@ -333,6 +351,7 @@ func (in *Instance) tick() {
 		welcome, _ := json.Marshal(protocol.ServerMsg{
 			Type: "welcome", V: protocol.Version, Actor: uint64(c.actor),
 			TickHz: core.TicksPerSecond, SendEvery: in.cfg.SendEvery,
+			Map: in.mapSnap,
 		})
 		c.send(welcome, false)
 	}
@@ -426,8 +445,13 @@ func (in *Instance) frameFor(c *client, events []protocol.EventSnap) (frame []by
 }
 
 func (in *Instance) spawnClient(c *client) bool {
-	// Spread joiners out so simultaneous spawns don't stack exactly.
+	// Spread joiners out so simultaneous spawns don't stack exactly. Grid
+	// worlds enter at the map's spawn room; sim.Spawn clamps the offset
+	// back to walkable ground if it pokes into a wall.
 	pos := space.V(fm.FromInt(int64(in.joinCount*2)), 0)
+	if g := in.sim.W.Grid; g != nil {
+		pos = g.Spawn.Add(space.V(fm.FromInt(int64(in.joinCount%4)), 0))
+	}
 	id, err := in.sim.Spawn(in.cfg.PlayerDef, pos)
 	if err != nil {
 		c.tr.Close()

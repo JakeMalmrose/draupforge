@@ -32,6 +32,28 @@ func (s *Sim) EncodeEvents() []protocol.EventSnap {
 	return out
 }
 
+// EncodeMap returns the wire form of the world's terrain, or nil for the
+// open plane. Terrain is immutable, so hosts send this once (welcome frame).
+func (s *Sim) EncodeMap() *protocol.MapSnap {
+	g := s.W.Grid
+	if g == nil {
+		return nil
+	}
+	rows := make([]string, g.Height)
+	buf := make([]byte, g.Width)
+	for y := 0; y < g.Height; y++ {
+		for x := 0; x < g.Width; x++ {
+			if g.Solid(x, y) {
+				buf[x] = '#'
+			} else {
+				buf[x] = '.'
+			}
+		}
+		rows[y] = string(buf)
+	}
+	return &protocol.MapSnap{Width: g.Width, Height: g.Height, Tile: g.Tile.Milli(), Rows: rows}
+}
+
 // BuildSnapshotFor encodes one viewer's view of the world: entities within
 // radius of the viewer (the viewer always included), plus the given events
 // filtered to entities in the view. A zero viewer, a non-positive radius, or

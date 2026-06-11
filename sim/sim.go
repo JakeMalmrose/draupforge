@@ -23,13 +23,55 @@ func New(db *core.ContentDB, seed uint64) *Sim {
 	return &Sim{W: core.NewWorld(db, seed)}
 }
 
-// Spawn places an actor by content ID and returns its entity ID.
+// Spawn places an actor by content ID and returns its entity ID. On grid
+// worlds the position is clamped to the nearest walkable spot, so scenario
+// coordinates authored against a different layout still land somewhere legal.
 func (s *Sim) Spawn(defID string, pos space.Vec2) (core.EntityID, error) {
 	def := s.W.Content.Actors[defID]
 	if def == nil {
 		return 0, fmt.Errorf("sim: unknown actor def %q", defID)
 	}
+	if s.W.Grid != nil {
+		p, ok := s.W.Grid.NearestWalkable(pos)
+		if !ok {
+			return 0, fmt.Errorf("sim: no walkable tile to spawn %q", defID)
+		}
+		pos = p
+	}
 	return s.W.SpawnActor(def, pos).ID, nil
+}
+
+// GenerateMap rolls terrain from the world's map RNG stream and installs
+// it. Call before any spawns; terrain is immutable afterwards.
+func (s *Sim) GenerateMap(spec space.MapSpec) {
+	s.W.Grid = space.GenerateRooms(spec, s.W.RNGMap)
+}
+
+// scatterMinSpawnDist keeps scattered monsters out of the players' entry
+// room — far enough to not be hit the instant you load in.
+var scatterMinSpawnDist = fm.FromInt(10)
+
+// ScatterSpawn places count actors on random walkable tiles (map RNG
+// stream), preferring spots away from the player spawn point.
+func (s *Sim) ScatterSpawn(defID string, count int) error {
+	g := s.W.Grid
+	if g == nil {
+		return fmt.Errorf("sim: scatter spawn needs a generated map")
+	}
+	tiles := g.WalkableCenters()
+	if len(tiles) == 0 {
+		return fmt.Errorf("sim: map has no walkable tiles")
+	}
+	for i := 0; i < count; i++ {
+		pos := tiles[s.W.RNGMap.Uint64n(uint64(len(tiles)))]
+		for try := 0; try < 20 && space.Dist(pos, g.Spawn) < scatterMinSpawnDist; try++ {
+			pos = tiles[s.W.RNGMap.Uint64n(uint64(len(tiles)))]
+		}
+		if _, err := s.Spawn(defID, pos); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // Step advances exactly one tick. The phase order below is the determinism
@@ -67,7 +109,22 @@ func applyCommands(w *core.World, cmds []core.Command) {
 			if a.Action.Kind == core.ActionSkill {
 				continue // committed: no canceling windup/recovery in v1
 			}
-			a.Action = core.Action{Kind: core.ActionMove, MoveTarget: c.Point}
+			if w.Grid == nil {
+				a.Action = core.Action{Kind: core.ActionMove, MoveTarget: c.Point}
+				continue
+			}
+			// Repath throttle: AI re-issues its chase target every tick; as
+			// long as the request stays within half a tile of the current
+			// goal, the existing path is still the answer.
+			if a.Action.Kind == core.ActionMove && len(a.Action.Path) > 0 &&
+				space.Dist(a.Action.MoveTarget, c.Point) <= w.Grid.Tile/2 {
+				continue
+			}
+			path := w.Grid.FindPath(a.Pos, c.Point)
+			if len(path) == 0 {
+				continue // nowhere legal to go
+			}
+			a.Action = core.Action{Kind: core.ActionMove, MoveTarget: c.Point, Path: path}
 
 		case core.CmdStop:
 			if a.Action.Kind == core.ActionMove {

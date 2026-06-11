@@ -30,6 +30,11 @@ func AdvanceActions(w *core.World) {
 	}
 }
 
+// stepMove advances toward the current waypoint. Open-plane actions have no
+// Path and head straight for MoveTarget; pathed actions walk the waypoint
+// chain the pathfinder produced (already clearance-checked against terrain,
+// which is immutable — no re-validation per tick). Reaching a waypoint
+// consumes the whole tick's step: a corner costs at most one tick.
 func stepMove(a *core.Actor) {
 	speed := a.Sheet.Eval(stats.MoveSpeed, 0)
 	if speed <= 0 {
@@ -37,9 +42,17 @@ func stepMove(a *core.Actor) {
 		return
 	}
 	step := fm.Div(speed, fm.FromInt(core.TicksPerSecond))
-	delta := a.Action.MoveTarget.Sub(a.Pos)
+	target := a.Action.MoveTarget
+	if len(a.Action.Path) > 0 {
+		target = a.Action.Path[a.Action.PathStep]
+	}
+	delta := target.Sub(a.Pos)
 	if delta.Len() <= step {
-		a.Pos = a.Action.MoveTarget
+		a.Pos = target
+		if a.Action.PathStep < len(a.Action.Path)-1 {
+			a.Action.PathStep++
+			return
+		}
 		a.Action = core.Action{}
 		return
 	}
@@ -123,6 +136,16 @@ func UpdateProjectiles(w *core.World) {
 		}
 		next := p.Pos.Add(p.Vel)
 
+		// Walls clip the sweep first: an actor standing behind one can't be
+		// hit by a projectile that never reaches it. Wall impacts kill the
+		// projectile with no hit (and no event — clients just see it stop).
+		wallT := fm.One + 1
+		if w.Grid != nil {
+			if t, hit := w.Grid.SegmentHit(p.Pos, next); hit {
+				wallT = t
+			}
+		}
+
 		var best *core.Actor
 		var bestT fm.Fixed
 		var bestPt space.Vec2
@@ -131,13 +154,18 @@ func UpdateProjectiles(w *core.World) {
 				continue
 			}
 			pt, t, ok := space.SegCircleHit(p.Pos, next, a.Pos, a.Def.Radius+p.Skill.ProjRadius)
-			if !ok {
+			if !ok || t >= wallT {
 				continue
 			}
 			// Strict < keeps the earlier-spawned actor on exact ties.
 			if best == nil || t < bestT {
 				best, bestT, bestPt = a, t, pt
 			}
+		}
+		if best == nil && wallT <= fm.One {
+			p.Pos = p.Pos.Add(next.Sub(p.Pos).Scale(wallT))
+			p.Dead = true
+			continue
 		}
 		if best != nil {
 			p.Pos = bestPt

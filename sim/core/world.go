@@ -100,6 +100,10 @@ type World struct {
 	Tick    uint64
 	Content *ContentDB
 
+	// Grid is the terrain, immutable once set; nil means the v1 open plane
+	// (no walls, straight-line movement). Set it before any actor spawns.
+	Grid *space.Grid
+
 	Actors      []*Actor
 	Projectiles []*Projectile
 	Drops       []*Drop

@@ -117,7 +117,10 @@ type ActorDef struct {
 	// AI behavior key; "" means externally controlled (player) or inert.
 	AI          string
 	AggroRadius fm.Fixed
-	LootTable   string // "" drops nothing
+	// PreferredRange is the engagement distance for ranged behaviors: shoot
+	// inside it, retreat when an enemy closes within a third of it.
+	PreferredRange fm.Fixed
+	LootTable      string // "" drops nothing
 	// InventorySize is the bag capacity; 0 means the actor carries nothing.
 	InventorySize int
 }

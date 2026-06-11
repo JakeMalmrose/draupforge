@@ -30,6 +30,7 @@ const names = new Map();    // entity id -> label, survives despawn
 // interpDelay). clockOffset locks onto the fastest-arriving views (max) and
 // decays slowly so a genuine latency increase re-converges; a huge backward
 // jump (server pause, long stall) resnaps instead of waiting out the decay.
+let worldMap = null;        // terrain from the welcome: {w, h, tile, rows}
 let interpDelay = 150;      // ms; refined from the welcome's send cadence
 let tickMs = 1000 / 30;     // refined from the welcome's tick_hz
 let clockOffset = null;     // server-timeline ms minus performance.now() ms
@@ -64,6 +65,7 @@ function connect() {
           return;
         }
         myId = msg.actor;
+        worldMap = msg.map || null;
         if (msg.tick_hz && msg.send_every) {
           // 1.5 send intervals behind: one interval to always have a newer
           // view to lerp toward, half an interval of jitter slack.
@@ -259,7 +261,7 @@ function render() {
       cam.x += (Math.random() * 2 - 1) * k;
       cam.y += (Math.random() * 2 - 1) * k;
     }
-    drawGrid();
+    drawTerrain();
     // Fade-out ghosts go under live entities; a ghost whose id reappears
     // (re-entered interest range) yields to the live drawing immediately.
     for (let i = ghosts.length - 1; i >= 0; i--) {
@@ -299,6 +301,63 @@ function render() {
     ctx.globalAlpha = 1;
   }
   requestAnimationFrame(render);
+}
+
+// drawTerrain paints the map when the welcome delivered one (floor tiles +
+// walls, only the visible range), and falls back to the open-plane
+// reference grid otherwise. Outside the map is void — the background color.
+function drawTerrain() {
+  if (!worldMap) {
+    drawGrid();
+    return;
+  }
+  const t = worldMap.tile / 1000; // tile edge in world units
+  const x0 = Math.max(0, Math.floor((cam.x - canvas.width / 2 / SCALE) / t));
+  const x1 = Math.min(worldMap.w - 1, Math.ceil((cam.x + canvas.width / 2 / SCALE) / t));
+  const y0 = Math.max(0, Math.floor((cam.y - canvas.height / 2 / SCALE) / t));
+  const y1 = Math.min(worldMap.h - 1, Math.ceil((cam.y + canvas.height / 2 / SCALE) / t));
+  const px = (wx) => (wx - cam.x) * SCALE + canvas.width / 2;
+  const py = (wy) => (wy - cam.y) * SCALE + canvas.height / 2;
+  const ts = t * SCALE;
+
+  for (let y = y0; y <= y1; y++) {
+    const row = worldMap.rows[y];
+    for (let x = x0; x <= x1; x++) {
+      if (row[x] === "#") continue;
+      ctx.fillStyle = "#14141d";
+      ctx.fillRect(px(x * t), py(y * t), ts + 1, ts + 1);
+    }
+  }
+  // Walls second, with a lit top edge so rooms read as sunken.
+  for (let y = y0; y <= y1; y++) {
+    const row = worldMap.rows[y];
+    for (let x = x0; x <= x1; x++) {
+      if (row[x] !== "#") continue;
+      // Skip walls buried inside other walls — only faces near floor matter.
+      const nearFloor =
+        (x > 0 && row[x - 1] === ".") || (x < worldMap.w - 1 && row[x + 1] === ".") ||
+        (y > 0 && worldMap.rows[y - 1][x] === ".") ||
+        (y < worldMap.h - 1 && worldMap.rows[y + 1][x] === ".");
+      if (!nearFloor) continue;
+      ctx.fillStyle = "#2b2b3a";
+      ctx.fillRect(px(x * t), py(y * t), ts + 1, ts + 1);
+      ctx.fillStyle = "#3a3a4e";
+      ctx.fillRect(px(x * t), py(y * t), ts + 1, 3);
+    }
+  }
+  // Subtle floor grid to keep the movement reference the open plane had.
+  ctx.strokeStyle = "#1b1b26";
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  for (let x = x0; x <= x1 + 1; x++) {
+    ctx.moveTo(px(x * t), py(y0 * t));
+    ctx.lineTo(px(x * t), py((y1 + 1) * t));
+  }
+  for (let y = y0; y <= y1 + 1; y++) {
+    ctx.moveTo(px(x0 * t), py(y * t));
+    ctx.lineTo(px((x1 + 1) * t), py(y * t));
+  }
+  ctx.stroke();
 }
 
 function drawGrid() {
@@ -377,6 +436,7 @@ const AILMENT_RINGS = [
 const PROJ_COLORS = {
   fireball: ["#ffd27d", "#d35400"],
   spark: ["#ffffff", "#5fa8f5"],
+  bone_arrow: ["#f2ead8", "#8d8678"],
 };
 
 function drawProjectile(p, pos) {
@@ -508,6 +568,7 @@ const IMPACT_VFX = {
   spark: { core: "#ffffff", glow: "#5fa8f5", r: 0.7 },
   frost_nova: { core: "#e8fbff", glow: "#7fd4ff", r: 0.6 },
   zombie_slam: { core: "#ffe8d0", glow: "#a32626", r: 0.7 },
+  bone_arrow: { core: "#f2ead8", glow: "#8d8678", r: 0.6 },
 };
 
 // Impact burst at whoever got hit: a six-ray starburst in the skill's

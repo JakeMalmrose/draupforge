@@ -1,9 +1,10 @@
 {
-  "spawns": [
-    { "def": "training_dummy", "x": 6000, "y": 0 },
-    { "def": "zombie", "x": 12000, "y": 8000 },
-    { "def": "zombie", "x": -10000, "y": -9000 },
-    { "def": "zombie", "x": 0, "y": 14000 }
+  "map": { "width": 48, "height": 48, "rooms": 9 },
+  "spawns": [],
+  "scatter": [
+    { "def": "zombie", "count": 7 },
+    { "def": "skeleton_archer", "count": 5 },
+    { "def": "training_dummy", "count": 1 }
   ],
   "commands": []
 }

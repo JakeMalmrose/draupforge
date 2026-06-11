@@ -11,3 +11,7 @@ Ground rules:
 - `go test ./...` must be green before any commit. The golden replay test failing means you changed behavior — if intentional, re-record per the instructions in STATUS.md and say so in the commit.
 - Determinism is the product: no floats, wall-clock, unseeded randomness, or map iteration inside `sim/`.
 - Work on feature branches off `main`.
+- Leftover dev servers (`cmd/server` instances from previous sessions, on any
+  port) are disposable — identify the process (`lsof` + `ps`) and kill it
+  freely. There is no reason to keep an old one running; never treat it as
+  load-bearing or play around it.

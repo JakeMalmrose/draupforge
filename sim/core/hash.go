@@ -41,6 +41,14 @@ func (w *World) Hash() uint64 {
 	s := &hasher{h: fnvOffset}
 	s.u64(w.Tick)
 
+	// Terrain shapes behavior; worlds with different maps must hash apart.
+	// Open-plane worlds skip this, keeping pre-grid golden traces valid.
+	if w.Grid != nil {
+		for _, word := range w.Grid.HashWords() {
+			s.u64(word)
+		}
+	}
+
 	for _, a := range w.Actors {
 		s.u64(uint64(a.ID))
 		s.i64(a.Pos.X.Milli())

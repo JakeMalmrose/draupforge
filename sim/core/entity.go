@@ -30,7 +30,13 @@ const (
 type Action struct {
 	Kind ActionKind
 
+	// MoveTarget is the requested destination. On grid worlds movement
+	// follows Path instead (waypoints from the pathfinder, ending at the
+	// closest reachable approach to MoveTarget); MoveTarget is kept so a
+	// re-issued move to (nearly) the same place doesn't repath every tick.
 	MoveTarget space.Vec2
+	Path       []space.Vec2
+	PathStep   int
 
 	Skill         *SkillDef
 	AimPoint      space.Vec2 // projectile aim
