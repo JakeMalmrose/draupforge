@@ -30,7 +30,7 @@ const FrameView = 1
 
 // Actor field-mask bits, in encode order.
 const (
-	actorIdentity = 1 << iota // def, team, radius — immutable per entity
+	actorIdentity = 1 << iota // def, team, radius, inv size — immutable per entity
 	actorPos
 	actorLife
 	actorMaxLife
@@ -159,6 +159,7 @@ func encodeActors(w *bwriter, base, view []ActorSnap) {
 			w.str(a.Def)
 			w.uv(uint64(a.Team))
 			w.sv(a.Radius)
+			w.uv(uint64(a.InvSize))
 		}
 		if c.mask&actorPos != 0 {
 			w.sv(a.Pos.X)
@@ -208,7 +209,7 @@ func actorMask(b, a *ActorSnap) uint64 {
 			actorAilments
 	}
 	var mask uint64
-	if b.Def != a.Def || b.Team != a.Team || b.Radius != a.Radius {
+	if b.Def != a.Def || b.Team != a.Team || b.Radius != a.Radius || b.InvSize != a.InvSize {
 		mask |= actorIdentity
 	}
 	if b.Pos != a.Pos {
@@ -263,6 +264,7 @@ func decodeActors(r *breader, base []ActorSnap) []ActorSnap {
 			a.Def = r.str()
 			a.Team = uint8(r.uv())
 			a.Radius = r.sv()
+			a.InvSize = int(r.uv())
 		}
 		if mask&actorPos != 0 {
 			a.Pos = Vec{X: r.sv(), Y: r.sv()}
@@ -333,7 +335,7 @@ func decodeActors(r *breader, base []ActorSnap) []ActorSnap {
 func mergeActor(b ActorSnap, d actorDelta) ActorSnap {
 	a, n := b, d.a
 	if d.mask&actorIdentity != 0 {
-		a.Def, a.Team, a.Radius = n.Def, n.Team, n.Radius
+		a.Def, a.Team, a.Radius, a.InvSize = n.Def, n.Team, n.Radius, n.InvSize
 	}
 	if d.mask&actorPos != 0 {
 		a.Pos = n.Pos

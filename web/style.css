@@ -45,21 +45,69 @@ body {
   border-radius: 4px;
   padding: 12px;
 }
-#panel h2 { font-size: 13px; color: #8d8678; text-transform: uppercase; letter-spacing: 1px; margin: 8px 0 4px; }
-#panel ul { list-style: none; }
-#panel li {
-  padding: 4px 6px; margin: 2px 0;
-  border: 1px solid #2a2a33; border-radius: 3px;
-  cursor: pointer; font-size: 13px;
+#panel h2 { font-size: 13px; color: #8d8678; text-transform: uppercase; letter-spacing: 1px; margin: 8px 0 6px; }
+#panel .hint { font-size: 11px; color: #55504a; margin-top: 10px; }
+
+.equip-row { display: flex; gap: 6px; }
+.inv-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 6px;
 }
-#panel li:hover { border-color: #6a6455; background: #1c1c26; }
-#panel li .affix { display: block; font-size: 11px; color: #7d8fb0; }
-#panel li .slot { color: #8d8678; font-size: 11px; }
-#panel .empty { color: #55504a; font-style: italic; cursor: default; }
-#panel .hint { font-size: 11px; color: #55504a; margin-top: 8px; }
+
+.slot {
+  position: relative;
+  aspect-ratio: 1;
+  min-width: 0;
+  background: #14141c;
+  border: 1px solid #2a2a33;
+  border-radius: 3px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.equip-row .slot { width: 46px; height: 46px; flex: none; }
+.slot .slot-label {
+  position: absolute;
+  bottom: 1px; left: 0; right: 0;
+  text-align: center;
+  font-size: 8px; color: #55504a;
+  text-transform: uppercase; letter-spacing: 0.5px;
+  pointer-events: none;
+}
+.slot.filled { cursor: grab; }
+.slot.filled:active { cursor: grabbing; }
+.slot.filled:hover { background: #1c1c26; }
+.slot svg { width: 70%; height: 70%; pointer-events: none; }
+
+/* rarity tints the icon (currentColor) and the slot border */
+.slot.rarity-normal { color: #cfc9bf; }
+.slot.rarity-magic { color: #8888ff; border-color: #50509a; }
+.slot.rarity-rare { color: #ffff77; border-color: #8a8a3a; }
 .rarity-normal { color: #cfc9bf; }
 .rarity-magic { color: #8888ff; }
 .rarity-rare { color: #ffff77; }
+
+/* drag feedback: legal targets glow while a drag is in flight */
+.slot.drop-ok { border-color: #b8a44a; background: #221f14; }
+.slot.dragging { opacity: 0.35; }
+
+/* --- tooltip --- */
+#tooltip {
+  position: fixed;
+  z-index: 10;
+  max-width: 240px;
+  background: rgba(12, 12, 18, 0.97);
+  border: 1px solid #3a3a45;
+  border-radius: 4px;
+  padding: 8px 10px;
+  font-size: 13px;
+  pointer-events: none;
+}
+#tooltip .tt-name { display: block; }
+#tooltip .tt-kind { display: block; font-size: 11px; color: #8d8678; }
+#tooltip .tt-affix { display: block; font-size: 12px; color: #7d8fb0; }
+#tooltip .tt-plain { display: block; font-size: 11px; color: #55504a; font-style: italic; }
 
 /* --- event log --- */
 #log {

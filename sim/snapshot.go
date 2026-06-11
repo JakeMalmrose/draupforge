@@ -85,6 +85,7 @@ func (s *Sim) BuildSnapshotFor(viewer core.EntityID, radius fm.Fixed, events []p
 			ES:        a.ES.Milli(),
 			Action:    actionString(a.Action),
 			Ail:       ailmentBits(a),
+			InvSize:   a.Def.InventorySize,
 			Equipment: equipment,
 			Inventory: inventory,
 		})

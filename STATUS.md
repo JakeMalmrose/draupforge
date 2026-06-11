@@ -11,14 +11,15 @@ tests, and session-log entries older than a few sessions (git history is the
 archive). If this file outgrows ~150 lines, it has stopped being a status doc
 and started being a changelog — cut it back.
 
-**Last updated: 2026-06-10** (session 8: chill/shock ailments, spark skill, skill + impact VFX)
+**Last updated: 2026-06-10** (session 9: drag-drop inventory grid with icons + tooltips, protocol v4)
 
 ## Where things stand
 
 The game is playable in a browser: `cmd/server` hosts the sim (TCP/NDJSON
 and WebSocket, same frames) and serves `web/` — a no-build-step canvas
-client with click-to-move, Q fireball / E nova / R spark, drop pickup, an
-inventory panel (I), HUD orbs, an event log, and a death screen. The full
+client with click-to-move, Q fireball / E nova / R spark, drop pickup, a
+drag-drop inventory panel (I) with item icons and hover tooltips, HUD
+orbs, an event log, and a death screen. The full
 item flow works (kill → drop → pickup → bag → equip → affixes on the
 sheet); damage runs the whole pipeline, and elemental hits inflict
 ailments (ignite/chill/shock) with client-side visuals. Run it:
@@ -46,7 +47,7 @@ All foundational machinery from DESIGN.md is real, not stubbed:
 | Inventory: pickup/unequip/drop_item, capacity | `sim/items/equip.go` | done, tested |
 | Server: TCP + WS transports, joins/leaves, send-rate decoupling, interest culling, binary deltas + acks, pause | `server/` | done, race-tested |
 | Admin dashboard: observe (tick health, counts, bandwidth, events, world hash) + poke (pause/resume, spawn, kick), own port, embedded HTML | `server/admin.go` | done, tested; NO AUTH — localhost/tailnet only |
-| Web client: canvas, input, inventory UI, delta decoding, tick-timeline interpolation, fade-in/out, cast/impact VFX + ailment rings | `web/` | working, no build step |
+| Web client: canvas, input, drag-drop inventory grid (icons, tooltips), delta decoding, tick-timeline interpolation, fade-in/out, cast/impact VFX + ailment rings | `web/` | working, no build step |
 | AI (`melee_chaser`) | `sim/ai` | minimal but real |
 | Phase order + command validation | `sim/sim.go` | done — this IS the determinism contract |
 | Wire types: versioned welcome, JSON snapshots, binary delta view codec | `protocol/` | done, tested |
@@ -90,7 +91,13 @@ Structural risks live in `RISKS.md` — read it before building anything load-be
   a windup shorter than the send interval (~3 ticks) would slip through
   unrendered. No current skill is that fast.
 - Corpses compact away at tick end — fine until on-corpse mechanics matter.
-- Inventory is a flat ID-addressed bag — no spatial grid, no stacking.
+- Inventory is a flat ID-addressed bag — no stacking; the client's grid is
+  visual only (items compact to the front, slots aren't addressable).
+- Drag-to-equip can't target a concrete ring slot — CmdEquip carries only
+  an item ID and the server picks the slot. Needs a slot field on the
+  command if per-slot targeting ever matters.
+- Item icons are hand-drawn inline SVGs keyed by base id (2 so far);
+  unknown bases fall back to a diamond.
 - Server: no auth, no persistence (disconnect deletes the actor and its
   items), one instance per process, and a slow client can stall a tick for
   up to 1s (no per-client send queues). Fine for now; on the list.
@@ -123,6 +130,15 @@ Structural risks live in `RISKS.md` — read it before building anything load-be
 
 ## Session log
 
+- **2026-06-10 (9)** — Inventory UX. Panel rebuilt: fixed labeled
+  equipment slots + a capacity-sized inventory grid (one item per cell),
+  procedural SVG icons tinted by rarity, hover tooltips (name/rarity/
+  affixes), and HTML5 drag-drop — bag→equipment equips, equipment→bag
+  unequips, bag→canvas drops at your feet. Click-to-equip removed.
+  Protocol v4: `inv_size` rides the actor identity field group so the
+  client can draw real capacity. Client now logs unequips (it never had
+  that case). Verified end-to-end in headless Chrome, including all three
+  drag gestures over the binary wire. No sim changes; golden untouched.
 - **2026-06-10 (8)** — Ailments + game feel. Chill/shock as a status system
   (`sim/combat/ailments.go`): timed sheet-modifier packages under
   `StatusKind.ModSource()`, strongest-wins like ignite; chill = chance-free

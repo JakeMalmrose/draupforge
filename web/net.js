@@ -9,11 +9,11 @@
 
 "use strict";
 
-const PROTOCOL_VERSION = 3;
+const PROTOCOL_VERSION = 4;
 
 const FRAME_VIEW = 1;
 
-const ACTOR_IDENTITY = 1 << 0; // def, team, radius
+const ACTOR_IDENTITY = 1 << 0; // def, team, radius, inv_size
 const ACTOR_POS = 1 << 1;
 const ACTOR_LIFE = 1 << 2;
 const ACTOR_MAXLIFE = 1 << 3;
@@ -127,6 +127,7 @@ function decodeViewFrame(buf, baseFor) {
       a.def = r.str();
       a.team = r.uv();
       a.radius = r.sv();
+      a.inv_size = r.uv();
     }
     if (mask & ACTOR_POS) a.pos = { x: r.sv(), y: r.sv() };
     if (mask & ACTOR_LIFE) a.life = r.sv();

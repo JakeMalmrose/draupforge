@@ -583,73 +583,174 @@ window.addEventListener("keydown", (e) => {
 });
 
 // ------------------------------------------------------------ UI panel
+//
+// Equipment is a row of fixed, labeled slots; the inventory is a grid with
+// one cell per bag slot (capacity comes from the actor snap's inv_size).
+// Items move by drag and drop: bag → equipment row equips (the server
+// resolves which concrete slot), equipment → bag unequips, bag → the game
+// canvas drops the item at your feet. Hovering an item shows its tooltip.
 
 const panel = document.getElementById("panel");
 const equipmentEl = document.getElementById("equipment");
 const inventoryEl = document.getElementById("inventory");
 const invCountEl = document.getElementById("inv-count");
+const tooltipEl = document.getElementById("tooltip");
 
-function itemLI(item, extra) {
-  const li = document.createElement("li");
-  const name = document.createElement("span");
-  name.className = `rarity-${item.rarity}`;
-  name.textContent = (extra ? `[${extra}] ` : "") + item.base.replace("_", " ");
-  li.appendChild(name);
+const EQUIP_SLOTS = ["ring1", "ring2", "belt"];
+
+// Procedural item icons: inline SVG keyed by base id, tinted by rarity via
+// currentColor. Unknown bases fall back to the drops' diamond.
+const ICONS = {
+  iron_ring:
+    '<svg viewBox="0 0 24 24"><circle cx="12" cy="13.5" r="6" fill="none" stroke="currentColor" stroke-width="3"/>' +
+    '<rect x="9.5" y="2" width="5" height="5" transform="rotate(45 12 4.5)" fill="currentColor"/></svg>',
+  leather_belt:
+    '<svg viewBox="0 0 24 24"><rect x="2" y="9.5" width="20" height="5" rx="1" fill="currentColor"/>' +
+    '<rect x="8.5" y="6.5" width="7" height="11" rx="1" fill="none" stroke="currentColor" stroke-width="2"/></svg>',
+};
+const ICON_FALLBACK =
+  '<svg viewBox="0 0 24 24"><rect x="7" y="7" width="10" height="10" transform="rotate(45 12 12)" fill="currentColor"/></svg>';
+
+const prettify = (id) => id.replace(/_/g, " ");
+
+// --- tooltip (item names and affix ids come from our own content tables,
+// never from other players, so innerHTML is safe here)
+
+function showTooltip(item, where, e) {
+  const lines = [
+    `<span class="tt-name rarity-${item.rarity}">${prettify(item.base)}</span>`,
+    `<span class="tt-kind">${item.rarity}${where ? " · " + where : ""}</span>`,
+  ];
   for (const af of item.affixes || []) {
-    const div = document.createElement("span");
-    div.className = "affix";
-    div.textContent = `${af.id.replace(/_/g, " ")}: ${af.value / 1000}`;
-    li.appendChild(div);
+    lines.push(`<span class="tt-affix">${prettify(af.id)}: ${af.value / 1000}</span>`);
   }
-  return li;
+  if (!(item.affixes || []).length) lines.push('<span class="tt-plain">no affixes</span>');
+  tooltipEl.innerHTML = lines.join("");
+  tooltipEl.classList.remove("hidden");
+  moveTooltip(e);
+}
+
+function moveTooltip(e) {
+  const pad = 14;
+  const r = tooltipEl.getBoundingClientRect();
+  let x = e.clientX + pad;
+  let y = e.clientY + pad;
+  if (x + r.width > window.innerWidth - 8) x = e.clientX - r.width - pad;
+  if (y + r.height > window.innerHeight - 8) y = e.clientY - r.height - pad;
+  tooltipEl.style.left = `${x}px`;
+  tooltipEl.style.top = `${y}px`;
+}
+
+function hideTooltip() {
+  tooltipEl.classList.add("hidden");
+}
+
+// --- drag and drop
+
+let drag = null; // { id, from: "inv" | "equip" }
+
+function makeDraggable(el, item, from) {
+  el.draggable = true;
+  el.addEventListener("dragstart", (e) => {
+    drag = { id: item.id, from };
+    el.classList.add("dragging");
+    hideTooltip();
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/plain", String(item.id));
+    const targets = from === "inv" ? equipmentEl : inventoryEl;
+    for (const s of targets.children) s.classList.add("drop-ok");
+  });
+  el.addEventListener("dragend", () => {
+    drag = null;
+    el.classList.remove("dragging");
+    clearDropHighlights();
+  });
+}
+
+function clearDropHighlights() {
+  for (const s of [...equipmentEl.children, ...inventoryEl.children]) {
+    s.classList.remove("drop-ok");
+  }
+}
+
+function makeDropZone(el, accepts, action) {
+  el.addEventListener("dragover", (e) => {
+    if (drag && drag.from === accepts) e.preventDefault();
+  });
+  el.addEventListener("drop", (e) => {
+    if (!drag || drag.from !== accepts) return;
+    e.preventDefault();
+    action(drag.id);
+    drag = null;
+    clearDropHighlights();
+  });
+}
+
+makeDropZone(equipmentEl, "inv", (id) => send({ kind: "equip", target: id }));
+makeDropZone(inventoryEl, "equip", (id) => send({ kind: "unequip", target: id }));
+makeDropZone(canvas, "inv", (id) => send({ kind: "drop_item", target: id }));
+
+// --- slot rendering
+
+function slotDiv(label) {
+  const div = document.createElement("div");
+  div.className = "slot";
+  if (label) {
+    const span = document.createElement("span");
+    span.className = "slot-label";
+    span.textContent = label;
+    div.appendChild(span);
+  }
+  return div;
+}
+
+function fillSlot(div, item, from, where) {
+  div.classList.add("filled", `rarity-${item.rarity}`);
+  div.insertAdjacentHTML("afterbegin", ICONS[item.base] || ICON_FALLBACK);
+  makeDraggable(div, item, from);
+  div.addEventListener("mouseenter", (e) => showTooltip(item, where, e));
+  div.addEventListener("mousemove", moveTooltip);
+  div.addEventListener("mouseleave", hideTooltip);
 }
 
 // The panel only re-renders when its contents change. Rebuilding it every
-// view destroys the element mid-click — mousedown lands on a node that's
-// gone by mouseup, so click events never fire.
+// view would destroy the drag source mid-gesture and the hovered slot
+// mid-tooltip.
 let panelKey = "";
 
 function renderPanel(self, force) {
   const key = !self ? "dead" : JSON.stringify([
     (self.equipment || []).map((e) => e.item.id),
     (self.inventory || []).map((i) => i.id),
+    self.inv_size,
   ]);
   if (!force && key === panelKey) return;
   panelKey = key;
+  hideTooltip();
 
   equipmentEl.replaceChildren();
   inventoryEl.replaceChildren();
-  if (!self) return;
-
-  if ((self.equipment || []).length === 0) {
-    const li = document.createElement("li");
-    li.className = "empty";
-    li.textContent = "nothing equipped";
-    equipmentEl.appendChild(li);
-  }
-  for (const eq of self.equipment || []) {
-    const li = itemLI(eq.item, eq.slot);
-    li.title = "click to unequip";
-    li.onmousedown = (e) => { if (e.button === 0) send({ kind: "unequip", target: eq.item.id }); };
-    equipmentEl.appendChild(li);
+  if (!self) {
+    invCountEl.textContent = "";
+    return;
   }
 
-  invCountEl.textContent = `(${(self.inventory || []).length})`;
-  if ((self.inventory || []).length === 0) {
-    const li = document.createElement("li");
-    li.className = "empty";
-    li.textContent = "empty bag";
-    inventoryEl.appendChild(li);
+  const bySlot = new Map();
+  for (const eq of self.equipment || []) bySlot.set(eq.slot, eq.item);
+  for (const name of EQUIP_SLOTS) {
+    const div = slotDiv(name);
+    const item = bySlot.get(name);
+    if (item) fillSlot(div, item, "equip", name);
+    equipmentEl.appendChild(div);
   }
-  for (const item of self.inventory || []) {
-    const li = itemLI(item);
-    li.title = "click to equip · right-click to drop";
-    li.onmousedown = (e) => { if (e.button === 0) send({ kind: "equip", target: item.id }); };
-    li.oncontextmenu = (e) => {
-      e.preventDefault();
-      send({ kind: "drop_item", target: item.id });
-    };
-    inventoryEl.appendChild(li);
+
+  const inv = self.inventory || [];
+  const cap = self.inv_size || inv.length;
+  invCountEl.textContent = `(${inv.length}/${cap})`;
+  for (let i = 0; i < cap; i++) {
+    const div = slotDiv();
+    if (i < inv.length) fillSlot(div, inv[i], "inv", null);
+    inventoryEl.appendChild(div);
   }
 }
 
@@ -690,6 +791,9 @@ function logEvent(ev) {
       break;
     case "equip":
       text = `${nameOf(ev.actor)} equipped ${ev.note.replace("_", " ")}`;
+      break;
+    case "unequip":
+      text = `${nameOf(ev.actor)} unequipped ${ev.note.replace("_", " ")}`;
       break;
   }
   if (!text) return;

@@ -8,7 +8,7 @@ package protocol
 // it on any change a deployed client could misread — renamed/removed JSON
 // fields (omitempty makes those fail silently) or any binary frame layout
 // change. Clients hard-fail on mismatch instead of limping.
-const Version = 3 // v3: ailment bits on actor snaps
+const Version = 4 // v4: inventory capacity on actor snaps
 
 // Command is the wire form of player intent. Kind is one of "move",
 // "use_skill", "stop", the item verbs "pickup", "equip", "unequip",
@@ -43,7 +43,10 @@ type ActorSnap struct {
 	ES      int64  `json:"es,omitempty"`
 	Action  string `json:"action"`
 	// Ail is the active-ailment bitmask: 1 ignited, 2 chilled, 4 shocked.
-	Ail       uint8          `json:"ail,omitempty"`
+	Ail uint8 `json:"ail,omitempty"`
+	// InvSize is the bag capacity (0 = carries nothing). Static per def;
+	// travels in the identity field group on the binary wire.
+	InvSize   int            `json:"inv_size,omitempty"`
 	Equipment []EquippedSnap `json:"equipment,omitempty"`
 	Inventory []ItemSnap     `json:"inventory,omitempty"`
 }
