@@ -13,21 +13,59 @@ cast-while-moving, and no stun/interrupt semantics. Action semantics leak
 into AI, command validation, and netcode feel — grow them deliberately, not
 mid-feature.
 
+The skill half of the same risk: `SkillDef` carries per-kind fields and
+`fire()` in `sim/skills` is a switch on `SkillKind` — one effect, at the
+effect point. Every new skill shape (channel, multi-hit, movement skill,
+trigger) grows the struct and the switch. The first boss with a telegraphed
+multi-stage attack is where this gets designed for real; don't let it
+happen by accretion.
+
+## 2. No mid-tick entity creation
+
+Nothing can add an actor to the world during a tick — spawning happens from
+the host between ticks. Minions, totems, spawn-on-death adds, and
+split-on-hit monsters all need it, and the genre guarantees we'll want
+them. The hazards are ordering: AoE hits queue in live actor-slice
+iteration order, IDs are assigned at insert, compaction runs at tick end.
+The fix is a deliberate spawn queue drained at a fixed phase — design it
+before the first minion skill, because retrofitting changes hit order and
+re-records every golden.
+
 ## Smaller, recoverable (listed for honesty)
 
 - Reconnect/session identity doesn't exist: disconnect still deletes the
   actor and its items (worlds survive restarts via save/load, players
   don't). Needs an account/session layer on top of persistence.
-- Content-as-Go-code: balance changes need recompile+redeploy. Fine until
-  live-ops; migration to data files is mechanical.
+- Content-as-Go-code: balance changes need recompile+redeploy. Two sharper
+  edges found in audit: saves reference content by string ID, so editing a
+  def retro-patches every saved world (usually what you want, occasionally
+  surprising), and content slice order feeds weighted rolls — reordering
+  the affix table is a replay-relevant change, not a refactor.
+- AI deciders are stateless functions of the current world. Cooldowns,
+  leashing, threat tables, "don't repeat last tick's dodge" all need
+  per-actor AI memory that doesn't exist — when a behavior wants it, add a
+  saved (and hashed) AI-state blob on Actor rather than smuggling state
+  into ActorDef.
+- The world hash is a curated subset of saved state: Action's
+  path/aim/target internals are saved but not hashed, so divergence there
+  surfaces only later as position/outcome drift. Tolerable while known —
+  but every new piece of actor state must ship save support AND hash
+  coverage in the same commit, or golden coverage quietly thins.
+- RNG-stream alignment is conditional-consumption shaped: shock rolls only
+  on lightning damage, chill and buffs consume nothing — pinned by
+  `TestAilmentRNGConsumption`. The pattern compounds: every new
+  proc/on-hit effect adds conditions, and each needs the same pinning test
+  or replays break invisibly.
 - Collision/AoE are O(actors×projectiles) scans; add a spatial grid when
   density demands it.
 - Pointer-heavy sim state will eventually make the GC visible. Game clients
   get binary deltas; the debug wires (TCP, ?format=json) still pay a
   per-tick JSON marshal.
-- protocol/binary.go and web/net.js are a hand-maintained codec pair — drift
-  is caught only by the version bump discipline and play-testing, not by a
-  shared schema or a cross-language test in CI.
+- The hand-maintained server/client drift surface is wider than the
+  protocol codec pair (`protocol/binary.go` ↔ `web/net.js`): `client.js`
+  also hand-mirrors slot families (`BASE_SLOTS`, `EQUIP_SLOTS`) and
+  `PICKUP_RANGE`. The codec is guarded by the version-bump discipline; the
+  mirrored constants are guarded by nothing but play-testing.
 - Replays/goldens are version-locked to the code that produced them. Fine as
   tests; never let anything durable (saves, trade history) depend on
   replay-by-reexecution.
@@ -41,7 +79,8 @@ mid-feature.
 - In-process load/rollback without a restart: needs re-welcoming every
   client (terrain and actor IDs change under them). Save via the admin
   dashboard + restart with `cmd/server -load` is the rollback story until
-  that's worth building.
+  that's worth building. (The descent-loop feature on the STATUS.md list
+  would build exactly this machinery — one mechanism, two payoffs.)
 - No auth: the admin port must stay on localhost/tailnet until an auth
   story exists. Adjustable tick rate also still missing.
 
@@ -51,3 +90,5 @@ mid-feature.
   model).
 - The determinism tax (no floats/maps/wall-clock) — keeps paying for itself.
 - Go — nothing above is language-shaped.
+- Delta-codec field masks: the mask is a uvarint uint64, 11 of 64 bits
+  used — adding view fields is a bit + a version bump, not a redesign.

@@ -11,8 +11,8 @@ tests, and session-log entries older than a few sessions (git history is the
 archive). If this file outgrows ~150 lines, it has stopped being a status doc
 and started being a changelog — cut it back.
 
-**Last updated: 2026-06-11** (session 12: risk burndown — TagSet widened,
-world save/restore + dashboard operate tier, content-defined buffs)
+**Last updated: 2026-06-11** (session 13: mapgen branch merged to main,
+fresh architecture audit into RISKS.md, feature plan set below)
 
 ## Where things stand
 
@@ -79,8 +79,11 @@ All foundational machinery from DESIGN.md is real, not stubbed:
   lightning damage, buffs consume none — `TestAilmentRNGConsumption` pins
   the stream alignment so old fire-only replays stay stable.
 - Saves are durable state: any new world state ships its save-format
-  support (and a `SaveVersion` bump on shape changes) in the same commit.
-  Save only at tick boundaries; `World.Save` refuses pending hits/buffs.
+  support (and a `SaveVersion` bump on shape changes) AND `World.Hash`
+  coverage in the same commit — the hash is already a curated subset
+  (Action path/aim internals are saved but unhashed); don't let it thin
+  further. Save only at tick boundaries; `World.Save` refuses pending
+  hits/buffs.
 - Golden replays: any behavior change fails `TestGoldenReplay` (open plane,
   `golden_slice.txt`) and/or `TestGoldenDungeon` (generated map + pathing +
   ranged AI, `golden_dungeon.txt`). If intentional, re-record both:
@@ -140,30 +143,53 @@ Structural risks live in `RISKS.md` — read it before building anything load-be
   pressure is real: scatter keeps monsters 10u out, but they converge once
   anyone aggros.
 
-## Natural next steps (in rough order of leverage)
+## Feature plan (set 2026-06-11, session 13 — the "more meat" run)
 
-Standing recommendation (set 2026-06-11, after the risk-burndown run): the
-foundations are no longer the bottleneck — pick by what makes play better.
+The foundations are no longer the bottleneck. Next three features, in
+build order; each is independently shippable and feeds the next:
 
-1. **Quick bite that fits any session: base-item implicits.** Seven of the
-   nine bases are stat-less affix-holders. An implicit modifier per base
-   (boots = move speed, shield = armour, amulet = a resist) is a small
-   `BaseItemDef` addition that makes the slots meaningful and drops worth
-   reading.
-2. **Dungeon playability pass**, if a play session grates: spawn-room
-   safety, arrow projectile leading, a minimap or explored-fog overlay.
-   All client/AI polish, no new systems.
-3. **Action-model growth (RISKS.md #1)** when a feature wants it:
-   channelling or stun/interrupt — design the action state machine
-   deliberately before the feature forces it.
-4. **Session identity + periodic autosave** — persistence exists; a small
-   account/session layer would make disconnects survivable for players,
-   not just worlds.
-5. Server hardening: replay log, per-client send queues — when strangers
-   connect, not before.
+1. **Loot 2.0** (~1 session). Implicit modifier per base (`BaseItemDef`
+   gains an implicit — boots = move speed, shield = armour, amulet = a
+   resist), affix pool widened to ~25–30 with real group spread, and
+   per-actor drop tables (kill the shared 100% `zombie_drops`; weight
+   drop chance and rarity per ActorDef). Client: implicit line in the
+   tooltip, visually distinct from affixes. Audit note: `pickAffix`
+   silently rolls short when groups exhaust — emit an event or log when
+   the pool can't fill, so a starved table is visible during content work.
+2. **Progression: XP and levels** (~1–2 sessions). XP on kill (plain
+   int64, not Fixed — see RISKS.md), level curve, per-level base stat
+   growth as a `Level`-sourced modifier set on the sheet; `Level` on
+   ActorDef so monsters scale. Save format bump (XP/level are durable),
+   hash coverage, protocol bump for a HUD level + XP bar. Gives kills a
+   point and sets up floor scaling.
+3. **The descent** (~2–3 sessions, the real meat). Dungeon floors: reach
+   the stairs, descend to a fresh generated floor with scaled monster
+   packs and loot; death returns you to floor 1. Implement as
+   new-World-per-floor + re-welcoming the client (terrain and IDs change
+   under it) — this is exactly the machinery the parked in-process
+   load/rollback item needs, so building it pays twice. Turns the sandbox
+   into a run loop with rising stakes.
+
+After these, the natural queue: a boss with telegraphed multi-stage
+attacks (forces deliberate action-model growth, RISKS.md #1 — design the
+state machine first), then session identity + autosave so player
+characters survive disconnects, then server hardening (replay log,
+per-client send queues) when strangers connect.
 
 ## Session log
 
+- **2026-06-11 (13)** — Merged `feature/mapgen` to main (fast-forward,
+  pushed). Fresh architecture audit (three parallel reviewers over
+  core/determinism/saves, combat/stats/content, server/protocol/client;
+  findings verified against source before recording): RISKS.md gains #2
+  (no mid-tick entity creation — design the spawn queue before minions),
+  the skill-switch half of #1, and smaller entries for stateless AI
+  deciders, the hash-is-a-curated-subset gap, conditional RNG
+  consumption, and the widened client mirror surface. Rejected on
+  verification: field-mask exhaustion (uvarint u64, 11/64 bits used),
+  TagSet-widening memo breakage, EntityID overflow. Feature plan set:
+  Loot 2.0 → XP/levels → the descent (multi-floor run loop). Docs only,
+  no behavior change.
 - **2026-06-11 (12)** — Risk burndown, top three in one run. (a) TagSet:
   uint64 → compile-time-sized word array off `TagCount`; future widenings
   are automatic and golden-invisible. (b) Persistence: `sim/core/save.go`
@@ -189,22 +215,4 @@ foundations are no longer the bottleneck — pick by what makes play better.
   pins mapgen+pathing+kiting; the open-plane golden is untouched (nil-grid
   paths are bit-exact). Verified in headless Chrome: pathing around walls,
   closest-approach wall clicks, archer arrows, death screen.
-- **2026-06-10 (10)** — Full equipment + slot-addressed equip. EquipSlot
-  grows to the real set (weapon/offhand/helmet/body/gloves/boots/amulet/
-  ring1/ring2/belt), one slot family each, one base item per family in
-  content (all in the zombie drop table). `CmdEquip` now carries an
-  optional slot (`HasSlot` guards the zero value); the sim validates
-  family-vs-slot before moving anything, `EquipAuto` keeps the old
-  pick-for-me behavior for scripts and gap-drops. Client: equipment is a
-  10-cell labeled grid, drags highlight only legal slots (`BASE_SLOTS`
-  mirror), drops equip into the named slot, and bag cells are
-  rearrangeable client-side (drag to cell swaps; unequip lands in the
-  cell you dropped on). Protocol v5. Golden re-recorded (hash covers 10
-  slots; loot table widened). Verified in headless Chrome: illegal drop
-  bounces, ring2-style targeting, rearrange, unequip-into-cell.
-- **2026-06-10 (9)** — Inventory UX. Panel rebuilt: labeled equipment
-  slots + a capacity-sized grid, procedural SVG icons tinted by rarity,
-  hover tooltips, HTML5 drag-drop (bag→equipment equips, equipment→bag
-  unequips, bag→canvas drops); click-to-equip removed. Protocol v4
-  (`inv_size` in the identity field group). No sim changes.
 - (older sessions pruned — git history is the archive)
