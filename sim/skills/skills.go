@@ -36,7 +36,7 @@ func AdvanceActions(w *core.World) {
 // which is immutable — no re-validation per tick). Reaching a waypoint
 // consumes the whole tick's step: a corner costs at most one tick.
 func stepMove(a *core.Actor) {
-	speed := a.Sheet.Eval(stats.MoveSpeed, 0)
+	speed := a.Sheet.Eval(stats.MoveSpeed, stats.TagSet{})
 	if speed <= 0 {
 		a.Action = core.Action{}
 		return

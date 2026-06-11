@@ -48,10 +48,10 @@ func Upkeep(w *core.World) {
 		if a.Dead {
 			continue
 		}
-		if regen := a.Sheet.Eval(stats.ManaRegen, 0); regen > 0 {
+		if regen := a.Sheet.Eval(stats.ManaRegen, stats.TagSet{}); regen > 0 {
 			a.Mana = fm.Min(a.Mana+fm.Div(regen, fm.FromInt(core.TicksPerSecond)), a.MaxMana())
 		}
-		if regen := a.Sheet.Eval(stats.LifeRegen, 0); regen > 0 {
+		if regen := a.Sheet.Eval(stats.LifeRegen, stats.TagSet{}); regen > 0 {
 			a.Life = fm.Min(a.Life+fm.Div(regen, fm.FromInt(core.TicksPerSecond)), a.MaxLife())
 		}
 	}

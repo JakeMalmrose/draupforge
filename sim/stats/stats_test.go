@@ -17,7 +17,7 @@ func TestModifierAlgebra(t *testing.T) {
 	s.Add(Modifier{Stat: Life, Layer: LayerMore, Value: fm.FromMilli(100)})
 	s.Add(Modifier{Stat: Life, Layer: LayerMore, Value: fm.FromMilli(100)})
 
-	if got := s.Eval(Life, 0); got != fm.FromMilli(217800) {
+	if got := s.Eval(Life, TagSet{}); got != fm.FromMilli(217800) {
 		t.Errorf("Eval(Life) = %d, want 217800", got)
 	}
 }
@@ -30,7 +30,7 @@ func TestIncreasedSharesOneBucket(t *testing.T) {
 	s.Add(Modifier{Stat: Damage, Layer: LayerIncreased, Value: fm.FromMilli(500)})
 	s.Add(Modifier{Stat: Damage, Layer: LayerIncreased, Value: fm.FromMilli(500)})
 
-	if got := s.Eval(Damage, 0); got != fm.FromInt(20) {
+	if got := s.Eval(Damage, TagSet{}); got != fm.FromInt(20) {
 		t.Errorf("two 50%% increased on 10 = %d, want 20000", got)
 	}
 }
@@ -57,7 +57,7 @@ func TestOverrideWins(t *testing.T) {
 	s.Add(Modifier{Stat: MoveSpeed, Layer: LayerIncreased, Value: fm.FromMilli(500)})
 	s.Add(Modifier{Stat: MoveSpeed, Layer: LayerOverride, Value: fm.FromInt(1)})
 
-	if got := s.Eval(MoveSpeed, 0); got != fm.FromInt(1) {
+	if got := s.Eval(MoveSpeed, TagSet{}); got != fm.FromInt(1) {
 		t.Errorf("override = %d, want 1000", got)
 	}
 }
@@ -68,8 +68,30 @@ func TestReducedFloorsAtZero(t *testing.T) {
 	s := NewSheet(base)
 	s.Add(Modifier{Stat: Damage, Layer: LayerIncreased, Value: -fm.FromMilli(1500)}) // 150% reduced
 
-	if got := s.Eval(Damage, 0); got != 0 {
+	if got := s.Eval(Damage, TagSet{}); got != 0 {
 		t.Errorf("150%% reduced = %d, want 0 (floored)", got)
+	}
+}
+
+func TestTagSetOps(t *testing.T) {
+	s := T(TagFire, TagSpell, TagHit)
+	if !s.ContainsAll(T(TagFire, TagHit)) {
+		t.Error("subset must be contained")
+	}
+	if s.ContainsAll(T(TagFire, TagCold)) {
+		t.Error("set lacking Cold must not contain {Fire, Cold}")
+	}
+	if got := s.Without(T(TagFire, TagCold)); got != T(TagSpell, TagHit) {
+		t.Errorf("Without = %v, want {Spell, Hit}", got.Tags())
+	}
+
+	// Tags() lists members in ascending order — the width-independent form
+	// saves encode, so it must round-trip through T() exactly.
+	if got := T(s.Tags()...); got != s {
+		t.Errorf("Tags round-trip = %v, want %v", got.Tags(), s.Tags())
+	}
+	if len(TagSet{}.Tags()) != 0 {
+		t.Error("empty set must list no tags")
 	}
 }
 
@@ -79,11 +101,11 @@ func TestRemoveSourceAndMemoInvalidation(t *testing.T) {
 	s := NewSheet(base)
 	s.Add(Modifier{Stat: Life, Layer: LayerFlat, Value: fm.FromInt(50), Source: 7})
 
-	if got := s.Eval(Life, 0); got != fm.FromInt(150) {
+	if got := s.Eval(Life, TagSet{}); got != fm.FromInt(150) {
 		t.Fatalf("with mod = %d, want 150000", got)
 	}
 	s.RemoveSource(7)
-	if got := s.Eval(Life, 0); got != fm.FromInt(100) {
+	if got := s.Eval(Life, TagSet{}); got != fm.FromInt(100) {
 		t.Errorf("after RemoveSource = %d, want 100000 (memo must invalidate)", got)
 	}
 }

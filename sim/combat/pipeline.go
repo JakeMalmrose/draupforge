@@ -85,7 +85,7 @@ var damageTypeTags = stats.T(stats.TagPhysical, stats.TagFire, stats.TagCold, st
 func rollDamage(w *core.World, att *core.Actor, h *core.Hit, tags stats.TagSet) {
 	sk := h.Skill
 	for dt := core.DamageType(0); dt < core.DamageTypeCount; dt++ {
-		dtags := (tags &^ damageTypeTags).With(dt.Tag())
+		dtags := tags.Without(damageTypeTags).With(dt.Tag())
 		p := att.Sheet.Layers(stats.Damage, dtags)
 		var rolled fm.Fixed
 		if sk.BaseMax[dt] > 0 {

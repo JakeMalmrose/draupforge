@@ -119,9 +119,9 @@ type Actor struct {
 	Dead bool
 }
 
-func (a *Actor) MaxLife() fm.Fixed { return a.Sheet.Eval(stats.Life, 0) }
-func (a *Actor) MaxMana() fm.Fixed { return a.Sheet.Eval(stats.Mana, 0) }
-func (a *Actor) MaxES() fm.Fixed   { return a.Sheet.Eval(stats.EnergyShield, 0) }
+func (a *Actor) MaxLife() fm.Fixed { return a.Sheet.Eval(stats.Life, stats.TagSet{}) }
+func (a *Actor) MaxMana() fm.Fixed { return a.Sheet.Eval(stats.Mana, stats.TagSet{}) }
+func (a *Actor) MaxES() fm.Fixed   { return a.Sheet.Eval(stats.EnergyShield, stats.TagSet{}) }
 
 type Projectile struct {
 	ID        EntityID

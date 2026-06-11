@@ -18,14 +18,7 @@ Also silently blocks rollback netcode and mid-instance joins under lockstep
 referenced by string ID at the boundary, entity state as flat data. Don't
 wait for the "save system" feature to force it.
 
-## 2. TagSet is uint64 — 64 tags, ever
-
-12 used so far. PoE-scale conditionality (weapon classes, ailment states,
-"while leeching", …) exceeds 64 eventually. Migration to a wider set is
-mechanical but touches the hottest path plus hashing → golden-invalidating.
-Watch the count; widen deliberately, not mid-feature.
-
-## 3. One-action-at-a-time actor model is too small for the genre
+## 2. One-action-at-a-time actor model is too small for the genre
 
 No buffs/debuffs with durations (only DoTs), no channelling, no
 cast-while-moving, no stun/interrupt semantics. The stat system is ready
@@ -36,6 +29,13 @@ discovering it mid-feature.
 
 ## Smaller, recoverable (listed for honesty)
 
+- TagSet width (was risk #2, closed 2026-06-11): `TagSet` is now an array of
+  uint64 words sized at compile time from `TagCount` — adding a tag past any
+  64-bit boundary widens the set automatically, with no call-site, hash, or
+  golden impact (nothing serializes raw words; saves encode tag indices via
+  `TagSet.Tags()`). Cost is one AND+compare per word, paid only once the
+  count actually crosses a boundary. The risk that remains is ordinary
+  hot-path growth, not a migration cliff.
 - Fixed-point overflow (was risk #2, closed 2026-06-10): `fixmath.Mul` now
   runs a 128-bit intermediate via `math/bits.Mul64` and panics on result
   overflow — power creep past the int64 ceiling crashes loudly instead of

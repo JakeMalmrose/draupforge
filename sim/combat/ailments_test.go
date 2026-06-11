@@ -37,10 +37,10 @@ func TestChillAppliesAndSlows(t *testing.T) {
 	if st.Magnitude != fm.FromMilli(300) {
 		t.Errorf("chill magnitude = %d, want 300 (30%%)", st.Magnitude)
 	}
-	if got := def.Sheet.Eval(stats.MoveSpeed, 0); got != fm.FromInt(7) {
+	if got := def.Sheet.Eval(stats.MoveSpeed, stats.TagSet{}); got != fm.FromInt(7) {
 		t.Errorf("move speed under 30%% chill = %d, want 7000", got)
 	}
-	if got := def.Sheet.Eval(stats.CastSpeed, 0); got != fm.FromMilli(700) {
+	if got := def.Sheet.Eval(stats.CastSpeed, stats.TagSet{}); got != fm.FromMilli(700) {
 		t.Errorf("cast speed under 30%% chill = %d, want 700", got)
 	}
 }
@@ -69,7 +69,7 @@ func TestChillExpiresAndRestoresSpeed(t *testing.T) {
 	if len(def.Statuses) != 0 {
 		t.Fatal("chill did not expire after 2s")
 	}
-	if got := def.Sheet.Eval(stats.MoveSpeed, 0); got != fm.FromInt(10) {
+	if got := def.Sheet.Eval(stats.MoveSpeed, stats.TagSet{}); got != fm.FromInt(10) {
 		t.Errorf("move speed after chill expiry = %d, want full 10000", got)
 	}
 }
@@ -99,7 +99,7 @@ func TestStrongerChillReplacesWeakerOnly(t *testing.T) {
 		t.Error("weaker chill downgraded or refreshed a stronger one")
 	}
 	// The sheet must hold exactly one chill's worth of slow, never two.
-	if got := def.Sheet.Eval(stats.MoveSpeed, 0); got != fm.FromMilli(7600) {
+	if got := def.Sheet.Eval(stats.MoveSpeed, stats.TagSet{}); got != fm.FromMilli(7600) {
 		t.Errorf("move speed = %d, want 7600 (one 24%% chill)", got)
 	}
 }

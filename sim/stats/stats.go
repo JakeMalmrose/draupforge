@@ -60,20 +60,62 @@ const (
 	TagCount
 )
 
-// TagSet is a bitset of Tags; subset checks are one AND.
-type TagSet uint64
+// tagWords sizes TagSet to fit TagCount — adding a Tag past a 64-bit
+// boundary widens the set at compile time, with no call-site or migration
+// work. Nothing hashes or wires raw TagSet words (saves encode tag indices),
+// so widening is invisible outside this type.
+const tagWords = (int(TagCount) + 63) / 64
+
+// TagSet is a bitset of Tags; subset checks are one AND+compare per word
+// (the compiler unrolls these fixed-size loops). Comparable, so it keys the
+// evaluator memo directly.
+type TagSet [tagWords]uint64
 
 func T(tags ...Tag) TagSet {
 	var s TagSet
 	for _, t := range tags {
-		s |= TagSet(1) << t
+		s[t>>6] |= 1 << (t & 63)
 	}
 	return s
 }
 
-func (s TagSet) With(t Tag) TagSet           { return s | TagSet(1)<<t }
-func (s TagSet) Has(t Tag) bool              { return s&(TagSet(1)<<t) != 0 }
-func (s TagSet) ContainsAll(req TagSet) bool { return s&req == req }
+func (s TagSet) With(t Tag) TagSet {
+	s[t>>6] |= 1 << (t & 63)
+	return s
+}
+
+func (s TagSet) Has(t Tag) bool { return s[t>>6]&(1<<(t&63)) != 0 }
+
+func (s TagSet) ContainsAll(req TagSet) bool {
+	for i, w := range req {
+		if s[i]&w != w {
+			return false
+		}
+	}
+	return true
+}
+
+// Without returns s minus every tag in o (AND NOT) — the pipeline uses it to
+// strip damage-type tags before a per-type query.
+func (s TagSet) Without(o TagSet) TagSet {
+	for i, w := range o {
+		s[i] &^= w
+	}
+	return s
+}
+
+// Tags returns the set's members in ascending order — the width-independent
+// form serialization encodes (tag indices survive future widenings; raw
+// words would not).
+func (s TagSet) Tags() []Tag {
+	var out []Tag
+	for t := Tag(0); t < TagCount; t++ {
+		if s.Has(t) {
+			out = append(out, t)
+		}
+	}
+	return out
+}
 
 type Layer uint8
 
