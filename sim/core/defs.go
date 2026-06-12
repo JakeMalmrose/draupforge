@@ -152,6 +152,16 @@ type ActorDef struct {
 
 	BaseStats [stats.StatCount]fm.Fixed
 
+	// Level the actor spawns at (0 means 1). Per-level growth comes from
+	// PerLevel; players then climb via XP, monsters stay where content (or
+	// a future floor-scaling spawner) puts them.
+	Level int
+	// XPValue is the XP granted to this actor's killer (0 = none).
+	XPValue int64
+	// PerLevel is the growth package: each modifier is added to the sheet
+	// scaled by (level-1), under LevelModSource.
+	PerLevel []BuffMod
+
 	Skills []string // skill IDs this actor may use
 	// AI behavior key; "" means externally controlled (player) or inert.
 	AI          string

@@ -33,6 +33,10 @@ body {
   text-align: center; line-height: 22px;
   font-size: 12px; color: #efe9dc; text-shadow: 0 1px 2px #000;
 }
+#xp-row { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+#level-badge { font-size: 12px; color: #c9b76a; min-width: 42px; text-align: right; }
+#xp-row .bar.xp { flex: 1; height: 8px; margin-top: 0; }
+.bar.xp .fill { background: linear-gradient(#c9b76a, #8a7a36); transition: width 200ms linear; }
 
 /* --- inventory panel --- */
 #panel {
@@ -128,6 +132,7 @@ body {
 #log .ev-ignite { color: #e67e22; }
 #log .ev-chill { color: #7fd4ff; }
 #log .ev-shock { color: #f5e25f; }
+#log .ev-level_up { color: #c9b76a; font-weight: bold; }
 
 /* --- overlays --- */
 #overlay {

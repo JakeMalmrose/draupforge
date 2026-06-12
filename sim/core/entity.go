@@ -130,9 +130,44 @@ type Actor struct {
 	// part of world state (hashed).
 	Inventory []Item
 
+	// Progression: Level drives the Def.PerLevel growth modifiers; XP is
+	// progress into the current level (plain int64 — accumulators stay out
+	// of Fixed, see RISKS.md). Monsters keep their spawn level and XP 0.
+	Level int
+	XP    int64
+
 	// Dead actors are tombstoned during the tick and compacted at tick end,
 	// so slice indices stay stable while a tick is in flight.
 	Dead bool
+}
+
+// LevelModSource is the sheet source for per-level growth modifiers: bit 62
+// alone, disjoint from entity IDs (top bits clear), ailment sources (bit 63
+// set, 62 clear), and buff sources (both top bits set).
+const LevelModSource uint64 = 1 << 62
+
+// SetLevel sets the actor's level (clamped to ≥1) and rebuilds its
+// per-level growth modifiers: Def.PerLevel scaled by (level-1) under
+// LevelModSource. Pools are not touched — level-up rewards are the caller's
+// policy, not bookkeeping.
+func (a *Actor) SetLevel(level int) {
+	if level < 1 {
+		level = 1
+	}
+	a.Level = level
+	a.Sheet.RemoveSource(LevelModSource)
+	if level == 1 {
+		return
+	}
+	for _, m := range a.Def.PerLevel {
+		a.Sheet.Add(stats.Modifier{
+			Stat:   m.Stat,
+			Layer:  m.Layer,
+			Value:  fm.Fixed(int64(m.Value) * int64(level-1)),
+			Tags:   m.Tags,
+			Source: LevelModSource,
+		})
+	}
 }
 
 func (a *Actor) MaxLife() fm.Fixed { return a.Sheet.Eval(stats.Life, stats.TagSet{}) }

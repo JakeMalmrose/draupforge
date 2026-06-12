@@ -189,6 +189,12 @@ func actorDefs() []*core.ActorDef {
 		}),
 		Skills:        []string{"fireball", "frost_nova", "spark", "adrenaline"},
 		InventorySize: 20,
+		Level:         1,
+		PerLevel: []core.BuffMod{
+			{Stat: stats.Life, Layer: stats.LayerFlat, Value: fm.FromInt(12)},
+			{Stat: stats.Mana, Layer: stats.LayerFlat, Value: fm.FromInt(6)},
+			{Stat: stats.Accuracy, Layer: stats.LayerFlat, Value: fm.FromInt(10)},
+		},
 	}
 
 	zombie := &core.ActorDef{
@@ -206,6 +212,13 @@ func actorDefs() []*core.ActorDef {
 		AI:          "melee_chaser",
 		AggroRadius: fm.FromInt(15),
 		LootTable:   "zombie_drops",
+		Level:       1,
+		XPValue:     20,
+		// Growth so a future floor-scaling spawner can hand out level-N packs.
+		PerLevel: []core.BuffMod{
+			{Stat: stats.Life, Layer: stats.LayerFlat, Value: fm.FromInt(8)},
+			{Stat: stats.Damage, Layer: stats.LayerIncreased, Value: fm.FromMilli(40)},
+		},
 	}
 
 	// Squishy backline: keeps its distance and plinks arrows; falls fast
@@ -226,6 +239,12 @@ func actorDefs() []*core.ActorDef {
 		AggroRadius:    fm.FromInt(18),
 		PreferredRange: fm.FromInt(12),
 		LootTable:      "archer_drops",
+		Level:          1,
+		XPValue:        30, // squishier but trickier than the zombie
+		PerLevel: []core.BuffMod{
+			{Stat: stats.Life, Layer: stats.LayerFlat, Value: fm.FromInt(5)},
+			{Stat: stats.Damage, Layer: stats.LayerIncreased, Value: fm.FromMilli(40)},
+		},
 	}
 
 	// Stationary target for tests and tuning; drops like a zombie.
@@ -238,6 +257,8 @@ func actorDefs() []*core.ActorDef {
 			stats.Life: fm.FromInt(80),
 		}),
 		LootTable: "dummy_drops",
+		Level:     1,
+		XPValue:   10,
 	}
 
 	return []*core.ActorDef{player, zombie, archer, dummy}

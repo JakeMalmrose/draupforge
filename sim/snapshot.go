@@ -6,6 +6,7 @@ import (
 	"github.com/JakeMalmrose/draupforge/protocol"
 	"github.com/JakeMalmrose/draupforge/sim/core"
 	fm "github.com/JakeMalmrose/draupforge/sim/fixmath"
+	"github.com/JakeMalmrose/draupforge/sim/progress"
 	"github.com/JakeMalmrose/draupforge/sim/space"
 )
 
@@ -108,6 +109,9 @@ func (s *Sim) BuildSnapshotFor(viewer core.EntityID, radius fm.Fixed, events []p
 			Action:    actionString(a.Action),
 			Ail:       ailmentBits(a),
 			InvSize:   a.Def.InventorySize,
+			Level:     a.Level,
+			XP:        a.XP,
+			XPNext:    xpNext(a.Level),
 			Equipment: equipment,
 			Inventory: inventory,
 		})
@@ -163,6 +167,14 @@ func ailmentBits(a *core.Actor) uint8 {
 		}
 	}
 	return b
+}
+
+// xpNext is the HUD denominator: XP to finish the current level, 0 at cap.
+func xpNext(level int) int64 {
+	if level >= progress.MaxLevel {
+		return 0
+	}
+	return progress.XPToNext(level)
 }
 
 func vec(v space.Vec2) protocol.Vec {

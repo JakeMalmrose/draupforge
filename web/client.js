@@ -1000,6 +1000,9 @@ function logEvent(ev) {
     case "unequip":
       text = `${nameOf(ev.actor)} unequipped ${ev.note.replace("_", " ")}`;
       break;
+    case "level_up":
+      text = `${nameOf(ev.actor)} is now level ${Math.round(ev.amount / 1000)}!`;
+      break;
   }
   if (!text) return;
   const div = document.createElement("div");
@@ -1020,6 +1023,10 @@ function updateHUD(self) {
     `${Math.ceil(self.life / 1000)} / ${Math.ceil(self.max_life / 1000)}`;
   document.getElementById("mana-text").textContent =
     `${Math.floor(self.mana / 1000)} / ${Math.ceil(self.max_mana / 1000)}`;
+  document.getElementById("level-badge").textContent = `Lv ${self.level || 1}`;
+  // xp_next 0 = max level: show a full bar instead of dividing by zero.
+  const xpPct = self.xp_next > 0 ? (100 * self.xp) / self.xp_next : 100;
+  document.getElementById("xp-fill").style.width = `${xpPct}%`;
 }
 
 function showOverlay(text) {

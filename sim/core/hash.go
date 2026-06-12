@@ -58,6 +58,8 @@ func (w *World) Hash() uint64 {
 		s.i64(a.Life.Milli())
 		s.i64(a.Mana.Milli())
 		s.i64(a.ES.Milli())
+		s.u64(uint64(a.Level))
+		s.i64(a.XP)
 		s.u64(uint64(a.Action.Kind))
 		s.u64(uint64(a.Action.Phase))
 		s.u64(uint64(a.Action.TicksLeft))

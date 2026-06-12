@@ -14,6 +14,7 @@ func sampleView() Snapshot {
 				Pos: Vec{X: 1500, Y: -2000}, Radius: 400,
 				Life: 90000, MaxLife: 100000, Mana: 40000, MaxMana: 50000,
 				ES: 1000, Action: "idle", Ail: AilIgnited | AilChilled, InvSize: 20,
+				Level: 3, XP: 250, XPNext: 900,
 				Equipment: []EquippedSnap{{
 					Slot: "weapon",
 					Item: ItemSnap{ID: 7, Base: "rusty_sword", Rarity: "magic",
@@ -71,6 +72,9 @@ func TestDeltaRoundTrip(t *testing.T) {
 	view.Actors[0].Pos = Vec{X: 1800, Y: -1500}
 	view.Actors[0].Life = 85000
 	view.Actors[0].Ail = AilShocked
+	view.Actors[0].Level = 4
+	view.Actors[0].XP = 30
+	view.Actors[0].XPNext = 1600
 	view.Actors[0].Equipment = nil
 	view.Actors[0].Inventory = append(view.Actors[0].Inventory,
 		ItemSnap{ID: 7, Base: "rusty_sword", Rarity: "magic",

@@ -41,6 +41,7 @@ const (
 	actorEquipment
 	actorInventory
 	actorAilments
+	actorProgress // level, xp, xp_next
 )
 
 // Projectile field-mask bits.
@@ -199,6 +200,11 @@ func encodeActors(w *bwriter, base, view []ActorSnap) {
 		if c.mask&actorAilments != 0 {
 			w.u8(a.Ail)
 		}
+		if c.mask&actorProgress != 0 {
+			w.uv(uint64(a.Level))
+			w.sv(a.XP)
+			w.sv(a.XPNext)
+		}
 	}
 }
 
@@ -206,7 +212,7 @@ func actorMask(b, a *ActorSnap) uint64 {
 	if b == nil {
 		return actorIdentity | actorPos | actorLife | actorMaxLife | actorMana |
 			actorMaxMana | actorES | actorAction | actorEquipment | actorInventory |
-			actorAilments
+			actorAilments | actorProgress
 	}
 	var mask uint64
 	if b.Def != a.Def || b.Team != a.Team || b.Radius != a.Radius || b.InvSize != a.InvSize {
@@ -241,6 +247,9 @@ func actorMask(b, a *ActorSnap) uint64 {
 	}
 	if b.Ail != a.Ail {
 		mask |= actorAilments
+	}
+	if b.Level != a.Level || b.XP != a.XP || b.XPNext != a.XPNext {
+		mask |= actorProgress
 	}
 	return mask
 }
@@ -299,6 +308,11 @@ func decodeActors(r *breader, base []ActorSnap) []ActorSnap {
 		}
 		if mask&actorAilments != 0 {
 			a.Ail = r.u8()
+		}
+		if mask&actorProgress != 0 {
+			a.Level = int(r.uv())
+			a.XP = r.sv()
+			a.XPNext = r.sv()
 		}
 		changed[id] = actorDelta{a, mask}
 		order = append(order, id)
@@ -366,6 +380,9 @@ func mergeActor(b ActorSnap, d actorDelta) ActorSnap {
 	}
 	if d.mask&actorAilments != 0 {
 		a.Ail = n.Ail
+	}
+	if d.mask&actorProgress != 0 {
+		a.Level, a.XP, a.XPNext = n.Level, n.XP, n.XPNext
 	}
 	return a
 }

@@ -11,8 +11,8 @@ tests, and session-log entries older than a few sessions (git history is the
 archive). If this file outgrows ~150 lines, it has stopped being a status doc
 and started being a changelog — cut it back.
 
-**Last updated: 2026-06-12** (session 14: Loot 2.0 — implicits, 32-affix
-pool, per-actor drop tables)
+**Last updated: 2026-06-12** (session 14: Loot 2.0 + XP/levels — both
+feature-plan items shipped)
 
 ## Where things stand
 
@@ -47,6 +47,7 @@ All foundational machinery from DESIGN.md is real, not stubbed:
 | Persistence: `World.Save`/`LoadWorld` (versioned JSON, content by string ID, bit-exact continuation), admin `POST /api/save`, `cmd/server -load` | `sim/core/save.go`, `sim/space/save.go` | done, tested |
 | Actions (windup/recovery) + projectiles | `sim/skills` | done |
 | Loot: per-table rarity weights, weighted affixes, group caps, rolled base implicits, starved-pool event | `sim/items` | done, tested |
+| Progression: XP on kill, quadratic curve, level cap 50, PerLevel growth mods under `LevelModSource`, ding heal, HUD level + XP bar | `sim/progress`, `core.Actor.SetLevel` | done, tested |
 | Equipment: 10 slots (weapon…belt), slot-addressed equip command (auto fallback), affix→sheet | `sim/items/equip.go` | done, tested |
 | Inventory: pickup/unequip/drop_item, capacity | `sim/items/equip.go` | done, tested |
 | Server: TCP + WS transports, joins/leaves, send-rate decoupling, interest culling, binary deltas + acks, pause | `server/` | done, race-tested |
@@ -73,8 +74,9 @@ All foundational machinery from DESIGN.md is real, not stubbed:
 - Statuses grant their sheet modifiers under `Status.ModSource()`: ailments
   use `StatusKind.ModSource()` (high bit set, bit 62 clear), buffs use
   `BuffDef.ModSource()` (top two bits set + FNV of the buff ID — stable
-  across content reordering and saves; content.DB() panics on collision).
-  Both spaces are disjoint from item-ID sources. `TickStatuses` removes
+  across content reordering and saves; content.DB() panics on collision),
+  and per-level growth lives under `core.LevelModSource` (bit 62 alone).
+  All three spaces are disjoint from item-ID sources. `TickStatuses` removes
   them at expiry. Chill consumes no combat RNG, shock rolls only on
   lightning damage, buffs consume none — `TestAilmentRNGConsumption` pins
   the stream alignment so old fire-only replays stay stable.
@@ -146,17 +148,10 @@ Structural risks live in `RISKS.md` — read it before building anything load-be
 
 ## Feature plan (set 2026-06-11, session 13 — the "more meat" run)
 
-The foundations are no longer the bottleneck. Next features, in build
-order; each is independently shippable and feeds the next (Loot 2.0
-shipped in session 14):
+The foundations are no longer the bottleneck. Loot 2.0 and XP/levels both
+shipped in session 14; next up:
 
-1. **Progression: XP and levels** (~1–2 sessions). XP on kill (plain
-   int64, not Fixed — see RISKS.md), level curve, per-level base stat
-   growth as a `Level`-sourced modifier set on the sheet; `Level` on
-   ActorDef so monsters scale. Save format bump (XP/level are durable),
-   hash coverage, protocol bump for a HUD level + XP bar. Gives kills a
-   point and sets up floor scaling.
-2. **The descent** (~2–3 sessions, the real meat). Dungeon floors: reach
+1. **The descent** (~2–3 sessions, the real meat). Dungeon floors: reach
    the stairs, descend to a fresh generated floor with scaled monster
    packs and loot; death returns you to floor 1. Implement as
    new-World-per-floor + re-welcoming the client (terrain and IDs change
@@ -172,6 +167,18 @@ per-client send queues) when strangers connect.
 
 ## Session log
 
+- **2026-06-12 (14b)** — XP and levels (feature plan item 2). New
+  `sim/progress`: AwardXP off death events (after RollLoot in the phase
+  order; killer credited via Event.Other, no RNG consumed), quadratic
+  curve (100·level²), MaxLevel 50, ding heal refills pools.
+  `Actor.Level/XP` (XP plain int64 per RISKS.md); `Actor.SetLevel`
+  rebuilds `Def.PerLevel` growth mods under `LevelModSource` (bit 62).
+  Content: player +12 life/+6 mana/+10 accuracy per level; zombie 20 XP,
+  archer 30, dummy 10; monsters carry PerLevel packages for future floor
+  scaling. SaveVersion 3, hash covers level+XP, protocol v9
+  (`actorProgress` mask bit: level/xp/xp_next), HUD level badge + gold XP
+  bar, level-up line in the event log. Both goldens re-recorded (hash
+  shape). Verified live over TCP: dummy kill paid 10 XP on the wire.
 - **2026-06-12 (14)** — Loot 2.0 (feature plan item 1). Every base gains a
   rolled implicit (`ImplicitDef` on BaseItemDef, value on Item, sheet mod
   under the item's source on equip); affix pool 10 → 32 with tiered

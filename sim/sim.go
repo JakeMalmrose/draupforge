@@ -11,6 +11,7 @@ import (
 	"github.com/JakeMalmrose/draupforge/sim/core"
 	fm "github.com/JakeMalmrose/draupforge/sim/fixmath"
 	"github.com/JakeMalmrose/draupforge/sim/items"
+	"github.com/JakeMalmrose/draupforge/sim/progress"
 	"github.com/JakeMalmrose/draupforge/sim/skills"
 	"github.com/JakeMalmrose/draupforge/sim/space"
 )
@@ -102,6 +103,7 @@ func (s *Sim) Step(cmds []core.Command) {
 	combat.TickDoTs(w)             // ignites and friends
 	combat.TickStatuses(w)         // chill/shock timers; modifiers off at expiry
 	items.RollLoot(w)              // reacts to this tick's death events
+	progress.AwardXP(w)            // ditto: XP and level-ups off the same deaths
 
 	w.EndTick()
 }

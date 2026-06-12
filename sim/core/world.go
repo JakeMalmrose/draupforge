@@ -60,6 +60,8 @@ const (
 	// EvLootStarved fires when an item wanted more affixes than the pool
 	// could legally supply — content-authoring visibility, not gameplay.
 	EvLootStarved
+	// EvLevelUp fires once per level gained; Amount carries the new level.
+	EvLevelUp
 )
 
 func (k EventKind) String() string {
@@ -86,6 +88,8 @@ func (k EventKind) String() string {
 		return "buff"
 	case EvLootStarved:
 		return "loot_starved"
+	case EvLevelUp:
+		return "level_up"
 	default:
 		return "unequip"
 	}
@@ -175,6 +179,7 @@ func (w *World) SpawnActor(def *ActorDef, pos space.Vec2) *Actor {
 		Pos:   pos,
 		Sheet: stats.NewSheet(def.BaseStats),
 	}
+	a.SetLevel(def.Level) // clamps 0 → 1; applies PerLevel growth before pools fill
 	a.Life = a.MaxLife()
 	a.Mana = a.MaxMana()
 	a.ES = a.MaxES()

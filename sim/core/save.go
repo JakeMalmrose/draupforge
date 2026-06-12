@@ -22,7 +22,7 @@ import (
 // SaveVersion gates restores: a format change bumps it, and old files fail
 // loudly instead of misloading. Saves are durable state — unlike replays,
 // they must never depend on re-execution of the code that wrote them.
-const SaveVersion = 2 // v2: item implicit values
+const SaveVersion = 3 // v3: actor level + xp (v2: item implicit values)
 
 type saveFile struct {
 	Version     int              `json:"version"`
@@ -38,11 +38,11 @@ type saveFile struct {
 // modSave flattens stats.Modifier. Tags travel as tag indices — the
 // width-independent form — so TagSet widenings never invalidate saves.
 type modSave struct {
-	Stat   uint8     `json:"stat"`
-	Layer  uint8     `json:"layer"`
-	Value  fm.Fixed  `json:"value"`
-	Tags   []uint8   `json:"tags,omitempty"`
-	Source uint64    `json:"source"`
+	Stat   uint8    `json:"stat"`
+	Layer  uint8    `json:"layer"`
+	Value  fm.Fixed `json:"value"`
+	Tags   []uint8  `json:"tags,omitempty"`
+	Source uint64   `json:"source"`
 }
 
 type affixSave struct {
@@ -94,6 +94,8 @@ type actorSave struct {
 	Life      fm.Fixed     `json:"life"`
 	Mana      fm.Fixed     `json:"mana"`
 	ES        fm.Fixed     `json:"es"`
+	Level     int          `json:"level"`
+	XP        int64        `json:"xp,omitempty"`
 	Base      []fm.Fixed   `json:"base"` // sheet base values, StatID order
 	Mods      []modSave    `json:"mods,omitempty"`
 	Action    actionSave   `json:"action"`
@@ -168,6 +170,7 @@ func encodeActor(a *Actor) actorSave {
 	as := actorSave{
 		ID: uint64(a.ID), Def: a.Def.ID, Team: uint8(a.Team), Pos: a.Pos,
 		Life: a.Life, Mana: a.Mana, ES: a.ES,
+		Level: a.Level, XP: a.XP,
 		Base: make([]fm.Fixed, stats.StatCount),
 		Action: actionSave{
 			Kind:       uint8(a.Action.Kind),
@@ -317,10 +320,18 @@ func decodeActor(db *ContentDB, affixes map[string]*AffixDef, as actorSave) (*Ac
 			Value: ms.Value, Tags: tags, Source: ms.Source,
 		})
 	}
+	// Level mods are already in the saved modifier list — assign the field
+	// directly instead of SetLevel, which would rebuild them from the
+	// (possibly since-edited) def.
+	level := as.Level
+	if level < 1 {
+		level = 1
+	}
 	a := &Actor{
 		ID: EntityID(as.ID), Def: def, Team: Team(as.Team), Pos: as.Pos,
 		Sheet: stats.RestoreSheet(base, mods),
 		Life:  as.Life, Mana: as.Mana, ES: as.ES,
+		Level: level, XP: as.XP,
 		Action: Action{
 			Kind:          ActionKind(as.Action.Kind),
 			MoveTarget:    as.Action.MoveTarget,

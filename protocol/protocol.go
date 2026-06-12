@@ -8,7 +8,7 @@ package protocol
 // it on any change a deployed client could misread — renamed/removed JSON
 // fields (omitempty makes those fail silently) or any binary frame layout
 // change. Clients hard-fail on mismatch instead of limping.
-const Version = 8 // v8: item implicit line in ItemSnap (JSON and binary)
+const Version = 9 // v9: actor level/xp/xp_next (v8: item implicit in ItemSnap)
 
 // Command is the wire form of player intent. Kind is one of "move",
 // "use_skill", "stop", the item verbs "pickup", "equip", "unequip",
@@ -50,7 +50,13 @@ type ActorSnap struct {
 	Ail uint8 `json:"ail,omitempty"`
 	// InvSize is the bag capacity (0 = carries nothing). Static per def;
 	// travels in the identity field group on the binary wire.
-	InvSize   int            `json:"inv_size,omitempty"`
+	InvSize int `json:"inv_size,omitempty"`
+	// Progression: Level for everyone (nameplates someday), XP/XPNext as
+	// progress into the current level (the HUD bar divides them). XPNext 0
+	// means no further progression (max level).
+	Level     int            `json:"level,omitempty"`
+	XP        int64          `json:"xp,omitempty"`
+	XPNext    int64          `json:"xp_next,omitempty"`
 	Equipment []EquippedSnap `json:"equipment,omitempty"`
 	Inventory []ItemSnap     `json:"inventory,omitempty"`
 }
