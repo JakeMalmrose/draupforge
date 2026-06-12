@@ -207,6 +207,46 @@ Two contracts follow:
   the prediction/rollback option open. The no-floats/no-map-iteration/
   seeded-RNG rules do not relax.
 
+## 14. Characters, zones, instances (decided 2026-06-12)
+
+Four words, four layers — don't let them collapse back into each other:
+
+- **A `core.World` is one zone.** Self-contained and deterministic: its
+  actors, drops, RNG streams, terrain, tick. It never references anything
+  outside itself. A dungeon floor is a whole World; "three floors on one
+  map joined by teleporters" is explicitly rejected.
+- **An instance is a running zone**: World + tick loop + the clients
+  currently inside. Today `server.Instance` is also the listener and the
+  whole process; that's circumstance, not design.
+- **A character is durable, server-owned, and lives outside every world**:
+  identity, level, XP, bag, equipment (later: skills, passives). The actor
+  in a World is a *projection* of the character, minted at zone entry and
+  reduced back to character state at exit (stairs, death, disconnect).
+  Zone-local state — position, action, buffs, DoTs — deliberately does not
+  transfer; the stat sheet rebuilds from def + level + equipment at
+  injection. The persistence players care about is the character store;
+  `World.Save` remains for whole-instance snapshots and rollback.
+- **The server owns sessions, the character store, and (eventually) an
+  instance manager.** All transfers happen at the host layer between
+  ticks; the sim never participates.
+
+Decisions that follow:
+
+- **Entity IDs are world-local; re-mint item IDs at injection.** Item IDs
+  double as sheet mod sources and would collide in a fresh World. Durable
+  item identity (trade, dupe detection, someday) belongs to the character
+  store, never to an entity ID.
+- **Zone transfer = re-welcome on the same socket.** Any welcome is a full
+  client reset: interpolation buffers, delta baselines, `myId`, map. The
+  server resets its per-client encoder/ack state to match. This is the
+  same machinery as in-process load/rollback — build once, pay twice.
+- **A run owns a seed; floor N's World seed derives from it** (run seed +
+  floor index), so whole descents are replayable floor by floor.
+- **Sequence the build single-instance-first**: one Instance that swaps
+  its Sim underneath connected clients is the whole descent feature. An
+  instance manager (town hub, concurrent floors, connections owned above
+  the instance) comes only when something needs it.
+
 ## Package layout
 
 ```

@@ -11,8 +11,8 @@ tests, and session-log entries older than a few sessions (git history is the
 archive). If this file outgrows ~150 lines, it has stopped being a status doc
 and started being a changelog — cut it back.
 
-**Last updated: 2026-06-12** (session 14: Loot 2.0 + XP/levels — both
-feature-plan items shipped)
+**Last updated: 2026-06-12** (session 14: Loot 2.0 + XP/levels shipped;
+DESIGN.md §14 settles the character/zone/instance architecture)
 
 ## Where things stand
 
@@ -151,22 +151,42 @@ Structural risks live in `RISKS.md` — read it before building anything load-be
 The foundations are no longer the bottleneck. Loot 2.0 and XP/levels both
 shipped in session 14; next up:
 
-1. **The descent** (~2–3 sessions, the real meat). Dungeon floors: reach
-   the stairs, descend to a fresh generated floor with scaled monster
-   packs and loot; death returns you to floor 1. Implement as
-   new-World-per-floor + re-welcoming the client (terrain and IDs change
-   under it) — this is exactly the machinery the parked in-process
-   load/rollback item needs, so building it pays twice. Turns the sandbox
-   into a run loop with rising stakes.
+1. **The descent** (~2–3 sessions, the real meat). **Read DESIGN.md §14
+   first** — the character/zone/instance separation is decided; don't
+   re-derive it. Build order within the feature:
+   - *Character extract/inject*: portable character struct (def, level,
+     XP, bag, equipment — a subset of the save shapes; no zone-local
+     state), item IDs re-minted at injection, sheet rebuilt.
+   - *Re-welcome*: any welcome fully resets the client (interp buffers,
+     delta baselines, myId, map) and the server's per-client encoder/ack
+     state. Protocol bump. Same machinery as in-process load/rollback.
+   - *Floor swap*: stairs entity → extract everyone → new World from
+     (run seed + floor index), packs scaled via ActorDef.Level/PerLevel
+     (already built) → inject → re-welcome. One Instance swapping its
+     Sim; no instance manager yet.
+   - *Run rules* (Jake, 2026-06-12, numbers open): PoE-mapping flavor.
+     Death costs some XP (suggested: never below the current level's
+     floor) and ejects you to your portal. The portal starts on floor 1
+     and can be re-planted wherever you stand; a run grants a limited
+     number of portal uses — run out and the run is over. Cast-on-death
+     portal comes later and must carry an opportunity cost (likely a
+     skill gem slot once gems exist) — do not ship it free.
 
-After these, the natural queue: a boss with telegraphed multi-stage
+After that, the natural queue: a boss with telegraphed multi-stage
 attacks (forces deliberate action-model growth, RISKS.md #1 — design the
-state machine first), then session identity + autosave so player
-characters survive disconnects, then server hardening (replay log,
-per-client send queues) when strangers connect.
+state machine first), then the character store + sessions (characters
+survive disconnects; pulls connection ownership above the instance —
+DESIGN.md §14 phase 2), then server hardening (replay log, per-client
+send queues) when strangers connect.
 
 ## Session log
 
+- **2026-06-12 (14c)** — Docs only: DESIGN.md §14 settles the
+  character/zone/instance/server separation (worlds stay self-contained;
+  characters are server-owned projections; item IDs re-mint at zone
+  injection; transfer = full-reset re-welcome; run seed derives floor
+  seeds; single-instance Sim-swap before any instance manager). Descent
+  plan above rewritten against it, including Jake's run/portal rules.
 - **2026-06-12 (14b)** — XP and levels (feature plan item 2). New
   `sim/progress`: AwardXP off death events (after RollLoot in the phase
   order; killer credited via Event.Other, no RNG consumed), quadratic
