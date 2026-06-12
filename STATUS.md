@@ -187,30 +187,19 @@ send queues) when strangers connect.
   injection; transfer = full-reset re-welcome; run seed derives floor
   seeds; single-instance Sim-swap before any instance manager). Descent
   plan above rewritten against it, including Jake's run/portal rules.
-- **2026-06-12 (14b)** — XP and levels (feature plan item 2). New
-  `sim/progress`: AwardXP off death events (after RollLoot in the phase
-  order; killer credited via Event.Other, no RNG consumed), quadratic
-  curve (100·level²), MaxLevel 50, ding heal refills pools.
-  `Actor.Level/XP` (XP plain int64 per RISKS.md); `Actor.SetLevel`
-  rebuilds `Def.PerLevel` growth mods under `LevelModSource` (bit 62).
-  Content: player +12 life/+6 mana/+10 accuracy per level; zombie 20 XP,
-  archer 30, dummy 10; monsters carry PerLevel packages for future floor
-  scaling. SaveVersion 3, hash covers level+XP, protocol v9
-  (`actorProgress` mask bit: level/xp/xp_next), HUD level badge + gold XP
-  bar, level-up line in the event log. Both goldens re-recorded (hash
-  shape). Verified live over TCP: dummy kill paid 10 XP on the wire.
-- **2026-06-12 (14)** — Loot 2.0 (feature plan item 1). Every base gains a
-  rolled implicit (`ImplicitDef` on BaseItemDef, value on Item, sheet mod
-  under the item's source on equip); affix pool 10 → 32 with tiered
-  groups (life/armour/res have greater tiers); per-actor drop tables
-  (zombie 45% armour-leaning, archer 40% jewelry-leaning w/ better rarity,
-  dummy keeps 100% full list) with rarity weights moved from code into
-  `LootTableDef.RarityWeights`; `EvLootStarved` fires when the pool can't
-  fill an item. SaveVersion 2 (item implicit), item hash now covers
-  rarity + implicit, protocol v8 (implicit line in ItemSnap, both codecs),
-  tooltip renders it as a divided italic line. Goldens: only
-  `golden_slice` re-recorded (dungeon trace has no loot). Verified live
-  over TCP: spawned dummy, fireballed it, drop carried in-range implicit.
+- **2026-06-12 (14b)** — XP and levels. New `sim/progress` (AwardXP off
+  death events after RollLoot, 100·level² curve, cap 50, ding heal);
+  `Actor.SetLevel` rebuilds `Def.PerLevel` mods under `LevelModSource`;
+  monsters carry levels/XP values/growth packages for future floor
+  scaling. SaveVersion 3, hash covers level+XP, protocol v9, HUD level
+  badge + XP bar. Goldens re-recorded (hash shape). Verified live: dummy
+  kill paid 10 XP on the wire.
+- **2026-06-12 (14)** — Loot 2.0. Rolled implicit per base, affix pool
+  10 → 32 with tiered groups, per-actor drop tables with rarity weights
+  in `LootTableDef`, `EvLootStarved` on pool starvation. SaveVersion 2,
+  item hash covers rarity+implicit, protocol v8, tooltip implicit line.
+  Only `golden_slice` re-recorded. Verified live: spawned dummy's drop
+  carried an in-range implicit. (Detail in both commit messages.)
 - **2026-06-11 (13)** — Merged `feature/mapgen` to main (fast-forward,
   pushed). Fresh architecture audit (three parallel reviewers over
   core/determinism/saves, combat/stats/content, server/protocol/client;
