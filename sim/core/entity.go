@@ -182,6 +182,9 @@ type Item struct {
 	Base    *BaseItemDef
 	Rarity  Rarity
 	Affixes []RolledAffix
+	// Implicit is the rolled value of Base.Implicit; zero (and meaningless)
+	// when the base has none.
+	Implicit fm.Fixed
 }
 
 type Drop struct {

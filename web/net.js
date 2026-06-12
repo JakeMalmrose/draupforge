@@ -9,7 +9,7 @@
 
 "use strict";
 
-const PROTOCOL_VERSION = 7;
+const PROTOCOL_VERSION = 8;
 
 const FRAME_VIEW = 1;
 
@@ -68,6 +68,7 @@ function netReader(buf) {
 
 function readItem(r) {
   const item = { id: r.uv(), base: r.str(), rarity: r.str() };
+  if (r.u8() === 1) item.implicit = { id: r.str(), value: r.sv() };
   const n = r.uv();
   if (n > 0) {
     item.affixes = [];

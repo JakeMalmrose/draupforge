@@ -73,3 +73,64 @@ func TestRollItemDeterministic(t *testing.T) {
 		}
 	}
 }
+
+func TestRollItemImplicit(t *testing.T) {
+	db := content.DB()
+	table := db.LootTables["dummy_drops"] // full base list, every base has an implicit
+
+	for seed := uint64(0); seed < 100; seed++ {
+		w := core.NewWorld(db, seed)
+		item := items.RollItem(w, table)
+		imp := item.Base.Implicit
+		if imp == nil {
+			t.Fatalf("seed %d: base %s has no implicit — every v1 base should", seed, item.Base.ID)
+		}
+		if item.Implicit < imp.Min || item.Implicit > imp.Max {
+			t.Errorf("seed %d: %s implicit rolled %d outside [%d, %d]",
+				seed, item.Base.ID, item.Implicit, imp.Min, imp.Max)
+		}
+	}
+}
+
+func TestRollRarityWeights(t *testing.T) {
+	db := content.DB()
+	always := func(weights [3]uint32) *core.LootTableDef {
+		return &core.LootTableDef{ID: "t", Bases: []string{"iron_ring"}, RarityWeights: weights}
+	}
+	for seed := uint64(0); seed < 50; seed++ {
+		if r := items.RollItem(core.NewWorld(db, seed), always([3]uint32{1, 0, 0})).Rarity; r != core.RarityNormal {
+			t.Fatalf("seed %d: all-normal weights rolled %v", seed, r)
+		}
+		if r := items.RollItem(core.NewWorld(db, seed), always([3]uint32{0, 0, 1})).Rarity; r != core.RarityRare {
+			t.Fatalf("seed %d: all-rare weights rolled %v", seed, r)
+		}
+		// All-zero weights (content forgot) degrade to normal instead of panicking.
+		if r := items.RollItem(core.NewWorld(db, seed), always([3]uint32{})).Rarity; r != core.RarityNormal {
+			t.Fatalf("seed %d: zero weights rolled %v", seed, r)
+		}
+	}
+}
+
+func TestRollItemStarvedPoolEmitsEvent(t *testing.T) {
+	// One legal affix but rares want 4–6: the roll must come up short and
+	// say so via EvLootStarved.
+	full := content.DB()
+	db := &core.ContentDB{
+		BaseItems: full.BaseItems,
+		Affixes:   full.Affixes[:1],
+		LootTables: map[string]*core.LootTableDef{
+			"starved": {ID: "starved", Bases: []string{"iron_ring"}, RarityWeights: [3]uint32{0, 0, 1}},
+		},
+	}
+	w := core.NewWorld(db, 3)
+	item := items.RollItem(w, db.LootTables["starved"])
+	if len(item.Affixes) != 1 {
+		t.Fatalf("starved rare rolled %d affixes, want 1", len(item.Affixes))
+	}
+	for _, ev := range w.Events() {
+		if ev.Kind == core.EvLootStarved && ev.Other == item.ID && ev.Note == item.Base.ID {
+			return
+		}
+	}
+	t.Fatal("no EvLootStarved event for a roll that came up short")
+}

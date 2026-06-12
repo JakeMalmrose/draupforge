@@ -57,6 +57,9 @@ const (
 	EvChill
 	EvShock
 	EvBuff
+	// EvLootStarved fires when an item wanted more affixes than the pool
+	// could legally supply — content-authoring visibility, not gameplay.
+	EvLootStarved
 )
 
 func (k EventKind) String() string {
@@ -81,6 +84,8 @@ func (k EventKind) String() string {
 		return "shock"
 	case EvBuff:
 		return "buff"
+	case EvLootStarved:
+		return "loot_starved"
 	default:
 		return "unequip"
 	}

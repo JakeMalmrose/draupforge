@@ -8,7 +8,7 @@ package protocol
 // it on any change a deployed client could misread — renamed/removed JSON
 // fields (omitempty makes those fail silently) or any binary frame layout
 // change. Clients hard-fail on mismatch instead of limping.
-const Version = 7 // v7: AilBuffed bit, "buff" events, adrenaline on T
+const Version = 8 // v8: item implicit line in ItemSnap (JSON and binary)
 
 // Command is the wire form of player intent. Kind is one of "move",
 // "use_skill", "stop", the item verbs "pickup", "equip", "unequip",
@@ -81,10 +81,13 @@ type AffixSnap struct {
 }
 
 type ItemSnap struct {
-	ID      uint64      `json:"id"` // stable item identity; the target for equip/unequip/drop_item
-	Base    string      `json:"base"`
-	Rarity  string      `json:"rarity"`
-	Affixes []AffixSnap `json:"affixes,omitempty"`
+	ID     uint64 `json:"id"` // stable item identity; the target for equip/unequip/drop_item
+	Base   string `json:"base"`
+	Rarity string `json:"rarity"`
+	// Implicit is the base type's inherent modifier (rolled per item),
+	// rendered above the affix block; nil when the base has none.
+	Implicit *AffixSnap  `json:"implicit,omitempty"`
+	Affixes  []AffixSnap `json:"affixes,omitempty"`
 }
 
 type DropSnap struct {

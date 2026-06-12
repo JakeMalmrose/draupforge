@@ -725,6 +725,9 @@ function showTooltip(item, where, e) {
     `<span class="tt-name rarity-${item.rarity}">${prettify(item.base)}</span>`,
     `<span class="tt-kind">${item.rarity}${where ? " · " + where : ""}</span>`,
   ];
+  if (item.implicit) {
+    lines.push(`<span class="tt-implicit">${prettify(item.implicit.id)}: ${item.implicit.value / 1000}</span>`);
+  }
   for (const af of item.affixes || []) {
     lines.push(`<span class="tt-affix">${prettify(af.id)}: ${af.value / 1000}</span>`);
   }

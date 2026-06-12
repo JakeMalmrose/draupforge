@@ -106,6 +106,10 @@ body {
 }
 #tooltip .tt-name { display: block; }
 #tooltip .tt-kind { display: block; font-size: 11px; color: #8d8678; }
+#tooltip .tt-implicit {
+  display: block; font-size: 12px; color: #a89968; font-style: italic;
+  border-bottom: 1px solid #3a362e; padding-bottom: 3px; margin-bottom: 3px;
+}
 #tooltip .tt-affix { display: block; font-size: 12px; color: #7d8fb0; }
 #tooltip .tt-plain { display: block; font-size: 11px; color: #55504a; font-style: italic; }
 

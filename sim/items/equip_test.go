@@ -338,3 +338,31 @@ func TestEveryFamilyEquipsSomewhere(t *testing.T) {
 		t.Errorf("equipped %d slots, want 9 (one base per family)", filled)
 	}
 }
+
+func TestEquipAppliesImplicit(t *testing.T) {
+	db := content.DB()
+	w := core.NewWorld(db, 1)
+	player := w.SpawnActor(db.Actors["player"], space.V(0, 0))
+	baseMax := player.MaxLife()
+
+	// A normal belt: no affixes, but its life implicit must still apply.
+	belt := core.Item{
+		ID:       w.AllocID(),
+		Base:     db.BaseItems["leather_belt"],
+		Rarity:   core.RarityNormal,
+		Implicit: fm.FromInt(15),
+	}
+	d := w.SpawnDrop(player.Pos, belt)
+	if !items.Equip(w, player, d.ID, core.EquipAuto) {
+		t.Fatal("belt equip failed")
+	}
+	if got := player.MaxLife(); got != baseMax+fm.FromInt(15) {
+		t.Errorf("max life with belt implicit = %d, want %d", got, baseMax+fm.FromInt(15))
+	}
+	if !items.Unequip(w, player, belt.ID) {
+		t.Fatal("belt unequip failed")
+	}
+	if got := player.MaxLife(); got != baseMax {
+		t.Errorf("max life after unequip = %d, want %d (implicit not removed)", got, baseMax)
+	}
+}

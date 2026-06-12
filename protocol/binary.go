@@ -553,6 +553,13 @@ func (w *bwriter) item(it ItemSnap) {
 	w.uv(it.ID)
 	w.str(it.Base)
 	w.str(it.Rarity)
+	if it.Implicit != nil {
+		w.u8(1)
+		w.str(it.Implicit.ID)
+		w.sv(it.Implicit.Value)
+	} else {
+		w.u8(0)
+	}
 	w.uv(uint64(len(it.Affixes)))
 	for _, af := range it.Affixes {
 		w.str(af.ID)
@@ -631,6 +638,9 @@ func (r *breader) idset() map[uint64]bool {
 
 func (r *breader) item() ItemSnap {
 	it := ItemSnap{ID: r.uv(), Base: r.str(), Rarity: r.str()}
+	if r.u8() == 1 {
+		it.Implicit = &AffixSnap{ID: r.str(), Value: r.sv()}
+	}
 	for n := r.uv(); n > 0 && r.err == nil; n-- {
 		it.Affixes = append(it.Affixes, AffixSnap{ID: r.str(), Value: r.sv()})
 	}

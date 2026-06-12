@@ -11,8 +11,8 @@ tests, and session-log entries older than a few sessions (git history is the
 archive). If this file outgrows ~150 lines, it has stopped being a status doc
 and started being a changelog — cut it back.
 
-**Last updated: 2026-06-11** (session 13: mapgen branch merged to main,
-fresh architecture audit into RISKS.md, feature plan set below)
+**Last updated: 2026-06-12** (session 14: Loot 2.0 — implicits, 32-affix
+pool, per-actor drop tables)
 
 ## Where things stand
 
@@ -46,7 +46,7 @@ All foundational machinery from DESIGN.md is real, not stubbed:
 | Statuses: ignite (DoT) + chill/shock (hit-scaled, strongest-wins) + content buffs (`BuffDef` packages, refresh-not-stack, `SkillBuff` skills via pending-buff queue) | `sim/combat/ailments.go`, `buff.go` | done, tested |
 | Persistence: `World.Save`/`LoadWorld` (versioned JSON, content by string ID, bit-exact continuation), admin `POST /api/save`, `cmd/server -load` | `sim/core/save.go`, `sim/space/save.go` | done, tested |
 | Actions (windup/recovery) + projectiles | `sim/skills` | done |
-| Loot: rarity, weighted affixes, group caps | `sim/items` | done, tested |
+| Loot: per-table rarity weights, weighted affixes, group caps, rolled base implicits, starved-pool event | `sim/items` | done, tested |
 | Equipment: 10 slots (weapon…belt), slot-addressed equip command (auto fallback), affix→sheet | `sim/items/equip.go` | done, tested |
 | Inventory: pickup/unequip/drop_item, capacity | `sim/items/equip.go` | done, tested |
 | Server: TCP + WS transports, joins/leaves, send-rate decoupling, interest culling, binary deltas + acks, pause | `server/` | done, race-tested |
@@ -55,7 +55,7 @@ All foundational machinery from DESIGN.md is real, not stubbed:
 | AI: behavior registry — `melee_chaser`, `ranged_kiter` (LoS-gated shooting, retreat band) | `sim/ai` | real, tested |
 | Phase order + command validation | `sim/sim.go` | done — this IS the determinism contract |
 | Wire types: versioned welcome, JSON snapshots, binary delta view codec | `protocol/` | done, tested |
-| Content tables | `content/` | fireball, frost_nova (AoE), spark, zombie_slam, bone_arrow, 4 actors (player/zombie/archer/dummy), 10 affixes, 9 bases (one per slot family) |
+| Content tables | `content/` | fireball, frost_nova (AoE), spark, zombie_slam, bone_arrow, 4 actors (player/zombie/archer/dummy), 32 affixes (tiered groups), 9 bases (one per slot family, each with a rolled implicit), 3 drop tables (zombie/archer/dummy) |
 | Debug client | `cmd/headless` | done |
 | Determinism + golden replay tests | `sim/sim_test.go` | done |
 
@@ -139,30 +139,24 @@ Structural risks live in `RISKS.md` — read it before building anything load-be
   maps get big or revealable (fog of war would change this).
 - Kiter retreat picks from 5 fixed directions, no flee pathfinding — a
   cornered archer stands and fights.
-- `zombie_drops` is 100% drop chance, and archers share it. Spawn-room
-  pressure is real: scatter keeps monsters 10u out, but they converge once
-  anyone aggros.
+- Affix pool is global — no per-slot pools, so boots can roll cast speed.
+  Fine until itemization depth matters.
+- Spawn-room pressure is real: scatter keeps monsters 10u out, but they
+  converge once anyone aggros.
 
 ## Feature plan (set 2026-06-11, session 13 — the "more meat" run)
 
-The foundations are no longer the bottleneck. Next three features, in
-build order; each is independently shippable and feeds the next:
+The foundations are no longer the bottleneck. Next features, in build
+order; each is independently shippable and feeds the next (Loot 2.0
+shipped in session 14):
 
-1. **Loot 2.0** (~1 session). Implicit modifier per base (`BaseItemDef`
-   gains an implicit — boots = move speed, shield = armour, amulet = a
-   resist), affix pool widened to ~25–30 with real group spread, and
-   per-actor drop tables (kill the shared 100% `zombie_drops`; weight
-   drop chance and rarity per ActorDef). Client: implicit line in the
-   tooltip, visually distinct from affixes. Audit note: `pickAffix`
-   silently rolls short when groups exhaust — emit an event or log when
-   the pool can't fill, so a starved table is visible during content work.
-2. **Progression: XP and levels** (~1–2 sessions). XP on kill (plain
+1. **Progression: XP and levels** (~1–2 sessions). XP on kill (plain
    int64, not Fixed — see RISKS.md), level curve, per-level base stat
    growth as a `Level`-sourced modifier set on the sheet; `Level` on
    ActorDef so monsters scale. Save format bump (XP/level are durable),
    hash coverage, protocol bump for a HUD level + XP bar. Gives kills a
    point and sets up floor scaling.
-3. **The descent** (~2–3 sessions, the real meat). Dungeon floors: reach
+2. **The descent** (~2–3 sessions, the real meat). Dungeon floors: reach
    the stairs, descend to a fresh generated floor with scaled monster
    packs and loot; death returns you to floor 1. Implement as
    new-World-per-floor + re-welcoming the client (terrain and IDs change
@@ -178,6 +172,18 @@ per-client send queues) when strangers connect.
 
 ## Session log
 
+- **2026-06-12 (14)** — Loot 2.0 (feature plan item 1). Every base gains a
+  rolled implicit (`ImplicitDef` on BaseItemDef, value on Item, sheet mod
+  under the item's source on equip); affix pool 10 → 32 with tiered
+  groups (life/armour/res have greater tiers); per-actor drop tables
+  (zombie 45% armour-leaning, archer 40% jewelry-leaning w/ better rarity,
+  dummy keeps 100% full list) with rarity weights moved from code into
+  `LootTableDef.RarityWeights`; `EvLootStarved` fires when the pool can't
+  fill an item. SaveVersion 2 (item implicit), item hash now covers
+  rarity + implicit, protocol v8 (implicit line in ItemSnap, both codecs),
+  tooltip renders it as a divided italic line. Goldens: only
+  `golden_slice` re-recorded (dungeon trace has no loot). Verified live
+  over TCP: spawned dummy, fireballed it, drop carried in-range implicit.
 - **2026-06-11 (13)** — Merged `feature/mapgen` to main (fast-forward,
   pushed). Fresh architecture audit (three parallel reviewers over
   core/determinism/saves, combat/stats/content, server/protocol/client;
@@ -201,18 +207,4 @@ per-client send queues) when strangers connect.
   player skill on T, AilBuffed ring. Protocol v7. Goldens untouched (all
   three changes are behavior-neutral for existing scenarios); verified
   live over the TCP wire and a save/restart cycle.
-- **2026-06-10 (11)** — Terrain. `sim/space` grows a tile Grid (one shared
-  clearance radius, eroded walkability, fixed-point DDA `SegmentHit`,
-  deterministic A* with seq-tie-broken heap + string-pulling smoothing) and
-  a rooms-and-corridors generator off RNGMap (3-wide corridors so erosion
-  keeps a walkable center line; unreachable-tile pruning post-gen).
-  `CmdMove` paths at command time (half-tile repath throttle for AI);
-  movement follows waypoints; projectiles clip on walls. AI moved to a
-  registry; new `ranged_kiter` + `skeleton_archer`/`bone_arrow` content
-  (`PreferredRange` on ActorDef). Protocol v6: welcome carries the map as
-  ASCII rows; scenarios gained `map` + `scatter`; arena.json is now a real
-  dungeon; client renders walls/floor. Second golden (`golden_dungeon.txt`)
-  pins mapgen+pathing+kiting; the open-plane golden is untouched (nil-grid
-  paths are bit-exact). Verified in headless Chrome: pathing around walls,
-  closest-approach wall clicks, archer arrows, death screen.
 - (older sessions pruned — git history is the archive)

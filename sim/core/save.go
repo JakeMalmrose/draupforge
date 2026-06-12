@@ -22,7 +22,7 @@ import (
 // SaveVersion gates restores: a format change bumps it, and old files fail
 // loudly instead of misloading. Saves are durable state — unlike replays,
 // they must never depend on re-execution of the code that wrote them.
-const SaveVersion = 1
+const SaveVersion = 2 // v2: item implicit values
 
 type saveFile struct {
 	Version     int              `json:"version"`
@@ -51,10 +51,11 @@ type affixSave struct {
 }
 
 type itemSave struct {
-	ID      uint64      `json:"id"`
-	Base    string      `json:"base"`
-	Rarity  uint8       `json:"rarity"`
-	Affixes []affixSave `json:"affixes,omitempty"`
+	ID       uint64      `json:"id"`
+	Base     string      `json:"base"`
+	Rarity   uint8       `json:"rarity"`
+	Implicit fm.Fixed    `json:"implicit,omitempty"`
+	Affixes  []affixSave `json:"affixes,omitempty"`
 }
 
 type actionSave struct {
@@ -225,7 +226,7 @@ func encodeActor(a *Actor) actorSave {
 }
 
 func encodeItem(item Item) itemSave {
-	is := itemSave{ID: uint64(item.ID), Base: item.Base.ID, Rarity: uint8(item.Rarity)}
+	is := itemSave{ID: uint64(item.ID), Base: item.Base.ID, Rarity: uint8(item.Rarity), Implicit: item.Implicit}
 	for _, af := range item.Affixes {
 		is.Affixes = append(is.Affixes, affixSave{ID: af.Def.ID, Value: af.Value})
 	}
@@ -384,7 +385,7 @@ func decodeItem(db *ContentDB, affixes map[string]*AffixDef, is itemSave) (Item,
 	if base == nil {
 		return Item{}, fmt.Errorf("core: save references unknown base item %q", is.Base)
 	}
-	item := Item{ID: EntityID(is.ID), Base: base, Rarity: Rarity(is.Rarity)}
+	item := Item{ID: EntityID(is.ID), Base: base, Rarity: Rarity(is.Rarity), Implicit: is.Implicit}
 	for _, af := range is.Affixes {
 		def := affixes[af.ID]
 		if def == nil {

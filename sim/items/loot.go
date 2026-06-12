@@ -5,6 +5,7 @@ package items
 
 import (
 	"github.com/JakeMalmrose/draupforge/sim/core"
+	fm "github.com/JakeMalmrose/draupforge/sim/fixmath"
 )
 
 // Affix count rules per rarity: magic items roll 1–2 affixes capped at one
@@ -37,19 +38,16 @@ func RollLoot(w *core.World) {
 	}
 }
 
-// RollItem generates one item from a loot table: base, rarity, then affixes
-// drawn from the weighted pool with no two from the same group.
+// RollItem generates one item from a loot table: base, rarity (weighted per
+// table), the base's implicit, then affixes drawn from the weighted pool
+// with no two from the same group. RNG draw order (base, rarity, implicit,
+// affixes) is replay-relevant — don't reorder.
 func RollItem(w *core.World, table *core.LootTableDef) core.Item {
 	baseID := table.Bases[w.RNGLoot.Uint64n(uint64(len(table.Bases)))]
 	item := core.Item{ID: w.AllocID(), Base: w.Content.BaseItems[baseID]}
-
-	switch roll := w.RNGLoot.Uint64n(100); {
-	case roll < 50:
-		item.Rarity = core.RarityNormal
-	case roll < 85:
-		item.Rarity = core.RarityMagic
-	default:
-		item.Rarity = core.RarityRare
+	item.Rarity = rollRarity(w, table)
+	if imp := item.Base.Implicit; imp != nil {
+		item.Implicit = w.RNGLoot.Range(imp.Min, imp.Max)
 	}
 
 	var want int
@@ -70,7 +68,15 @@ func RollItem(w *core.World, table *core.LootTableDef) core.Item {
 	for len(item.Affixes) < want {
 		af := pickAffix(w, usedGroups, kindCounts, kindCap)
 		if af == nil {
-			break // pool exhausted under constraints
+			// Pool exhausted under constraints: a starved table is a content
+			// bug, so make it visible instead of silently rolling short.
+			w.Emit(core.Event{
+				Kind:   core.EvLootStarved,
+				Other:  item.ID,
+				Amount: fm.FromInt(int64(want - len(item.Affixes))),
+				Note:   item.Base.ID,
+			})
+			break
 		}
 		usedGroups[af.Group] = true
 		kindCounts[af.Kind]++
@@ -80,6 +86,26 @@ func RollItem(w *core.World, table *core.LootTableDef) core.Item {
 		})
 	}
 	return item
+}
+
+// rollRarity draws normal/magic/rare from the table's weights. An all-zero
+// table (content forgot to set it) degrades to normal-only.
+func rollRarity(w *core.World, table *core.LootTableDef) core.Rarity {
+	var total uint64
+	for _, wt := range table.RarityWeights {
+		total += uint64(wt)
+	}
+	if total == 0 {
+		return core.RarityNormal
+	}
+	roll := w.RNGLoot.Uint64n(total)
+	for r, wt := range table.RarityWeights {
+		if roll < uint64(wt) {
+			return core.Rarity(r)
+		}
+		roll -= uint64(wt)
+	}
+	return core.RarityNormal // unreachable
 }
 
 // pickAffix does a weighted draw over the affixes still legal for this item.

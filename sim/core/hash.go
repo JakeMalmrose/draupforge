@@ -24,6 +24,8 @@ func (s *hasher) i64(v int64) { s.u64(uint64(v)) }
 func (s *hasher) item(item *Item) {
 	s.u64(uint64(item.ID))
 	s.str(item.Base.ID)
+	s.u64(uint64(item.Rarity))
+	s.i64(item.Implicit.Milli())
 	for _, af := range item.Affixes {
 		s.str(af.Def.ID)
 		s.i64(af.Value.Milli())
@@ -97,12 +99,7 @@ func (w *World) Hash() uint64 {
 
 	for _, d := range w.Drops {
 		s.u64(uint64(d.ID))
-		s.str(d.Item.Base.ID)
-		s.u64(uint64(d.Item.Rarity))
-		for _, af := range d.Item.Affixes {
-			s.str(af.Def.ID)
-			s.i64(af.Value.Milli())
-		}
+		s.item(&d.Item)
 	}
 
 	for _, r := range []*RNG{w.RNGCombat, w.RNGLoot, w.RNGAI, w.RNGMap} {

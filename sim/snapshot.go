@@ -171,6 +171,9 @@ func vec(v space.Vec2) protocol.Vec {
 
 func itemSnap(item core.Item) protocol.ItemSnap {
 	out := protocol.ItemSnap{ID: uint64(item.ID), Base: item.Base.ID, Rarity: item.Rarity.String()}
+	if imp := item.Base.Implicit; imp != nil {
+		out.Implicit = &protocol.AffixSnap{ID: imp.ID, Value: item.Implicit.Milli()}
+	}
 	for _, af := range item.Affixes {
 		out.Affixes = append(out.Affixes, protocol.AffixSnap{ID: af.Def.ID, Value: af.Value.Milli()})
 	}

@@ -225,7 +225,7 @@ func actorDefs() []*core.ActorDef {
 		AI:             "ranged_kiter",
 		AggroRadius:    fm.FromInt(18),
 		PreferredRange: fm.FromInt(12),
-		LootTable:      "zombie_drops",
+		LootTable:      "archer_drops",
 	}
 
 	// Stationary target for tests and tuning; drops like a zombie.
@@ -237,28 +237,23 @@ func actorDefs() []*core.ActorDef {
 		BaseStats: baseStats(map[stats.StatID]fm.Fixed{
 			stats.Life: fm.FromInt(80),
 		}),
-		LootTable: "zombie_drops",
+		LootTable: "dummy_drops",
 	}
 
 	return []*core.ActorDef{player, zombie, archer, dummy}
 }
 
+// affixDefs is the global affix pool. Slice order feeds the weighted roll —
+// reordering or inserting mid-list is a replay-relevant change (re-record
+// goldens), so append new affixes at the end of their kind block. Groups
+// with a "_greater" entry are tiered: one group, two rarity-of-roll bands.
 func affixDefs() []*core.AffixDef {
 	return []*core.AffixDef{
+		// --- prefixes: damage
 		{
 			ID: "flat_fire_damage", Group: "added_fire", Kind: core.Prefix,
 			Stat: stats.Damage, Layer: stats.LayerFlat, Tags: stats.T(stats.TagFire),
 			Min: fm.FromInt(2), Max: fm.FromInt(5), Weight: 100,
-		},
-		{
-			ID: "flat_life", Group: "life", Kind: core.Prefix,
-			Stat: stats.Life, Layer: stats.LayerFlat,
-			Min: fm.FromInt(10), Max: fm.FromInt(25), Weight: 100,
-		},
-		{
-			ID: "flat_armour", Group: "armour", Kind: core.Prefix,
-			Stat: stats.Armour, Layer: stats.LayerFlat,
-			Min: fm.FromInt(15), Max: fm.FromInt(40), Weight: 80,
 		},
 		{
 			ID: "flat_cold_damage", Group: "added_cold", Kind: core.Prefix,
@@ -271,52 +266,230 @@ func affixDefs() []*core.AffixDef {
 			Min: fm.FromInt(1), Max: fm.FromInt(7), Weight: 100,
 		},
 		{
+			ID: "flat_phys_damage", Group: "added_phys", Kind: core.Prefix,
+			Stat: stats.Damage, Layer: stats.LayerFlat, Tags: stats.T(stats.TagPhysical),
+			Min: fm.FromInt(2), Max: fm.FromInt(4), Weight: 90,
+		},
+		{
+			ID: "increased_spell_damage", Group: "spell_damage", Kind: core.Prefix,
+			Stat: stats.Damage, Layer: stats.LayerIncreased, Tags: stats.T(stats.TagSpell),
+			Min: fm.FromMilli(80), Max: fm.FromMilli(150), Weight: 70, // 8–15%
+		},
+		{
+			ID: "increased_fire_damage", Group: "fire_damage", Kind: core.Prefix,
+			Stat: stats.Damage, Layer: stats.LayerIncreased, Tags: stats.T(stats.TagFire),
+			Min: fm.FromMilli(100), Max: fm.FromMilli(200), Weight: 60, // 10–20%
+		},
+		{
+			ID: "increased_cold_damage", Group: "cold_damage", Kind: core.Prefix,
+			Stat: stats.Damage, Layer: stats.LayerIncreased, Tags: stats.T(stats.TagCold),
+			Min: fm.FromMilli(100), Max: fm.FromMilli(200), Weight: 60,
+		},
+		{
+			ID: "increased_lightning_damage", Group: "lightning_damage", Kind: core.Prefix,
+			Stat: stats.Damage, Layer: stats.LayerIncreased, Tags: stats.T(stats.TagLightning),
+			Min: fm.FromMilli(100), Max: fm.FromMilli(200), Weight: 60,
+		},
+		// --- prefixes: defences and pools
+		{
+			ID: "flat_life", Group: "life", Kind: core.Prefix,
+			Stat: stats.Life, Layer: stats.LayerFlat,
+			Min: fm.FromInt(10), Max: fm.FromInt(25), Weight: 100,
+		},
+		{
+			ID: "flat_life_greater", Group: "life", Kind: core.Prefix,
+			Stat: stats.Life, Layer: stats.LayerFlat,
+			Min: fm.FromInt(26), Max: fm.FromInt(45), Weight: 35,
+		},
+		{
+			ID: "flat_mana", Group: "mana", Kind: core.Prefix,
+			Stat: stats.Mana, Layer: stats.LayerFlat,
+			Min: fm.FromInt(8), Max: fm.FromInt(18), Weight: 90,
+		},
+		{
+			ID: "flat_armour", Group: "armour", Kind: core.Prefix,
+			Stat: stats.Armour, Layer: stats.LayerFlat,
+			Min: fm.FromInt(15), Max: fm.FromInt(40), Weight: 80,
+		},
+		{
+			ID: "flat_armour_greater", Group: "armour", Kind: core.Prefix,
+			Stat: stats.Armour, Layer: stats.LayerFlat,
+			Min: fm.FromInt(41), Max: fm.FromInt(75), Weight: 25,
+		},
+		{
+			ID: "flat_evasion", Group: "evasion", Kind: core.Prefix,
+			Stat: stats.Evasion, Layer: stats.LayerFlat,
+			Min: fm.FromInt(15), Max: fm.FromInt(40), Weight: 80,
+		},
+		{
+			ID: "flat_energy_shield", Group: "energy_shield", Kind: core.Prefix,
+			Stat: stats.EnergyShield, Layer: stats.LayerFlat,
+			Min: fm.FromInt(10), Max: fm.FromInt(25), Weight: 70,
+		},
+		{
+			ID: "life_regen", Group: "life_regen", Kind: core.Prefix,
+			Stat: stats.LifeRegen, Layer: stats.LayerFlat,
+			Min: fm.FromInt(1), Max: fm.FromInt(3), Weight: 60,
+		},
+		{
+			ID: "mana_regen", Group: "mana_regen", Kind: core.Prefix,
+			Stat: stats.ManaRegen, Layer: stats.LayerFlat,
+			Min: fm.FromMilli(500), Max: fm.FromMilli(1500), Weight: 60,
+		},
+		// --- suffixes: resistances
+		{
 			ID: "fire_resistance", Group: "fire_res", Kind: core.Suffix,
 			Stat: stats.FireRes, Layer: stats.LayerFlat,
 			Min: fm.FromMilli(100), Max: fm.FromMilli(200), Weight: 100, // 10–20%
 		},
 		{
+			ID: "fire_resistance_greater", Group: "fire_res", Kind: core.Suffix,
+			Stat: stats.FireRes, Layer: stats.LayerFlat,
+			Min: fm.FromMilli(210), Max: fm.FromMilli(300), Weight: 30, // 21–30%
+		},
+		{
 			ID: "cold_resistance", Group: "cold_res", Kind: core.Suffix,
 			Stat: stats.ColdRes, Layer: stats.LayerFlat,
-			Min: fm.FromMilli(100), Max: fm.FromMilli(200), Weight: 100, // 10–20%
+			Min: fm.FromMilli(100), Max: fm.FromMilli(200), Weight: 100,
+		},
+		{
+			ID: "cold_resistance_greater", Group: "cold_res", Kind: core.Suffix,
+			Stat: stats.ColdRes, Layer: stats.LayerFlat,
+			Min: fm.FromMilli(210), Max: fm.FromMilli(300), Weight: 30,
 		},
 		{
 			ID: "lightning_resistance", Group: "lightning_res", Kind: core.Suffix,
 			Stat: stats.LightningRes, Layer: stats.LayerFlat,
-			Min: fm.FromMilli(100), Max: fm.FromMilli(200), Weight: 100, // 10–20%
+			Min: fm.FromMilli(100), Max: fm.FromMilli(200), Weight: 100,
 		},
+		{
+			ID: "lightning_resistance_greater", Group: "lightning_res", Kind: core.Suffix,
+			Stat: stats.LightningRes, Layer: stats.LayerFlat,
+			Min: fm.FromMilli(210), Max: fm.FromMilli(300), Weight: 30,
+		},
+		{
+			ID: "chaos_resistance", Group: "chaos_res", Kind: core.Suffix,
+			Stat: stats.ChaosRes, Layer: stats.LayerFlat,
+			Min: fm.FromMilli(50), Max: fm.FromMilli(150), Weight: 40, // 5–15%
+		},
+		// --- suffixes: offense and utility
 		{
 			ID: "crit_chance", Group: "crit", Kind: core.Suffix,
 			Stat: stats.CritChance, Layer: stats.LayerFlat,
 			Min: fm.FromMilli(10), Max: fm.FromMilli(30), Weight: 60, // 1–3%
 		},
 		{
+			ID: "crit_multi", Group: "crit_multi", Kind: core.Suffix,
+			Stat: stats.CritMulti, Layer: stats.LayerFlat,
+			Min: fm.FromMilli(100), Max: fm.FromMilli(250), Weight: 40, // +10–25%
+		},
+		{
 			ID: "increased_cast_speed", Group: "cast_speed", Kind: core.Suffix,
 			Stat: stats.CastSpeed, Layer: stats.LayerIncreased,
 			Min: fm.FromMilli(50), Max: fm.FromMilli(100), Weight: 60, // 5–10%
 		},
+		{
+			ID: "increased_attack_speed", Group: "attack_speed", Kind: core.Suffix,
+			Stat: stats.AttackSpeed, Layer: stats.LayerIncreased,
+			Min: fm.FromMilli(50), Max: fm.FromMilli(100), Weight: 60,
+		},
+		{
+			ID: "increased_move_speed", Group: "move_speed", Kind: core.Suffix,
+			Stat: stats.MoveSpeed, Layer: stats.LayerIncreased,
+			Min: fm.FromMilli(40), Max: fm.FromMilli(80), Weight: 40, // 4–8%
+		},
+		{
+			ID: "flat_accuracy", Group: "accuracy", Kind: core.Suffix,
+			Stat: stats.Accuracy, Layer: stats.LayerFlat,
+			Min: fm.FromInt(20), Max: fm.FromInt(50), Weight: 70,
+		},
+		{
+			ID: "ignite_chance", Group: "ignite_chance", Kind: core.Suffix,
+			Stat: stats.IgniteChance, Layer: stats.LayerFlat,
+			Min: fm.FromMilli(50), Max: fm.FromMilli(100), Weight: 40, // 5–10%
+		},
+		{
+			ID: "shock_chance", Group: "shock_chance", Kind: core.Suffix,
+			Stat: stats.ShockChance, Layer: stats.LayerFlat,
+			Min: fm.FromMilli(50), Max: fm.FromMilli(100), Weight: 40,
+		},
 	}
 }
 
+// Every base carries an implicit — the guaranteed identity of the slot,
+// rolled at drop time, on top of whatever affixes rarity grants.
 func baseItemDefs() []*core.BaseItemDef {
 	return []*core.BaseItemDef{
-		{ID: "rusty_sword", Name: "Rusty Sword", Slot: core.FamilyWeapon},
-		{ID: "wooden_shield", Name: "Wooden Shield", Slot: core.FamilyOffhand},
-		{ID: "leather_cap", Name: "Leather Cap", Slot: core.FamilyHelmet},
-		{ID: "leather_vest", Name: "Leather Vest", Slot: core.FamilyBody},
-		{ID: "leather_gloves", Name: "Leather Gloves", Slot: core.FamilyGloves},
-		{ID: "leather_boots", Name: "Leather Boots", Slot: core.FamilyBoots},
-		{ID: "bone_amulet", Name: "Bone Amulet", Slot: core.FamilyAmulet},
-		{ID: "iron_ring", Name: "Iron Ring", Slot: core.FamilyRing},
-		{ID: "leather_belt", Name: "Leather Belt", Slot: core.FamilyBelt},
+		{ID: "rusty_sword", Name: "Rusty Sword", Slot: core.FamilyWeapon, Implicit: &core.ImplicitDef{
+			// Untagged increased damage so every build cares about its weapon.
+			ID: "increased_damage", Stat: stats.Damage, Layer: stats.LayerIncreased,
+			Min: fm.FromMilli(50), Max: fm.FromMilli(100), // 5–10%
+		}},
+		{ID: "wooden_shield", Name: "Wooden Shield", Slot: core.FamilyOffhand, Implicit: &core.ImplicitDef{
+			ID: "armour", Stat: stats.Armour, Layer: stats.LayerFlat,
+			Min: fm.FromInt(10), Max: fm.FromInt(25),
+		}},
+		{ID: "leather_cap", Name: "Leather Cap", Slot: core.FamilyHelmet, Implicit: &core.ImplicitDef{
+			ID: "evasion", Stat: stats.Evasion, Layer: stats.LayerFlat,
+			Min: fm.FromInt(10), Max: fm.FromInt(20),
+		}},
+		{ID: "leather_vest", Name: "Leather Vest", Slot: core.FamilyBody, Implicit: &core.ImplicitDef{
+			ID: "armour", Stat: stats.Armour, Layer: stats.LayerFlat,
+			Min: fm.FromInt(15), Max: fm.FromInt(30),
+		}},
+		{ID: "leather_gloves", Name: "Leather Gloves", Slot: core.FamilyGloves, Implicit: &core.ImplicitDef{
+			ID: "accuracy", Stat: stats.Accuracy, Layer: stats.LayerFlat,
+			Min: fm.FromInt(20), Max: fm.FromInt(40),
+		}},
+		{ID: "leather_boots", Name: "Leather Boots", Slot: core.FamilyBoots, Implicit: &core.ImplicitDef{
+			ID: "move_speed", Stat: stats.MoveSpeed, Layer: stats.LayerFlat,
+			Min: fm.FromMilli(200), Max: fm.FromMilli(400), // +0.2–0.4 u/s
+		}},
+		{ID: "bone_amulet", Name: "Bone Amulet", Slot: core.FamilyAmulet, Implicit: &core.ImplicitDef{
+			ID: "fire_resistance", Stat: stats.FireRes, Layer: stats.LayerFlat,
+			Min: fm.FromMilli(50), Max: fm.FromMilli(100), // 5–10%
+		}},
+		{ID: "iron_ring", Name: "Iron Ring", Slot: core.FamilyRing, Implicit: &core.ImplicitDef{
+			ID: "mana", Stat: stats.Mana, Layer: stats.LayerFlat,
+			Min: fm.FromInt(5), Max: fm.FromInt(10),
+		}},
+		{ID: "leather_belt", Name: "Leather Belt", Slot: core.FamilyBelt, Implicit: &core.ImplicitDef{
+			ID: "life", Stat: stats.Life, Layer: stats.LayerFlat,
+			Min: fm.FromInt(10), Max: fm.FromInt(20),
+		}},
 	}
 }
 
 func lootTableDefs() []*core.LootTableDef {
 	return []*core.LootTableDef{
 		{
-			ID:         "zombie_drops",
-			DropChance: fm.One, // always, while loot is the thing being proven
+			// Frontline trash: drops a bit under half the time, mostly plain
+			// gear with the occasional magic piece.
+			ID:            "zombie_drops",
+			DropChance:    fm.FromMilli(450),
+			RarityWeights: [3]uint32{60, 32, 8},
+			Bases: []string{
+				"rusty_sword", "wooden_shield", "leather_cap", "leather_vest",
+				"leather_gloves", "leather_boots", "leather_belt",
+			},
+		},
+		{
+			// Squishier but better-connected: rarer drops, jewelry-leaning,
+			// noticeably better rarity odds.
+			ID:            "archer_drops",
+			DropChance:    fm.FromMilli(400),
+			RarityWeights: [3]uint32{45, 40, 15},
+			Bases: []string{
+				"rusty_sword", "bone_amulet", "iron_ring", "leather_cap",
+				"leather_gloves", "leather_boots",
+			},
+		},
+		{
+			// Test/tuning target keeps the old always-drops behavior and the
+			// full base list, so loot work stays easy to exercise.
+			ID:            "dummy_drops",
+			DropChance:    fm.One,
+			RarityWeights: [3]uint32{50, 35, 15},
 			Bases: []string{
 				"rusty_sword", "wooden_shield", "leather_cap", "leather_vest",
 				"leather_gloves", "leather_boots", "bone_amulet", "iron_ring",

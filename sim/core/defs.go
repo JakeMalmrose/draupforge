@@ -201,16 +201,34 @@ const (
 	FamilyBelt
 )
 
+// ImplicitDef is the modifier a base item type always carries, rolled in
+// [Min, Max] when the item drops. ID is a display key for clients (and the
+// save format does not need it — the value lives on the Item, the def on
+// the base).
+type ImplicitDef struct {
+	ID    string
+	Stat  stats.StatID
+	Layer stats.Layer
+	Tags  stats.TagSet
+
+	Min, Max fm.Fixed
+}
+
 type BaseItemDef struct {
-	ID   string
-	Name string
-	Slot SlotFamily
+	ID       string
+	Name     string
+	Slot     SlotFamily
+	Implicit *ImplicitDef // nil = no implicit
 }
 
 type LootTableDef struct {
 	ID         string
 	DropChance fm.Fixed
 	Bases      []string
+	// RarityWeights is the normal/magic/rare weighted draw, indexed by
+	// Rarity. All-zero falls back to normal-only — a content table should
+	// always set it.
+	RarityWeights [3]uint32
 }
 
 // ContentDB is the registry of definitions the world runs against. The sim
