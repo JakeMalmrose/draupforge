@@ -46,7 +46,13 @@ body {
   font-size: 15px; letter-spacing: 2px;
   color: #c9b76a; text-shadow: 0 1px 3px #000;
 }
-#depth #depth-num { font-weight: bold; color: #efe9dc; }
+#lives {
+  position: fixed;
+  top: 36px; left: 50%;
+  transform: translateX(-50%);
+  font-size: 16px; letter-spacing: 3px;
+  color: #c0392b; text-shadow: 0 1px 3px #000;
+}
 #descend-hint {
   position: fixed;
   top: 64px; left: 50%;
@@ -167,6 +173,8 @@ body {
   gap: 24px;
 }
 #overlay-text { font-size: 64px; letter-spacing: 6px; color: #a32626; }
+#overlay-sub { font-size: 22px; letter-spacing: 2px; color: #c9b76a; margin-top: -8px; }
+#overlay-sub:empty { display: none; }
 #overlay button {
   font: inherit; font-size: 16px;
   background: #1a1a22; color: #cfc9bf;

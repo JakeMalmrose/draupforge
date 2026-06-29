@@ -27,11 +27,13 @@ func main() {
 	load := flag.String("load", "", "world save file to restore (admin /api/save writes them); overrides -seed and -scenario")
 	sendEvery := flag.Int("sendevery", 3, "send a view every N sim ticks (3 = 10Hz at the 30Hz sim)")
 	interest := flag.Int64("interest", 60, "interest radius in world units for WS clients (0 = whole world)")
+	hideout := flag.Bool("hideout", true, "run/portal economy: spawn in a hideout, enter runs through its portal, lives per run (the Map/Scatter are the run floors)")
 	flag.Parse()
 
 	cfg := server.Config{
 		Addr: *addr, HTTPAddr: *httpAddr, AdminAddr: *adminAddr, StaticDir: *webDir,
 		Seed: *seed, SendEvery: *sendEvery, InterestRadius: *interest * 1000,
+		Hideout: *hideout,
 	}
 	if *load != "" {
 		raw, err := os.ReadFile(*load)

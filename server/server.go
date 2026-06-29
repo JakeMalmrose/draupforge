@@ -73,6 +73,13 @@ type Config struct {
 	Scatter []protocol.Scatter
 	// PlayerDef is the actor def spawned per connecting client.
 	PlayerDef string
+	// Hideout turns on the run/portal economy: players spawn in a safe hideout
+	// zone (floor 0) and enter runs through its portal, a run grants Lives
+	// deaths, death returns to the hideout, and a depleted run rolls fresh. The
+	// Map/Scatter then describe the run floors. Off (default) keeps the plain
+	// behavior: the world is the Map, descend goes straight floor to floor, and
+	// the run economy is absent — what the existing tests assume.
+	Hideout bool
 	// Load, if set, restores the world from a World.Save file instead of
 	// building one — Seed, Map, Spawns, and Scatter are ignored. Player-def
 	// actors in the save are removed at load (no session identity exists yet
@@ -89,18 +96,25 @@ type Instance struct {
 	// rides every welcome (initial join and re-welcome on descent).
 	mapSnap *protocol.MapSnap
 
-	// runSeed seeds the whole descent; floor N's world derives from it. floor
-	// is the current depth (1-based) — the run's score. Both tick-goroutine
-	// state once running (runSeed is set once at New).
-	runSeed uint64
-	floor   int
+	// Run/zone state, all tick-goroutine-owned once running. runSeed seeds the
+	// active run; floor N's world derives from it. floor is the current zone:
+	// 0 = hideout, 1+ = a run floor. runFloor is the deepest floor of the
+	// active run (the hideout portal's re-entry target). lives is deaths
+	// remaining this run (0 = no active run / run over). runNumber counts runs
+	// so each fresh run gets a distinct seed (varied maps).
+	runSeed   uint64
+	floor     int
+	runFloor  int
+	lives     int
+	runNumber int
 
 	mu       sync.Mutex
 	pending  []core.Command
 	joins    []*client
 	leaves   []*client
 	adminOps []adminOp
-	descends []*client // clients requesting a descent; validated on the tick goroutine
+	descends []*client // clients pressing F (transit: descend / enter run); validated on the tick goroutine
+	rises    []*client // dead clients leaving the death screen for the hideout
 
 	clients   []*client
 	joinCount int
@@ -158,6 +172,11 @@ type client struct {
 	mode mode
 
 	actor core.EntityID
+	// char is the client's character refreshed from its actor each tick before
+	// the step (hideout mode only). The actor is compacted the instant it dies,
+	// so this last-alive snapshot is what a zone transfer re-injects when the
+	// player rises from death. Tick-goroutine-only.
+	char core.Character
 	// early buffers commands that arrive before the tick loop has spawned
 	// this client's actor (a fast client races its own welcome); they flush
 	// into the pending queue at spawn. Guarded by the instance mutex.
@@ -186,13 +205,20 @@ type client struct {
 // keyframe.
 const maxUnackedViews = 32
 
-// descendRange is how close to the stairs (Grid.Exit) a player must stand to
-// trigger a descent. Generous, matching the pickup-reach feel.
+// descendRange is how close to the stairs / portal (Grid.Exit) a player must
+// stand to transit. Generous, matching the pickup-reach feel.
 var descendRange = fm.FromMilli(2500)
 
 // levelsPerFloor is how many actor levels packs gain per floor descended —
 // the escalation knob. Tunable; floor 1 adds nothing.
 const levelsPerFloor = 2
+
+// livesPerRun is how many deaths a run grants before it's over. Tunable.
+const livesPerRun = 3
+
+// hideoutSpec is the safe hub's footprint — small and monster-free, with its
+// Exit serving as the run portal.
+var hideoutSpec = protocol.MapSpec{Width: 18, Height: 18, Rooms: 3}
 
 func levelBonus(floor int) int {
 	if floor <= 1 {
@@ -225,6 +251,14 @@ func New(db *core.ContentDB, cfg Config) (*Instance, error) {
 		}
 		in.sim = s
 		reclaimOrphanPlayers(s.W, cfg.PlayerDef)
+		in.mapSnap = in.sim.EncodeMap()
+		return in, nil
+	}
+	if cfg.Hideout {
+		// Players start in the hideout (floor 0); runs are entered through its
+		// portal. The Map/Scatter describe the run floors, built on demand.
+		in.floor = 0
+		in.sim = in.buildHideout()
 		in.mapSnap = in.sim.EncodeMap()
 		return in, nil
 	}
@@ -355,9 +389,16 @@ func (in *Instance) readLoop(ctx context.Context, c *client) {
 		}
 		if wc.Kind == "descend" {
 			// Host-level intent, never a sim command: it swaps the whole world.
-			// Validated (proximity to the stairs) on the tick goroutine.
+			// Validated (proximity to the stairs/portal) on the tick goroutine.
 			in.mu.Lock()
 			in.descends = append(in.descends, c)
+			in.mu.Unlock()
+			continue
+		}
+		if wc.Kind == "rise" {
+			// Dead player leaving the death screen for the hideout. Host-level.
+			in.mu.Lock()
+			in.rises = append(in.rises, c)
 			in.mu.Unlock()
 			continue
 		}
@@ -385,7 +426,8 @@ func (in *Instance) tick() {
 	cmds := in.pending
 	ops := in.adminOps
 	descends := in.descends
-	in.joins, in.leaves, in.pending, in.adminOps, in.descends = nil, nil, nil, nil, nil
+	rises := in.rises
+	in.joins, in.leaves, in.pending, in.adminOps, in.descends, in.rises = nil, nil, nil, nil, nil, nil
 	in.mu.Unlock()
 
 	// Admin ops run here, where world and client-list access is safe. They
@@ -408,12 +450,13 @@ func (in *Instance) tick() {
 		in.removeClient(c)
 	}
 
-	// A descent swaps the whole world between ticks: extract every live
-	// player, build the next floor (scaled packs), inject them, and re-welcome
-	// everyone. When it fires this tick belongs to the transfer — joiners
-	// spawn straight into the new floor and we skip the step/send below; the
-	// fresh floor ticks normally next time.
-	if !in.paused && len(descends) > 0 && in.descend(descends) {
+	// Host-level zone swaps. A transit (F on the stairs/portal) or a rise
+	// (a dead player leaving the death screen) rebuilds the world under the
+	// connected clients and re-welcomes them; that consumes the tick — no step,
+	// no view send — and the new zone ticks normally next time. Joiners this
+	// tick spawn straight into the swapped-in world.
+	if !in.paused && (len(rises) > 0 && in.rise(rises) ||
+		len(descends) > 0 && in.transit(descends)) {
 		for _, c := range joins {
 			if in.spawnClient(c) {
 				in.sendWelcome(c)
@@ -430,11 +473,22 @@ func (in *Instance) tick() {
 	}
 
 	if !in.paused {
+		// The actor is compacted the instant it dies, so snapshot each live
+		// player's character before the step — that's what the death→hideout
+		// transfer re-injects (hideout mode only).
+		if in.cfg.Hideout {
+			in.cacheCharacters()
+		}
 		// Stable sort by actor: fair, and preserves each client's own command
 		// order. Arrival interleaving across clients is network timing — the
 		// server's ordering is the authoritative one.
 		sort.SliceStable(cmds, func(i, j int) bool { return cmds[i].Actor < cmds[j].Actor })
 		in.sim.Step(cmds)
+		// A player death spends a run life; the dead client sees its death
+		// screen and rises to the hideout when ready.
+		if in.cfg.Hideout {
+			in.noteDeaths()
+		}
 	}
 	// (Paused: cmds are dropped, not queued — a long pause must not release
 	// a flood of stale intent on resume.)
@@ -558,14 +612,16 @@ func (in *Instance) spawnClient(c *client) bool {
 }
 
 // sendWelcome marshals and sends the welcome frame for a client — the same
-// frame on an initial join and on a descent re-welcome (DESIGN §14: a zone
+// frame on an initial join and on every zone re-welcome (DESIGN §14: a zone
 // transfer is a full re-welcome on the live socket). It carries the current
-// floor and that floor's terrain.
+// zone (floor), that zone's terrain, and the run-economy state the client
+// needs to label the portal and the death screen.
 func (in *Instance) sendWelcome(c *client) {
 	welcome, _ := json.Marshal(protocol.ServerMsg{
 		Type: "welcome", V: protocol.Version, Actor: uint64(c.actor),
 		TickHz: core.TicksPerSecond, SendEvery: in.cfg.SendEvery,
-		Floor: in.floor, Map: in.mapSnap,
+		Floor: in.floor, Lives: in.lives, RunFloor: in.runFloor, Hideout: in.cfg.Hideout,
+		Map: in.mapSnap,
 	})
 	c.send(welcome, false)
 }
@@ -595,67 +651,92 @@ func (in *Instance) buildFloor(floor int) (*sim.Sim, error) {
 	return s, nil
 }
 
-// descend swaps the instance onto the next floor when a requester is standing
-// on the stairs. It extracts every live player into a portable character,
-// builds the next floor, injects them, swaps the running world, and
-// re-welcomes everyone (their delta encoder state can't survive a world
-// swap). Returns false — leaving the floor unchanged — if nobody is on the
-// stairs or the floor fails to build. Runs on the tick goroutine, so touching
-// the world and client list is safe.
-//
-// One requester moves the whole party: this is a shared, single-instance
-// descent (DESIGN §14 sequences the instance manager for later). Dead
-// spectators don't carry down; they get a fresh-but-actorless view.
-func (in *Instance) descend(reqs []*client) bool {
-	cur := in.sim.W
-	g := cur.Grid
-	if g == nil {
-		return false // the open plane has no stairs
-	}
-	onStairs := false
-	for _, c := range reqs {
-		if a := cur.ActorByID(c.actor); a != nil && !a.Dead && space.Dist(a.Pos, g.Exit) <= descendRange {
-			onStairs = true
-			break
+// buildHideout generates the safe hub: a small monster-free map seeded apart
+// from the run floors, its Exit serving as the run portal.
+func (in *Instance) buildHideout() *sim.Sim {
+	s := sim.New(in.db, core.FloorSeed(in.cfg.Seed, 1)^0x4869_6465_6f7574) // "Hideout"
+	s.GenerateMap(space.MapSpec{Width: hideoutSpec.Width, Height: hideoutSpec.Height, Rooms: hideoutSpec.Rooms})
+	return s
+}
+
+// cacheCharacters snapshots every live player's character before the step, so
+// the death→hideout transfer can re-inject a player whose actor the step is
+// about to kill and compact.
+func (in *Instance) cacheCharacters() {
+	for _, c := range in.clients {
+		if a := in.sim.W.ActorByID(c.actor); a != nil && !a.Dead {
+			c.char = core.ExtractCharacter(a)
 		}
 	}
-	if !onStairs {
+}
+
+// noteDeaths spends one run life per player death this step. The dead client
+// keeps its (now actorless) view — its death screen — until it rises.
+func (in *Instance) noteDeaths() {
+	actors := make(map[core.EntityID]bool, len(in.clients))
+	for _, c := range in.clients {
+		actors[c.actor] = true
+	}
+	for _, ev := range in.sim.W.LastEvents {
+		if ev.Kind == core.EvDeath && actors[ev.Actor] && in.lives > 0 {
+			in.lives--
+		}
+	}
+}
+
+// characterFor returns a client's character to carry across a zone swap: the
+// live actor if it has one, else the last-alive cache (a player who died and
+// is now riding to the hideout).
+func (in *Instance) characterFor(c *client) (core.Character, bool) {
+	if a := in.sim.W.ActorByID(c.actor); a != nil && !a.Dead {
+		return core.ExtractCharacter(a), true
+	}
+	if c.char.Def != "" {
+		return c.char, true
+	}
+	return core.Character{}, false
+}
+
+// onPad reports whether any requester stands on the current zone's Exit (the
+// stairs on a floor, the portal in the hideout).
+func (in *Instance) onPad(reqs []*client) bool {
+	g := in.sim.W.Grid
+	if g == nil {
 		return false
 	}
-
-	type survivor struct {
-		c  *client
-		ch core.Character
-	}
-	var survivors []survivor
-	for _, c := range in.clients {
-		if a := cur.ActorByID(c.actor); a != nil && !a.Dead {
-			survivors = append(survivors, survivor{c, core.ExtractCharacter(a)})
+	for _, c := range reqs {
+		if a := in.sim.W.ActorByID(c.actor); a != nil && !a.Dead && space.Dist(a.Pos, g.Exit) <= descendRange {
+			return true
 		}
 	}
+	return false
+}
 
-	next, err := in.buildFloor(in.floor + 1)
-	if err != nil {
-		log.Printf("server: descent to floor %d failed: %v", in.floor+1, err)
-		return false // keep the current floor rather than strand the party
-	}
-
+// transitionTo swaps the running world to next (the given zone), re-injecting
+// every connected client's character and re-welcoming them (their delta
+// encoder state can't survive a world swap). Runs on the tick goroutine.
+func (in *Instance) transitionTo(next *sim.Sim, floor int) {
 	spawn := space.Vec2{}
 	if next.W.Grid != nil {
 		spawn = next.W.Grid.Spawn
 	}
-	for i, s := range survivors {
-		pos := spawn.Add(space.V(fm.FromInt(int64(i%4)), 0))
-		a, err := next.W.InjectCharacter(s.ch, pos)
-		if err != nil {
-			log.Printf("server: descent inject failed: %v", err)
-			return false
+	i := 0
+	for _, c := range in.clients {
+		ch, ok := in.characterFor(c)
+		if !ok {
+			continue
 		}
-		s.c.actor = a.ID
+		pos := spawn.Add(space.V(fm.FromInt(int64(i%4)), 0))
+		a, err := next.W.InjectCharacter(ch, pos)
+		if err != nil {
+			log.Printf("server: zone inject failed: %v", err)
+			continue
+		}
+		c.actor = a.ID
+		i++
 	}
-
 	in.sim = next
-	in.floor++
+	in.floor = floor
 	in.mapSnap = next.EncodeMap()
 	in.eventBuf = nil
 	in.sinceSend = 0
@@ -663,6 +744,74 @@ func (in *Instance) descend(reqs []*client) bool {
 		in.resetClientView(c)
 		in.sendWelcome(c)
 	}
+}
+
+// transit handles F on the stairs/portal: descend a floor, or (in the hideout)
+// enter a run. Returns false — leaving the zone unchanged — if nobody is on the
+// pad. One requester moves the whole party (shared single-instance run; DESIGN
+// §14 sequences the instance manager for later).
+func (in *Instance) transit(reqs []*client) bool {
+	if !in.onPad(reqs) {
+		return false
+	}
+	if in.cfg.Hideout && in.floor == 0 {
+		return in.enterRun()
+	}
+	return in.descendFloor()
+}
+
+// descendFloor swaps onto the next floor down.
+func (in *Instance) descendFloor() bool {
+	next := in.floor + 1
+	s, err := in.buildFloor(next)
+	if err != nil {
+		log.Printf("server: descent to floor %d failed: %v", next, err)
+		return false
+	}
+	in.runFloor = next
+	in.transitionTo(s, next)
+	return true
+}
+
+// enterRun leaves the hideout for a run floor: re-enter the active run at its
+// deepest floor if lives remain, else roll a brand-new run (fresh seed, lives
+// reset) at floor 1.
+func (in *Instance) enterRun() bool {
+	target := in.runFloor
+	if in.lives <= 0 {
+		in.runNumber++
+		in.runSeed = core.FloorSeed(in.cfg.Seed, in.runNumber+1)
+		in.lives = livesPerRun
+		in.runFloor = 1
+		target = 1
+	}
+	s, err := in.buildFloor(target)
+	if err != nil {
+		log.Printf("server: entering run floor %d failed: %v", target, err)
+		return false
+	}
+	in.transitionTo(s, target)
+	return true
+}
+
+// rise returns a dead player (and the party) to the hideout from the death
+// screen. A depleted run (no lives left) is wound up so the portal rolls fresh.
+// Returns false if no requester is actually dead.
+func (in *Instance) rise(reqs []*client) bool {
+	dead := false
+	for _, c := range reqs {
+		if a := in.sim.W.ActorByID(c.actor); a == nil || a.Dead {
+			dead = true
+			break
+		}
+	}
+	if !dead {
+		return false
+	}
+	if in.lives <= 0 {
+		in.runFloor = 0 // run over — the hideout portal starts a new run
+	}
+	in.transitionTo(in.buildHideout(), 0)
 	return true
 }
 

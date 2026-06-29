@@ -8,7 +8,7 @@ package protocol
 // it on any change a deployed client could misread — renamed/removed JSON
 // fields (omitempty makes those fail silently) or any binary frame layout
 // change. Clients hard-fail on mismatch instead of limping.
-const Version = 10 // v10: descent — welcome floor + map exit (v9: actor level/xp)
+const Version = 11 // v11: hideout/run economy — welcome lives/run_floor/hideout (v10: descent)
 
 // Command is the wire form of player intent. Kind is one of "move",
 // "use_skill", "stop", the item verbs "pickup", "equip", "unequip",
@@ -148,9 +148,18 @@ type ServerMsg struct {
 	Actor     uint64 `json:"actor,omitempty"`
 	TickHz    int    `json:"tick_hz,omitempty"`
 	SendEvery int    `json:"send_every,omitempty"`
-	// Floor is the current descent depth (1-based), carried on the welcome so
-	// a re-welcome on zone transfer tells the client which floor it landed on.
-	Floor    int       `json:"floor,omitempty"`
+	// Floor is the current zone depth: 0 = the hideout (safe hub), 1+ = a run
+	// floor. Carried on the welcome so a re-welcome on zone transfer tells the
+	// client which zone it landed on.
+	Floor int `json:"floor,omitempty"`
+	// Run economy (hideout mode): Lives is the deaths remaining in the active
+	// run (0 = no active run / run over); RunFloor is the deepest floor of the
+	// active run, the target a hideout portal re-enters; Hideout marks the
+	// instance as running the hideout/lives loop (vs. the plain descent), which
+	// the client needs to route the death screen to the hideout, not a reload.
+	Lives    int       `json:"lives,omitempty"`
+	RunFloor int       `json:"run_floor,omitempty"`
+	Hideout  bool      `json:"hideout,omitempty"`
 	Map      *MapSnap  `json:"map,omitempty"`
 	Snapshot *Snapshot `json:"snapshot,omitempty"`
 	Paused   *bool     `json:"paused,omitempty"`

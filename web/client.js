@@ -23,8 +23,11 @@ let pendingPickup = 0;      // drop entity we're walking toward
 let lastPickupSent = 0;
 let mouse = { x: 0, y: 0 }; // canvas px
 let cam = { x: 0, y: 0 };   // world units
-let floor = 1;              // current descent depth, from the welcome
-let descendNear = false;    // standing on the stairs (drives the prompt + F)
+let floor = 1;              // current zone from the welcome: 0 = hideout, 1+ = run floor
+let lives = 0;              // deaths remaining this run (hideout mode)
+let runFloor = 0;           // deepest floor of the active run (portal re-entry target)
+let hideoutMode = false;    // server runs the hideout/lives loop
+let descendNear = false;    // standing on the stairs/portal (drives the prompt + F)
 const names = new Map();    // entity id -> label, survives despawn
 
 // Interpolation: views buffered on the SERVER timeline (tick × tickMs), so
@@ -73,8 +76,11 @@ function connect() {
         resetClientState();
         myId = msg.actor;
         worldMap = msg.map || null;
-        floor = msg.floor || 1;
-        document.getElementById("depth-num").textContent = floor;
+        floor = msg.floor || 0;
+        lives = msg.lives || 0;
+        runFloor = msg.run_floor || 0;
+        hideoutMode = !!msg.hideout;
+        updateRunHUD();
         if (msg.tick_hz && msg.send_every) {
           // 1.5 send intervals behind: one interval to always have a newer
           // view to lerp toward, half an interval of jitter slack.
@@ -185,7 +191,7 @@ function onView(view) {
     seenSelf = true;
     updateHUD(self);
   } else if (seenSelf) {
-    showOverlay("YOU DIED");
+    showOverlay("YOU DIED", floor >= 1 ? `Reached Floor ${floor}` : "");
   }
 
   for (const ev of view.events) {
@@ -420,22 +426,26 @@ function drawGrid() {
   ctx.stroke();
 }
 
-// drawStairs marks the floor's exit — a pulsing ringed pad with downward
-// chevrons. Painted over terrain, under entities, so monsters guarding the
-// stairs read clearly. Pulse is client-only cosmetics (no determinism stake).
+// drawStairs marks the zone's exit — the stairs down on a floor, or the run
+// portal in the hideout (a cooler blue ring). Painted over terrain, under
+// entities, so monsters guarding the stairs read clearly. Pulse is client-only
+// cosmetics (no determinism stake).
 function drawStairs() {
   if (!worldMap || !worldMap.exit) return;
+  const portal = floor === 0;
   const p = worldToScreen(worldMap.exit.x, worldMap.exit.y);
   const r = 0.75 * SCALE;
   const pulse = 0.6 + 0.4 * Math.sin(performance.now() / 350);
+  const ring = portal ? `rgba(127, 180, 255, ${pulse})` : `rgba(201, 183, 106, ${pulse})`;
+  const chev = portal ? `rgba(190, 225, 255, ${pulse})` : `rgba(255, 230, 128, ${pulse})`;
   ctx.beginPath();
   ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
-  ctx.fillStyle = "rgba(18, 14, 6, 0.72)";
+  ctx.fillStyle = portal ? "rgba(8, 14, 28, 0.75)" : "rgba(18, 14, 6, 0.72)";
   ctx.fill();
   ctx.lineWidth = 2.5;
-  ctx.strokeStyle = `rgba(201, 183, 106, ${pulse})`;
+  ctx.strokeStyle = ring;
   ctx.stroke();
-  ctx.strokeStyle = `rgba(255, 230, 128, ${pulse})`;
+  ctx.strokeStyle = chev;
   ctx.lineWidth = 3;
   for (let i = 0; i < 2; i++) {
     const yo = -7 + i * 9;
@@ -445,15 +455,24 @@ function drawStairs() {
     ctx.lineTo(p.x + 8, p.y + yo - 3);
     ctx.stroke();
   }
-  ctx.fillStyle = "#c9b76a";
+  ctx.fillStyle = portal ? "#7fb4ff" : "#c9b76a";
   ctx.font = "12px Georgia";
   ctx.textAlign = "center";
-  ctx.fillText("stairs down", p.x, p.y - r - 6);
+  ctx.fillText(portal ? "run portal" : "stairs down", p.x, p.y - r - 6);
+}
+
+// descendPrompt is the F-prompt text for the current zone: descend on a floor,
+// or in the hideout either re-enter the active run or start a fresh one.
+function descendPrompt() {
+  if (floor === 0) {
+    return lives > 0 ? `Re-enter run — <b>F</b> (Floor ${runFloor})` : "Start a run — <b>F</b>";
+  }
+  return "Press <b>F</b> to descend";
 }
 
 // updateDescendHint toggles the "press F" prompt as the player steps on or
-// off the stairs. p is the interpolated player position (milli-units), or
-// null when there's no live self.
+// off the stairs/portal. p is the interpolated player position (milli-units),
+// or null when there's no live self.
 function updateDescendHint(p) {
   let near = false;
   if (p && worldMap && worldMap.exit) {
@@ -461,9 +480,11 @@ function updateDescendHint(p) {
     const dy = toUnits(p.y - worldMap.exit.y);
     near = Math.hypot(dx, dy) <= DESCEND_RANGE;
   }
+  const hintEl = document.getElementById("descend-hint");
+  if (near) hintEl.innerHTML = descendPrompt();
   if (near !== descendNear) {
     descendNear = near;
-    document.getElementById("descend-hint").classList.toggle("hidden", !near);
+    hintEl.classList.toggle("hidden", !near);
   }
 }
 
@@ -1122,9 +1143,33 @@ function updateHUD(self) {
   document.getElementById("xp-fill").style.width = `${xpPct}%`;
 }
 
-function showOverlay(text) {
+function showOverlay(text, sub) {
   document.getElementById("overlay-text").textContent = text;
+  document.getElementById("overlay-sub").textContent = sub || "";
   document.getElementById("overlay").classList.remove("hidden");
+}
+
+// updateRunHUD paints the zone readout (Hideout or Floor N) and the lives pips
+// (hidden when there's no active run).
+function updateRunHUD() {
+  document.getElementById("depth").textContent = floor === 0 ? "Hideout" : `Floor ${floor}`;
+  const livesEl = document.getElementById("lives");
+  if (hideoutMode && lives > 0) {
+    livesEl.textContent = "♥ ".repeat(lives).trim();
+    livesEl.classList.remove("hidden");
+  } else {
+    livesEl.classList.add("hidden");
+  }
+}
+
+// riseAgain leaves the death screen: in hideout mode a dead player returns to
+// the hideout (server transitions and re-welcomes); otherwise reconnect.
+function riseAgain() {
+  if (hideoutMode && ws && ws.readyState === WebSocket.OPEN && seenSelf && !me()) {
+    send({ kind: "rise" });
+  } else {
+    location.reload();
+  }
 }
 
 // hideOverlay only ends a pause: death re-asserts itself every view while

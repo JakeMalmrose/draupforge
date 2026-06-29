@@ -17,7 +17,8 @@
     </div>
   </div>
 
-  <div id="depth">Floor <span id="depth-num">1</span></div>
+  <div id="depth"></div>
+  <div id="lives" class="hidden"></div>
 
   <div id="descend-hint" class="hidden">Press <b>F</b> to descend</div>
 
@@ -35,7 +36,8 @@
 
   <div id="overlay" class="hidden">
     <div id="overlay-text">YOU DIED</div>
-    <button onclick="location.reload()">rise again</button>
+    <div id="overlay-sub"></div>
+    <button onclick="riseAgain()">rise again</button>
   </div>
 
   <div id="help">click move/pickup &middot; <b>Q</b> fireball &middot; <b>E</b> nova &middot; <b>R</b> spark &middot; <b>T</b> adrenaline &middot; <b>F</b> descend &middot; <b>I</b> inventory</div>

@@ -11,21 +11,26 @@ tests, and session-log entries older than a few sessions (git history is the
 archive). If this file outgrows ~150 lines, it has stopped being a status doc
 and started being a changelog — cut it back.
 
-**Last updated: 2026-06-29** (session 15: the descent — escalating floors
-via stairs, character extract/inject, re-welcome on zone transfer, depth as
-the score)
+**Last updated: 2026-06-29** (session 16: the hideout / run economy — a safe
+hub, runs entered through its portal, lives per run, death → hideout → resume,
+fresh run after the lives run out. Builds on session 15's descent.)
 
 ## Where things stand
 
-The game is a **run** now, not a sandbox: you descend floor by floor through
-generated dungeons via stairs, packs scale with depth, and "how deep did you
-get" is the score (a `Floor N` readout, and a deadlier mob each floor). It's
-playable in a browser: `cmd/server` hosts the sim (TCP/NDJSON and WebSocket,
-same frames) and serves `web/` — a no-build-step canvas client with
-click-to-move (pathing around walls), Q fireball / E nova / R spark /
-T adrenaline (self-buff), **F descend** at the stairs, drop pickup, a
-drag-drop inventory panel (I) with item icons and hover tooltips, HUD orbs, an
-event log, and a death screen. The full item flow works (kill → drop → pickup
+The game is a **run with a home base** now: you spawn in a monster-free
+**hideout**, step on its portal to start a run, and descend floor by floor
+through generated dungeons via stairs (packs scale with depth). A run grants
+**3 lives**; dying spends one and drops you back in the hideout, where the
+portal **re-enters at your deepest floor**; spend them all and the run is over,
+and the portal rolls a **fresh run** (new seed, lives reset). "How deep did you
+get" is the score (a `Floor N` / `Hideout` readout, lives pips, and a deadlier
+mob each floor). It's playable in a browser: `cmd/server` hosts the sim
+(TCP/NDJSON and WebSocket, same frames) and serves `web/` — a no-build-step
+canvas client with click-to-move (pathing around walls), Q fireball / E nova /
+R spark / T adrenaline (self-buff), **F** at the stairs/portal (descend / enter
+run), drop pickup, a drag-drop inventory panel (I) with item icons and hover
+tooltips, HUD orbs, an event log, and a death screen. The full item flow works
+(kill → drop → pickup
 → bag → equip → affixes on the sheet); damage runs the whole pipeline;
 elemental hits inflict ailments (ignite/chill/shock); rooms and corridors make
 geometry matter — projectiles stop at walls, monsters path around them, and
@@ -46,6 +51,7 @@ All foundational machinery from DESIGN.md is real, not stubbed:
 | Fixed-point math (no floats in sim) | `sim/fixmath` | done, tested |
 | Geometry, projectile sweep, terrain: tile grid (clearance-eroded walkability), DDA wall raycast, deterministic A* + smoothing, rooms-and-corridors mapgen off RNGMap, stairs-down `Exit` (farthest room) | `sim/space` | done, tested; `Walkable` seam is real now |
 | Descent: portable `Character` extract/inject (re-mints item IDs, rebuilds sheet from def+level+gear), per-floor seed, host floor-swap (extract → build scaled floor → inject → re-welcome), depth as score | `sim/core/character.go`, `server/server.go` | done, tested (unit + wire + browser) |
+| Hideout / run economy (`Config.Hideout`, default on for `cmd/server`): hub zone (floor 0, monster-free), F-transit branches descend vs enter-run, `livesPerRun` lives, death→hideout→resume-at-depth, lives-out → fresh run; character persists across all of it | `server/server.go` | done, tested (state machine + browser) |
 | Stat algebra (flat/inc/more/override + tags) | `sim/stats` | done, tested, memoized |
 | World/Actor/Hit/defs, RNG, state hashing | `sim/core` | done |
 | Damage pipeline + DoTs + regen | `sim/combat` | done, tested |
@@ -113,8 +119,17 @@ All foundational machinery from DESIGN.md is real, not stubbed:
   reference a world that no longer exists. `core.Character` extract/inject is
   the portable projection: item IDs **re-mint** at injection (they double as
   sheet mod sources and would collide), the sheet rebuilds from def + level +
-  equipment, and pools enter full (a floor is a fresh start). Protocol v10,
+  equipment, and pools enter full (a floor is a fresh start). Protocol v11,
   SaveVersion 4.
+- Run economy lives wholly at the host (`server/server.go`), never in the sim:
+  `floor` (0 = hideout, 1+ = run), `runFloor` (resume target), `lives`,
+  `runSeed`/`runNumber` are tick-goroutine state. Death is detected from
+  `EvDeath` after the step (`noteDeaths`) — but the actor is compacted the
+  instant it dies, so each tick `cacheCharacters` snapshots live players first;
+  the death→hideout transfer re-injects from that cache. The character persists
+  through death, resume, and a fresh run — there's no character store yet, so
+  it only lives as long as the connection. All of this is gated on
+  `Config.Hideout`; off, the server is the plain descent (existing tests).
 - `protocol/binary.go` and `web/net.js` are a hand-maintained codec pair.
   Any wire change updates both AND bumps `protocol.Version` — a stale client
   fails loudly at the welcome instead of misreading frames.
@@ -161,46 +176,62 @@ Structural risks live in `RISKS.md` — read it before building anything load-be
   Fine until itemization depth matters.
 - Spawn-room pressure is real: scatter keeps monsters 10u out, but they
   converge once anyone aggros.
-- The descent is single-instance and shared: one player on the stairs takes
-  the whole party down (no per-player zones), and a dead spectator doesn't
-  carry and gets a fresh-but-actorless view. The instance manager (town hub,
-  concurrent floors) is sequenced for later — DESIGN §14.
-- Death is terminal for the run — the "YOU DIED" screen, no portal/XP-loss
-  economy yet. There's no character store either, so a reconnect rejoins the
-  instance's *current* floor (deepest reached), not a fresh floor 1. Both are
-  the next slice (Jake's run/portal rules + DESIGN §14 phase 2).
+- The run is single-instance and shared: one player on the stairs/portal moves
+  the whole party (no per-player zones), lives are a shared pool, and a `rise`
+  from a dead player regroups everyone in the hideout. Per-player zones / an
+  instance manager are sequenced for later — DESIGN §14.
+- Death only costs a life, not XP or gear — Jake's "death costs XP, never below
+  the level floor" rule isn't wired yet (an easy add in `noteDeaths`). The
+  character also has no store, so a disconnect still loses it (and the run);
+  reconnect starts fresh in the hideout. Sessions are DESIGN §14 phase 2.
+- "Rise again" reloads in the plain (non-hideout) mode but sends `rise` in
+  hideout mode; the death→hideout hop is a re-welcome, not a seamless respawn.
+  Re-entry rebuilds the floor from its seed, so a resumed floor is the *same*
+  map with *fresh* monsters (no per-instance map persistence).
 - Floor scaling is level-only: packs gain `levelsPerFloor` (2) levels per
   floor via `ActorDef.PerLevel`; counts, map size, and room count stay
   constant. Density/biome variety is Phase 2 of the roadmap.
 
-## Feature plan (updated 2026-06-29, session 15)
+## Feature plan (updated 2026-06-29, session 16)
 
-The descent's **core loop shipped** this session: escalating floors via
-stairs, character extract/inject, re-welcome on transfer, and depth as the
-score (the machinery RISKS.md flagged as "in-process load/rollback" — built
-once, two payoffs). What's left of Phase 1, then the queue:
+The descent (session 15) and the hideout/run economy (session 16) together
+ship **Phase 1 plus a slice of Phase 4's hub**: a full run loop with stakes
+(lives) and a home base. What's next:
 
-1. **Run/portal economy** (Jake, numbers still open) — the stakes layer the
-   descent set up but doesn't yet have. Death costs some XP (suggested:
-   never below the current level's floor) and ejects you to your portal; the
-   portal starts on floor 1 and re-plants where you stand; a run grants a
-   limited number of portal uses — run out and it's over. Cast-on-death
-   portal comes later and must carry an opportunity cost (a skill gem slot
-   once gems exist) — do not ship it free. Today death is just terminal.
+1. **Sting the death cost** — wire Jake's XP-on-death (never below the level
+   floor) into `noteDeaths`, so a death costs progress, not just a life. Small.
 2. **Character store + sessions** (DESIGN §14 phase 2) — pulls connection
-   ownership above the instance so a character survives disconnect and a
-   fresh run starts at floor 1 (today a reconnect rejoins the current floor).
-   This is also what makes the portal economy meaningful across logins.
+   ownership above the instance so a character survives disconnect (today it's
+   lost with the socket, taking the run with it). Makes the run economy and any
+   stash persist across logins; the natural home for the hideout stash next.
 3. **A boss with telegraphed multi-stage attacks** — forces deliberate
-   action-model growth (RISKS.md #1; design the state machine first) and
-   gives a descent milestone a real destination.
+   action-model growth (RISKS.md #1; design the state machine first) and gives
+   a descent milestone a real destination. Or a **juice pass** (floating damage
+   numbers, crit/death pops) first — cheapest fun-per-effort, mostly client.
 
 Then server hardening (replay log, per-client send queues) when strangers
-connect. The single-instance Sim-swap is deliberately the whole descent for
-now; an instance manager comes only when something needs it.
+connect. The single-instance Sim-swap is deliberately the whole run loop for
+now; an instance manager / per-player zones come only when something needs them.
 
 ## Session log
 
+- **2026-06-29 (16)** — The hideout / run economy (`Config.Hideout`,
+  default on for `cmd/server`). Players spawn in a safe hub (floor 0,
+  monster-free `buildHideout`); its portal is the grid `Exit`. F-transit
+  branches: in the hideout `enterRun` (resume the active run at `runFloor`
+  if lives remain, else roll a fresh run — new seed, `livesPerRun` lives),
+  on a floor `descendFloor`. Death is read off `EvDeath` post-step
+  (`noteDeaths`, −1 life); the actor compacts at once so `cacheCharacters`
+  snapshots live players pre-step and the death→hideout `rise` re-injects
+  from that. `transitionTo` unifies every zone swap (extract/inject/
+  re-welcome); the character persists across death, resume, and fresh runs.
+  Protocol v11 (welcome lives/run_floor/hideout, `rise` command); no
+  binary-codec or save change. Client: `Hideout`/`Floor N` HUD, lives pips,
+  blue run portal, zone-aware F prompt, death screen "Reached Floor N" →
+  rise. Tests: hideout state-machine loop. Verified in the browser: hub →
+  start run → die → "Reached Floor 1" → rise (lives 3→2) → re-enter resumes
+  → out of lives → run over → fresh run (lives reset, new map). Deferred:
+  XP-on-death sting, character store/sessions, seamless respawn.
 - **2026-06-29 (15)** — The descent (Phase 1 core). New `Grid.Exit`
   (stairs = farthest room from spawn, derived without RNG → goldens
   untouched; saved like `Spawn`, not hashed). `sim/core/character.go`:
@@ -217,18 +248,7 @@ now; an instance manager comes only when something needs it.
   Verified in the browser: walked the stairs, descended floor 1 → 2,
   re-welcome clean, floor-2 packs at level 3 (and lethal — they killed
   the player). Deferred: run/portal economy, sessions, density variety.
-- **2026-06-12 (14c)** — Docs only: DESIGN.md §14 settles the
-  character/zone/instance/server separation (worlds self-contained;
-  characters are server-owned projections; item IDs re-mint at injection;
-  transfer = full-reset re-welcome; run seed derives floor seeds;
-  single-instance Sim-swap before any instance manager).
-- **2026-06-12 (14b)** — XP and levels. New `sim/progress` (AwardXP off
-  death events, 100·level² curve, cap 50, ding heal); `Actor.SetLevel`
-  rebuilds `Def.PerLevel` mods under `LevelModSource`; monsters carry
-  levels/XP/growth for floor scaling. SaveVersion 3, hash covers level+XP,
-  protocol v9, HUD level badge + XP bar. Goldens re-recorded.
-- **2026-06-12 (14)** — Loot 2.0. Rolled implicit per base, affix pool
-  10 → 32 with tiered groups, per-actor drop tables with rarity weights,
-  `EvLootStarved` on pool starvation. SaveVersion 2, item hash covers
-  rarity+implicit, protocol v8. Only `golden_slice` re-recorded.
+- **2026-06-12 (14)** — Loot 2.0, then XP/levels, then DESIGN §14 (the
+  character/zone/instance separation the descent is built on). SaveVersion
+  → 3, protocol → v9.
 - (older sessions pruned — git history is the archive)
