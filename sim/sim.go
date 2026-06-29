@@ -65,24 +65,57 @@ var scatterMinSpawnDist = fm.FromInt(10)
 // ScatterSpawn places count actors on random walkable tiles (map RNG
 // stream), preferring spots away from the player spawn point.
 func (s *Sim) ScatterSpawn(defID string, count int) error {
+	_, err := s.scatterSpawn(defID, count)
+	return err
+}
+
+// ScatterSpawnLeveled scatters monsters and then raises each by levelBonus
+// over its def's base level, applying PerLevel growth and refilling pools —
+// the descent's floor-scaling spawner. A non-positive bonus is a no-op, so
+// floor 1 matches ScatterSpawn exactly. Placement draws the same map-RNG
+// values regardless of level (leveling consumes none), so the floor seed
+// stays the only thing that varies a floor's layout.
+func (s *Sim) ScatterSpawnLeveled(defID string, count, levelBonus int) error {
+	ids, err := s.scatterSpawn(defID, count)
+	if err != nil {
+		return err
+	}
+	if levelBonus <= 0 {
+		return nil
+	}
+	for _, id := range ids {
+		a := s.W.ActorByID(id)
+		if a == nil {
+			continue
+		}
+		a.SetLevel(a.Level + levelBonus)
+		a.Life, a.Mana, a.ES = a.MaxLife(), a.MaxMana(), a.MaxES()
+	}
+	return nil
+}
+
+func (s *Sim) scatterSpawn(defID string, count int) ([]core.EntityID, error) {
 	g := s.W.Grid
 	if g == nil {
-		return fmt.Errorf("sim: scatter spawn needs a generated map")
+		return nil, fmt.Errorf("sim: scatter spawn needs a generated map")
 	}
 	tiles := g.WalkableCenters()
 	if len(tiles) == 0 {
-		return fmt.Errorf("sim: map has no walkable tiles")
+		return nil, fmt.Errorf("sim: map has no walkable tiles")
 	}
+	ids := make([]core.EntityID, 0, count)
 	for i := 0; i < count; i++ {
 		pos := tiles[s.W.RNGMap.Uint64n(uint64(len(tiles)))]
 		for try := 0; try < 20 && space.Dist(pos, g.Spawn) < scatterMinSpawnDist; try++ {
 			pos = tiles[s.W.RNGMap.Uint64n(uint64(len(tiles)))]
 		}
-		if _, err := s.Spawn(defID, pos); err != nil {
-			return err
+		id, err := s.Spawn(defID, pos)
+		if err != nil {
+			return nil, err
 		}
+		ids = append(ids, id)
 	}
-	return nil
+	return ids, nil
 }
 
 // Step advances exactly one tick. The phase order below is the determinism

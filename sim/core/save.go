@@ -22,7 +22,7 @@ import (
 // SaveVersion gates restores: a format change bumps it, and old files fail
 // loudly instead of misloading. Saves are durable state — unlike replays,
 // they must never depend on re-execution of the code that wrote them.
-const SaveVersion = 3 // v3: actor level + xp (v2: item implicit values)
+const SaveVersion = 4 // v4: grid exit/stairs (v3: actor level + xp)
 
 type saveFile struct {
 	Version     int              `json:"version"`

@@ -9,6 +9,7 @@
 
 const SCALE = 42;          // pixels per world unit
 const PICKUP_RANGE = 1.9;  // world units; matches server (with margin)
+const DESCEND_RANGE = 2.4; // world units; just under the server's stairs reach
 const LOG_LINES = 9;
 const VIEW_HISTORY = 32;   // kept as delta baselines; matches the server cap
 
@@ -22,6 +23,8 @@ let pendingPickup = 0;      // drop entity we're walking toward
 let lastPickupSent = 0;
 let mouse = { x: 0, y: 0 }; // canvas px
 let cam = { x: 0, y: 0 };   // world units
+let floor = 1;              // current descent depth, from the welcome
+let descendNear = false;    // standing on the stairs (drives the prompt + F)
 const names = new Map();    // entity id -> label, survives despawn
 
 // Interpolation: views buffered on the SERVER timeline (tick × tickMs), so
@@ -64,8 +67,14 @@ function connect() {
           ws.close();
           return;
         }
+        // Every welcome is a full reset — the first connect and every zone
+        // transfer (descent) land here. The server has swapped the world out
+        // from under us, so nothing from the old floor may carry over.
+        resetClientState();
         myId = msg.actor;
         worldMap = msg.map || null;
+        floor = msg.floor || 1;
+        document.getElementById("depth-num").textContent = floor;
         if (msg.tick_hz && msg.send_every) {
           // 1.5 send intervals behind: one interval to always have a newer
           // view to lerp toward, half an interval of jitter slack.
@@ -102,6 +111,34 @@ function connect() {
 
 function send(cmd) {
   if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(cmd));
+}
+
+// resetClientState wipes everything tied to a specific world so a welcome can
+// re-seat the client on a fresh one: interpolation buffers, delta baselines,
+// fades, client VFX, names, and the bag layout. Mirrors the server resetting
+// each client's encoder/ack state on the same re-welcome.
+function resetClientState() {
+  snap = null;
+  seenSelf = false;
+  pendingPickup = 0;
+  lastPickupSent = 0;
+  clockOffset = null;
+  awaitKeyframe = false;
+  shakeUntil = 0;
+  panelKey = "";
+  drag = null;
+  descendNear = false;
+  cam.x = 0;
+  cam.y = 0;
+  interpBuf.length = 0;
+  ghosts.length = 0;
+  effects.length = 0;
+  names.clear();
+  firstSeen.clear();
+  viewHistory.clear();
+  bagLayout.clear();
+  document.getElementById("descend-hint").classList.add("hidden");
+  hideOverlay();
 }
 
 // world coords in the protocol are milli-units (int). Local math uses units.
@@ -255,6 +292,9 @@ function render() {
       const p = lerpPos(s.from.actors, self, s.t);
       cam.x = toUnits(p.x);
       cam.y = toUnits(p.y);
+      updateDescendHint(p);
+    } else {
+      updateDescendHint(null);
     }
     if (now < shakeUntil) {
       const k = (SHAKE_PX * (shakeUntil - now)) / SHAKE_MS / SCALE;
@@ -262,6 +302,7 @@ function render() {
       cam.y += (Math.random() * 2 - 1) * k;
     }
     drawTerrain();
+    drawStairs();
     // Fade-out ghosts go under live entities; a ghost whose id reappears
     // (re-entered interest range) yields to the live drawing immediately.
     for (let i = ghosts.length - 1; i >= 0; i--) {
@@ -377,6 +418,53 @@ function drawGrid() {
     ctx.moveTo(0, py); ctx.lineTo(canvas.width, py);
   }
   ctx.stroke();
+}
+
+// drawStairs marks the floor's exit — a pulsing ringed pad with downward
+// chevrons. Painted over terrain, under entities, so monsters guarding the
+// stairs read clearly. Pulse is client-only cosmetics (no determinism stake).
+function drawStairs() {
+  if (!worldMap || !worldMap.exit) return;
+  const p = worldToScreen(worldMap.exit.x, worldMap.exit.y);
+  const r = 0.75 * SCALE;
+  const pulse = 0.6 + 0.4 * Math.sin(performance.now() / 350);
+  ctx.beginPath();
+  ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+  ctx.fillStyle = "rgba(18, 14, 6, 0.72)";
+  ctx.fill();
+  ctx.lineWidth = 2.5;
+  ctx.strokeStyle = `rgba(201, 183, 106, ${pulse})`;
+  ctx.stroke();
+  ctx.strokeStyle = `rgba(255, 230, 128, ${pulse})`;
+  ctx.lineWidth = 3;
+  for (let i = 0; i < 2; i++) {
+    const yo = -7 + i * 9;
+    ctx.beginPath();
+    ctx.moveTo(p.x - 8, p.y + yo - 3);
+    ctx.lineTo(p.x, p.y + yo + 4);
+    ctx.lineTo(p.x + 8, p.y + yo - 3);
+    ctx.stroke();
+  }
+  ctx.fillStyle = "#c9b76a";
+  ctx.font = "12px Georgia";
+  ctx.textAlign = "center";
+  ctx.fillText("stairs down", p.x, p.y - r - 6);
+}
+
+// updateDescendHint toggles the "press F" prompt as the player steps on or
+// off the stairs. p is the interpolated player position (milli-units), or
+// null when there's no live self.
+function updateDescendHint(p) {
+  let near = false;
+  if (p && worldMap && worldMap.exit) {
+    const dx = toUnits(p.x - worldMap.exit.x);
+    const dy = toUnits(p.y - worldMap.exit.y);
+    near = Math.hypot(dx, dy) <= DESCEND_RANGE;
+  }
+  if (near !== descendNear) {
+    descendNear = near;
+    document.getElementById("descend-hint").classList.toggle("hidden", !near);
+  }
 }
 
 function drawActor(a, pos) {
@@ -639,6 +727,11 @@ window.addEventListener("keydown", (e) => {
     }
     case "t":
       send({ kind: "use_skill", skill: "adrenaline" });
+      break;
+    case "f":
+      // Descend the stairs. Gated on proximity so it isn't a blind spam; the
+      // server re-checks the player's distance to the exit anyway.
+      if (descendNear) send({ kind: "descend" });
       break;
     case "i":
       panel.classList.toggle("hidden");

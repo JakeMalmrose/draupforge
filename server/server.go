@@ -83,15 +83,24 @@ type Config struct {
 
 type Instance struct {
 	cfg Config
+	db  *core.ContentDB
 	sim *sim.Sim
-	// mapSnap is the terrain encoded once at startup; rides every welcome.
+	// mapSnap is the current floor's terrain, encoded when a floor loads; it
+	// rides every welcome (initial join and re-welcome on descent).
 	mapSnap *protocol.MapSnap
+
+	// runSeed seeds the whole descent; floor N's world derives from it. floor
+	// is the current depth (1-based) — the run's score. Both tick-goroutine
+	// state once running (runSeed is set once at New).
+	runSeed uint64
+	floor   int
 
 	mu       sync.Mutex
 	pending  []core.Command
 	joins    []*client
 	leaves   []*client
 	adminOps []adminOp
+	descends []*client // clients requesting a descent; validated on the tick goroutine
 
 	clients   []*client
 	joinCount int
@@ -177,6 +186,21 @@ type client struct {
 // keyframe.
 const maxUnackedViews = 32
 
+// descendRange is how close to the stairs (Grid.Exit) a player must stand to
+// trigger a descent. Generous, matching the pickup-reach feel.
+var descendRange = fm.FromMilli(2500)
+
+// levelsPerFloor is how many actor levels packs gain per floor descended —
+// the escalation knob. Tunable; floor 1 adds nothing.
+const levelsPerFloor = 2
+
+func levelBonus(floor int) int {
+	if floor <= 1 {
+		return 0
+	}
+	return (floor - 1) * levelsPerFloor
+}
+
 func New(db *core.ContentDB, cfg Config) (*Instance, error) {
 	if cfg.TickInterval <= 0 {
 		cfg.TickInterval = time.Second / core.TicksPerSecond
@@ -189,6 +213,9 @@ func New(db *core.ContentDB, cfg Config) (*Instance, error) {
 	}
 	in := &Instance{
 		cfg:          cfg,
+		db:           db,
+		runSeed:      cfg.Seed,
+		floor:        1,
 		listenerAddr: make(chan net.Addr, 1),
 	}
 	if cfg.Load != nil {
@@ -326,6 +353,14 @@ func (in *Instance) readLoop(ctx context.Context, c *client) {
 			in.mu.Unlock()
 			continue
 		}
+		if wc.Kind == "descend" {
+			// Host-level intent, never a sim command: it swaps the whole world.
+			// Validated (proximity to the stairs) on the tick goroutine.
+			in.mu.Lock()
+			in.descends = append(in.descends, c)
+			in.mu.Unlock()
+			continue
+		}
 		cmd, err := sim.DecodeCommand(wc)
 		if err != nil {
 			continue
@@ -349,7 +384,8 @@ func (in *Instance) tick() {
 	leaves := in.leaves
 	cmds := in.pending
 	ops := in.adminOps
-	in.joins, in.leaves, in.pending, in.adminOps = nil, nil, nil, nil
+	descends := in.descends
+	in.joins, in.leaves, in.pending, in.adminOps, in.descends = nil, nil, nil, nil, nil
 	in.mu.Unlock()
 
 	// Admin ops run here, where world and client-list access is safe. They
@@ -371,6 +407,21 @@ func (in *Instance) tick() {
 	for _, c := range leaves {
 		in.removeClient(c)
 	}
+
+	// A descent swaps the whole world between ticks: extract every live
+	// player, build the next floor (scaled packs), inject them, and re-welcome
+	// everyone. When it fires this tick belongs to the transfer — joiners
+	// spawn straight into the new floor and we skip the step/send below; the
+	// fresh floor ticks normally next time.
+	if !in.paused && len(descends) > 0 && in.descend(descends) {
+		for _, c := range joins {
+			if in.spawnClient(c) {
+				in.sendWelcome(c)
+			}
+		}
+		return
+	}
+
 	var welcomes []*client
 	for _, c := range joins {
 		if in.spawnClient(c) {
@@ -389,12 +440,7 @@ func (in *Instance) tick() {
 	// a flood of stale intent on resume.)
 
 	for _, c := range welcomes {
-		welcome, _ := json.Marshal(protocol.ServerMsg{
-			Type: "welcome", V: protocol.Version, Actor: uint64(c.actor),
-			TickHz: core.TicksPerSecond, SendEvery: in.cfg.SendEvery,
-			Map: in.mapSnap,
-		})
-		c.send(welcome, false)
+		in.sendWelcome(c)
 	}
 	if in.paused && len(welcomes) > 0 {
 		in.sendPause(welcomes, true) // joined mid-pause; tell them why nothing moves
@@ -511,6 +557,115 @@ func (in *Instance) spawnClient(c *client) bool {
 	return true
 }
 
+// sendWelcome marshals and sends the welcome frame for a client — the same
+// frame on an initial join and on a descent re-welcome (DESIGN §14: a zone
+// transfer is a full re-welcome on the live socket). It carries the current
+// floor and that floor's terrain.
+func (in *Instance) sendWelcome(c *client) {
+	welcome, _ := json.Marshal(protocol.ServerMsg{
+		Type: "welcome", V: protocol.Version, Actor: uint64(c.actor),
+		TickHz: core.TicksPerSecond, SendEvery: in.cfg.SendEvery,
+		Floor: in.floor, Map: in.mapSnap,
+	})
+	c.send(welcome, false)
+}
+
+// buildFloor generates a fresh world for the given floor: seed derived from
+// the run seed, the run's map footprint, fixed scenario spawns at base level,
+// and scattered packs scaled up by depth. The world is whole and tickable but
+// holds no players yet — descend injects them.
+func (in *Instance) buildFloor(floor int) (*sim.Sim, error) {
+	s := sim.New(in.db, core.FloorSeed(in.runSeed, floor))
+	if in.cfg.Map != nil {
+		s.GenerateMap(space.MapSpec{
+			Width: in.cfg.Map.Width, Height: in.cfg.Map.Height, Rooms: in.cfg.Map.Rooms,
+		})
+	}
+	for _, sp := range in.cfg.Spawns {
+		if _, err := s.Spawn(sp.Def, space.V(fm.FromMilli(sp.X), fm.FromMilli(sp.Y))); err != nil {
+			return nil, fmt.Errorf("server: floor %d spawn: %w", floor, err)
+		}
+	}
+	bonus := levelBonus(floor)
+	for _, sc := range in.cfg.Scatter {
+		if err := s.ScatterSpawnLeveled(sc.Def, sc.Count, bonus); err != nil {
+			return nil, fmt.Errorf("server: floor %d scatter: %w", floor, err)
+		}
+	}
+	return s, nil
+}
+
+// descend swaps the instance onto the next floor when a requester is standing
+// on the stairs. It extracts every live player into a portable character,
+// builds the next floor, injects them, swaps the running world, and
+// re-welcomes everyone (their delta encoder state can't survive a world
+// swap). Returns false — leaving the floor unchanged — if nobody is on the
+// stairs or the floor fails to build. Runs on the tick goroutine, so touching
+// the world and client list is safe.
+//
+// One requester moves the whole party: this is a shared, single-instance
+// descent (DESIGN §14 sequences the instance manager for later). Dead
+// spectators don't carry down; they get a fresh-but-actorless view.
+func (in *Instance) descend(reqs []*client) bool {
+	cur := in.sim.W
+	g := cur.Grid
+	if g == nil {
+		return false // the open plane has no stairs
+	}
+	onStairs := false
+	for _, c := range reqs {
+		if a := cur.ActorByID(c.actor); a != nil && !a.Dead && space.Dist(a.Pos, g.Exit) <= descendRange {
+			onStairs = true
+			break
+		}
+	}
+	if !onStairs {
+		return false
+	}
+
+	type survivor struct {
+		c  *client
+		ch core.Character
+	}
+	var survivors []survivor
+	for _, c := range in.clients {
+		if a := cur.ActorByID(c.actor); a != nil && !a.Dead {
+			survivors = append(survivors, survivor{c, core.ExtractCharacter(a)})
+		}
+	}
+
+	next, err := in.buildFloor(in.floor + 1)
+	if err != nil {
+		log.Printf("server: descent to floor %d failed: %v", in.floor+1, err)
+		return false // keep the current floor rather than strand the party
+	}
+
+	spawn := space.Vec2{}
+	if next.W.Grid != nil {
+		spawn = next.W.Grid.Spawn
+	}
+	for i, s := range survivors {
+		pos := spawn.Add(space.V(fm.FromInt(int64(i%4)), 0))
+		a, err := next.W.InjectCharacter(s.ch, pos)
+		if err != nil {
+			log.Printf("server: descent inject failed: %v", err)
+			return false
+		}
+		s.c.actor = a.ID
+	}
+
+	in.sim = next
+	in.floor++
+	in.mapSnap = next.EncodeMap()
+	in.eventBuf = nil
+	in.sinceSend = 0
+	for _, c := range in.clients {
+		in.resetClientView(c)
+		in.sendWelcome(c)
+	}
+	return true
+}
+
 func (in *Instance) removeClient(c *client) {
 	for i, cc := range in.clients {
 		if cc == c {
@@ -525,6 +680,19 @@ func (in *Instance) removeClient(c *client) {
 			a.Dead = true
 		}
 	}
+}
+
+// resetClientView clears a client's delta-encoder and ack bookkeeping so the
+// next view is a fresh keyframe. Called on a re-welcome (descent): the old
+// baselines reference a world that no longer exists. baseline/sent/sentTicks
+// are tick-goroutine-only; ack/ackDirty are guarded by the instance mutex.
+func (in *Instance) resetClientView(c *client) {
+	c.baseline = nil
+	c.sent = nil
+	c.sentTicks = nil
+	in.mu.Lock()
+	c.ack, c.ackDirty = 0, false
+	in.mu.Unlock()
 }
 
 func (c *client) send(frame []byte, binary bool) bool {

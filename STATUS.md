@@ -11,27 +11,32 @@ tests, and session-log entries older than a few sessions (git history is the
 archive). If this file outgrows ~150 lines, it has stopped being a status doc
 and started being a changelog — cut it back.
 
-**Last updated: 2026-06-12** (session 14: Loot 2.0 + XP/levels shipped;
-DESIGN.md §14 settles the character/zone/instance architecture)
+**Last updated: 2026-06-29** (session 15: the descent — escalating floors
+via stairs, character extract/inject, re-welcome on zone transfer, depth as
+the score)
 
 ## Where things stand
 
-The game is playable in a browser, now in a generated dungeon: `cmd/server`
-hosts the sim (TCP/NDJSON and WebSocket, same frames) and serves `web/` — a
-no-build-step canvas client with click-to-move (pathing around walls),
-Q fireball / E nova / R spark / T adrenaline (self-buff), drop pickup, a drag-drop inventory panel (I)
-with item icons and hover tooltips, HUD orbs, an event log, and a death
-screen. The full item flow works (kill → drop → pickup → bag → equip →
-affixes on the sheet); damage runs the whole pipeline; elemental hits
-inflict ailments (ignite/chill/shock); rooms and corridors make geometry
-matter — projectiles stop at walls, monsters path around them, and
+The game is a **run** now, not a sandbox: you descend floor by floor through
+generated dungeons via stairs, packs scale with depth, and "how deep did you
+get" is the score (a `Floor N` readout, and a deadlier mob each floor). It's
+playable in a browser: `cmd/server` hosts the sim (TCP/NDJSON and WebSocket,
+same frames) and serves `web/` — a no-build-step canvas client with
+click-to-move (pathing around walls), Q fireball / E nova / R spark /
+T adrenaline (self-buff), **F descend** at the stairs, drop pickup, a
+drag-drop inventory panel (I) with item icons and hover tooltips, HUD orbs, an
+event log, and a death screen. The full item flow works (kill → drop → pickup
+→ bag → equip → affixes on the sheet); damage runs the whole pipeline;
+elemental hits inflict ailments (ignite/chill/shock); rooms and corridors make
+geometry matter — projectiles stop at walls, monsters path around them, and
 skeleton archers kite to firing range. Run it:
 
 ```sh
-go test ./...                                    # ~40 tests, all green
-go run ./cmd/headless -script scripts/slice.json # watch the fight as events
-go run ./cmd/server -scenario scripts/arena.json # then open localhost:8080
-                                                 # admin dashboard: localhost:9090
+go test ./...                                      # ~45 tests, all green
+go run ./cmd/headless -script scripts/slice.json   # watch the fight as events
+go run ./cmd/server -scenario scripts/descent.json # then open localhost:8080,
+                                                   # walk to the stairs, press F
+                                                   # admin dashboard: localhost:9090
 ```
 
 All foundational machinery from DESIGN.md is real, not stubbed:
@@ -39,7 +44,8 @@ All foundational machinery from DESIGN.md is real, not stubbed:
 | System | Where | State |
 |--------|-------|-------|
 | Fixed-point math (no floats in sim) | `sim/fixmath` | done, tested |
-| Geometry, projectile sweep, terrain: tile grid (clearance-eroded walkability), DDA wall raycast, deterministic A* + smoothing, rooms-and-corridors mapgen off RNGMap | `sim/space` | done, tested; `Walkable` seam is real now |
+| Geometry, projectile sweep, terrain: tile grid (clearance-eroded walkability), DDA wall raycast, deterministic A* + smoothing, rooms-and-corridors mapgen off RNGMap, stairs-down `Exit` (farthest room) | `sim/space` | done, tested; `Walkable` seam is real now |
+| Descent: portable `Character` extract/inject (re-mints item IDs, rebuilds sheet from def+level+gear), per-floor seed, host floor-swap (extract → build scaled floor → inject → re-welcome), depth as score | `sim/core/character.go`, `server/server.go` | done, tested (unit + wire + browser) |
 | Stat algebra (flat/inc/more/override + tags) | `sim/stats` | done, tested, memoized |
 | World/Actor/Hit/defs, RNG, state hashing | `sim/core` | done |
 | Damage pipeline + DoTs + regen | `sim/combat` | done, tested |
@@ -96,6 +102,19 @@ All foundational machinery from DESIGN.md is real, not stubbed:
   actor); paths are computed at command time and followed blind (static
   terrain makes that safe). `FindPath` uses per-grid scratch buffers —
   single-goroutine, like everything else. Mapgen consumes only RNGMap.
+  `Grid.Spawn` and `Grid.Exit` (stairs-down) are pure functions of the
+  generated terrain, so — like all derived data — they are saved but **not**
+  hashed; the exit is derived without an RNG draw, so adding it left both
+  goldens untouched.
+- Zone transfer = re-welcome on the live socket (DESIGN §14). Any welcome is
+  a full client reset (`resetClientState` in client.js: interp buffers, delta
+  baselines, myId, map, fades/VFX, bag layout) AND the server resets that
+  client's delta-encoder/ack state (`resetClientView`) — the old baselines
+  reference a world that no longer exists. `core.Character` extract/inject is
+  the portable projection: item IDs **re-mint** at injection (they double as
+  sheet mod sources and would collide), the sheet rebuilds from def + level +
+  equipment, and pools enter full (a floor is a fresh start). Protocol v10,
+  SaveVersion 4.
 - `protocol/binary.go` and `web/net.js` are a hand-maintained codec pair.
   Any wire change updates both AND bumps `protocol.Version` — a stale client
   fails loudly at the welcome instead of misreading frames.
@@ -109,16 +128,13 @@ Structural risks live in `RISKS.md` — read it before building anything load-be
 - Leech, block, stun, ES recharge: absent.
 - Chill doesn't slow an action already in flight — windup/recovery tick
   counts bind at use time, like cast speed. Movement slows immediately.
-- Client cast VFX key off windup→done action transitions between views;
-  a windup shorter than the send interval (~3 ticks) would slip through
-  unrendered. No current skill is that fast.
+- Client cast VFX key off windup→done view transitions; a windup shorter
+  than the send interval (~3 ticks) would render unseen. No skill is that fast.
 - Corpses compact away at tick end — fine until on-corpse mechanics matter.
 - Inventory is a flat ID-addressed bag — no stacking. Bag *arrangement* is
-  client-side presentation state (`bagLayout` in client.js): rearranging
-  cells sends nothing, and the layout dies with the page (no localStorage).
-- Item icons are hand-drawn inline SVGs keyed by base id; unknown bases
-  fall back to a diamond. The client's `BASE_SLOTS` map mirrors the
-  server's slot families by hand — new base items must update both.
+  client-side presentation state (`bagLayout`): rearranging sends nothing and
+  dies with the page. Item icons are hand-drawn SVGs keyed by base id, and
+  `BASE_SLOTS` mirrors the server's slot families by hand — new bases touch both.
 - Server: no auth, no persistence (disconnect deletes the actor and its
   items), one instance per process, and a slow client can stall a tick for
   up to 1s (no per-client send queues). Fine for now; on the list.
@@ -145,82 +161,74 @@ Structural risks live in `RISKS.md` — read it before building anything load-be
   Fine until itemization depth matters.
 - Spawn-room pressure is real: scatter keeps monsters 10u out, but they
   converge once anyone aggros.
+- The descent is single-instance and shared: one player on the stairs takes
+  the whole party down (no per-player zones), and a dead spectator doesn't
+  carry and gets a fresh-but-actorless view. The instance manager (town hub,
+  concurrent floors) is sequenced for later — DESIGN §14.
+- Death is terminal for the run — the "YOU DIED" screen, no portal/XP-loss
+  economy yet. There's no character store either, so a reconnect rejoins the
+  instance's *current* floor (deepest reached), not a fresh floor 1. Both are
+  the next slice (Jake's run/portal rules + DESIGN §14 phase 2).
+- Floor scaling is level-only: packs gain `levelsPerFloor` (2) levels per
+  floor via `ActorDef.PerLevel`; counts, map size, and room count stay
+  constant. Density/biome variety is Phase 2 of the roadmap.
 
-## Feature plan (set 2026-06-11, session 13 — the "more meat" run)
+## Feature plan (updated 2026-06-29, session 15)
 
-The foundations are no longer the bottleneck. Loot 2.0 and XP/levels both
-shipped in session 14; next up:
+The descent's **core loop shipped** this session: escalating floors via
+stairs, character extract/inject, re-welcome on transfer, and depth as the
+score (the machinery RISKS.md flagged as "in-process load/rollback" — built
+once, two payoffs). What's left of Phase 1, then the queue:
 
-1. **The descent** (~2–3 sessions, the real meat). **Read DESIGN.md §14
-   first** — the character/zone/instance separation is decided; don't
-   re-derive it. Build order within the feature:
-   - *Character extract/inject*: portable character struct (def, level,
-     XP, bag, equipment — a subset of the save shapes; no zone-local
-     state), item IDs re-minted at injection, sheet rebuilt.
-   - *Re-welcome*: any welcome fully resets the client (interp buffers,
-     delta baselines, myId, map) and the server's per-client encoder/ack
-     state. Protocol bump. Same machinery as in-process load/rollback.
-   - *Floor swap*: stairs entity → extract everyone → new World from
-     (run seed + floor index), packs scaled via ActorDef.Level/PerLevel
-     (already built) → inject → re-welcome. One Instance swapping its
-     Sim; no instance manager yet.
-   - *Run rules* (Jake, 2026-06-12, numbers open): PoE-mapping flavor.
-     Death costs some XP (suggested: never below the current level's
-     floor) and ejects you to your portal. The portal starts on floor 1
-     and can be re-planted wherever you stand; a run grants a limited
-     number of portal uses — run out and the run is over. Cast-on-death
-     portal comes later and must carry an opportunity cost (likely a
-     skill gem slot once gems exist) — do not ship it free.
+1. **Run/portal economy** (Jake, numbers still open) — the stakes layer the
+   descent set up but doesn't yet have. Death costs some XP (suggested:
+   never below the current level's floor) and ejects you to your portal; the
+   portal starts on floor 1 and re-plants where you stand; a run grants a
+   limited number of portal uses — run out and it's over. Cast-on-death
+   portal comes later and must carry an opportunity cost (a skill gem slot
+   once gems exist) — do not ship it free. Today death is just terminal.
+2. **Character store + sessions** (DESIGN §14 phase 2) — pulls connection
+   ownership above the instance so a character survives disconnect and a
+   fresh run starts at floor 1 (today a reconnect rejoins the current floor).
+   This is also what makes the portal economy meaningful across logins.
+3. **A boss with telegraphed multi-stage attacks** — forces deliberate
+   action-model growth (RISKS.md #1; design the state machine first) and
+   gives a descent milestone a real destination.
 
-After that, the natural queue: a boss with telegraphed multi-stage
-attacks (forces deliberate action-model growth, RISKS.md #1 — design the
-state machine first), then the character store + sessions (characters
-survive disconnects; pulls connection ownership above the instance —
-DESIGN.md §14 phase 2), then server hardening (replay log, per-client
-send queues) when strangers connect.
+Then server hardening (replay log, per-client send queues) when strangers
+connect. The single-instance Sim-swap is deliberately the whole descent for
+now; an instance manager comes only when something needs it.
 
 ## Session log
 
+- **2026-06-29 (15)** — The descent (Phase 1 core). New `Grid.Exit`
+  (stairs = farthest room from spawn, derived without RNG → goldens
+  untouched; saved like `Spawn`, not hashed). `sim/core/character.go`:
+  portable `Character` extract/inject (item IDs re-mint, sheet rebuilds
+  from def+level+gear, pools enter full) + `FloorSeed`. `Sim.ScatterSpawnLeveled`
+  scales packs by depth (refactored `ScatterSpawn` to keep its draws
+  byte-identical). Server: a host-level `descend` command (never a sim
+  command) validates proximity to the stairs, then extracts everyone →
+  builds the next floor (`buildFloor`, +2 levels/floor) → injects →
+  swaps the running Sim → re-welcomes all (resetting per-client encoder
+  state). Client: any welcome is a full reset, stairs render + "Press F"
+  prompt, `Floor N` HUD. Protocol v10, SaveVersion 4. Tests: character
+  round-trip, exit derive/save, wire-level descend, floor-scaling.
+  Verified in the browser: walked the stairs, descended floor 1 → 2,
+  re-welcome clean, floor-2 packs at level 3 (and lethal — they killed
+  the player). Deferred: run/portal economy, sessions, density variety.
 - **2026-06-12 (14c)** — Docs only: DESIGN.md §14 settles the
-  character/zone/instance/server separation (worlds stay self-contained;
-  characters are server-owned projections; item IDs re-mint at zone
-  injection; transfer = full-reset re-welcome; run seed derives floor
-  seeds; single-instance Sim-swap before any instance manager). Descent
-  plan above rewritten against it, including Jake's run/portal rules.
+  character/zone/instance/server separation (worlds self-contained;
+  characters are server-owned projections; item IDs re-mint at injection;
+  transfer = full-reset re-welcome; run seed derives floor seeds;
+  single-instance Sim-swap before any instance manager).
 - **2026-06-12 (14b)** — XP and levels. New `sim/progress` (AwardXP off
-  death events after RollLoot, 100·level² curve, cap 50, ding heal);
-  `Actor.SetLevel` rebuilds `Def.PerLevel` mods under `LevelModSource`;
-  monsters carry levels/XP values/growth packages for future floor
-  scaling. SaveVersion 3, hash covers level+XP, protocol v9, HUD level
-  badge + XP bar. Goldens re-recorded (hash shape). Verified live: dummy
-  kill paid 10 XP on the wire.
+  death events, 100·level² curve, cap 50, ding heal); `Actor.SetLevel`
+  rebuilds `Def.PerLevel` mods under `LevelModSource`; monsters carry
+  levels/XP/growth for floor scaling. SaveVersion 3, hash covers level+XP,
+  protocol v9, HUD level badge + XP bar. Goldens re-recorded.
 - **2026-06-12 (14)** — Loot 2.0. Rolled implicit per base, affix pool
-  10 → 32 with tiered groups, per-actor drop tables with rarity weights
-  in `LootTableDef`, `EvLootStarved` on pool starvation. SaveVersion 2,
-  item hash covers rarity+implicit, protocol v8, tooltip implicit line.
-  Only `golden_slice` re-recorded. Verified live: spawned dummy's drop
-  carried an in-range implicit. (Detail in both commit messages.)
-- **2026-06-11 (13)** — Merged `feature/mapgen` to main (fast-forward,
-  pushed). Fresh architecture audit (three parallel reviewers over
-  core/determinism/saves, combat/stats/content, server/protocol/client;
-  findings verified against source before recording): RISKS.md gains #2
-  (no mid-tick entity creation — design the spawn queue before minions),
-  the skill-switch half of #1, and smaller entries for stateless AI
-  deciders, the hash-is-a-curated-subset gap, conditional RNG
-  consumption, and the widened client mirror surface. Rejected on
-  verification: field-mask exhaustion (uvarint u64, 11/64 bits used),
-  TagSet-widening memo breakage, EntityID overflow. Feature plan set:
-  Loot 2.0 → XP/levels → the descent (multi-floor run loop). Docs only,
-  no behavior change.
-- **2026-06-11 (12)** — Risk burndown, top three in one run. (a) TagSet:
-  uint64 → compile-time-sized word array off `TagCount`; future widenings
-  are automatic and golden-invisible. (b) Persistence: `sim/core/save.go`
-  + `sim/space/save.go` serialize world ↔ versioned JSON; restored worlds
-  continue bit-identically (continuation tests); admin save button/API +
-  `cmd/server -load` (orphan player actors removed at load, gear dropped).
-  (c) Buffs: `Actor.Statuses` generalized — `BuffDef` content packages,
-  `SkillBuff` kind, pending-buff queue resolved before hits, `adrenaline`
-  player skill on T, AilBuffed ring. Protocol v7. Goldens untouched (all
-  three changes are behavior-neutral for existing scenarios); verified
-  live over the TCP wire and a save/restart cycle.
+  10 → 32 with tiered groups, per-actor drop tables with rarity weights,
+  `EvLootStarved` on pool starvation. SaveVersion 2, item hash covers
+  rarity+implicit, protocol v8. Only `golden_slice` re-recorded.
 - (older sessions pruned — git history is the archive)

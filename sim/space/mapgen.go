@@ -96,6 +96,19 @@ func GenerateRooms(spec MapSpec, rng Rand) *Grid {
 	if len(rooms) > 0 {
 		cx, cy := rooms[0].centerTile()
 		g.Spawn = g.TileCenter(cx, cy)
+		// Stairs down: the room whose center is farthest from spawn, so the
+		// descent always crosses the floor. Deterministic (no RNG draw), so
+		// the dungeon golden's stream alignment is untouched; the open plane
+		// has no rooms and no exit.
+		g.Exit = g.Spawn
+		best := fm.Fixed(-1)
+		for _, r := range rooms {
+			ex, ey := r.centerTile()
+			c := g.TileCenter(ex, ey)
+			if d := c.Sub(g.Spawn).Len(); d > best {
+				best, g.Exit = d, c
+			}
+		}
 	}
 	g.Finalize()
 	g.pruneUnreachable(g.Spawn)

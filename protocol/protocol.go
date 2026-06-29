@@ -8,7 +8,7 @@ package protocol
 // it on any change a deployed client could misread — renamed/removed JSON
 // fields (omitempty makes those fail silently) or any binary frame layout
 // change. Clients hard-fail on mismatch instead of limping.
-const Version = 9 // v9: actor level/xp/xp_next (v8: item implicit in ItemSnap)
+const Version = 10 // v10: descent — welcome floor + map exit (v9: actor level/xp)
 
 // Command is the wire form of player intent. Kind is one of "move",
 // "use_skill", "stop", the item verbs "pickup", "equip", "unequip",
@@ -130,6 +130,8 @@ type MapSnap struct {
 	Height int      `json:"h"`
 	Tile   int64    `json:"tile"` // milli-units per tile edge
 	Rows   []string `json:"rows"`
+	// Exit is the stairs-down position (milli-units) a player descends from.
+	Exit Vec `json:"exit"`
 }
 
 // ServerMsg is one server→client JSON frame. "welcome" carries the protocol
@@ -141,14 +143,17 @@ type MapSnap struct {
 // instance freezing or resuming (sent on transitions, and once to clients
 // that join while paused).
 type ServerMsg struct {
-	Type      string    `json:"type"` // "welcome" | "snapshot" | "pause"
-	V         int       `json:"v,omitempty"`
-	Actor     uint64    `json:"actor,omitempty"`
-	TickHz    int       `json:"tick_hz,omitempty"`
-	SendEvery int       `json:"send_every,omitempty"`
-	Map       *MapSnap  `json:"map,omitempty"`
-	Snapshot  *Snapshot `json:"snapshot,omitempty"`
-	Paused    *bool     `json:"paused,omitempty"`
+	Type      string `json:"type"` // "welcome" | "snapshot" | "pause"
+	V         int    `json:"v,omitempty"`
+	Actor     uint64 `json:"actor,omitempty"`
+	TickHz    int    `json:"tick_hz,omitempty"`
+	SendEvery int    `json:"send_every,omitempty"`
+	// Floor is the current descent depth (1-based), carried on the welcome so
+	// a re-welcome on zone transfer tells the client which floor it landed on.
+	Floor    int       `json:"floor,omitempty"`
+	Map      *MapSnap  `json:"map,omitempty"`
+	Snapshot *Snapshot `json:"snapshot,omitempty"`
+	Paused   *bool     `json:"paused,omitempty"`
 }
 
 // Script is the headless runner's input: a scenario plus scheduled commands.

@@ -38,8 +38,9 @@ go test ./...                                          # full suite incl. golden
 go run ./cmd/headless -script scripts/slice.json       # watch the vertical slice fight
 go run ./cmd/headless -script scripts/slice.json -hash # per-tick state hashes
 
-go run ./cmd/server -scenario scripts/arena.json       # host an instance
-open http://localhost:8080                             # play it in the browser
+go run ./cmd/server -scenario scripts/descent.json     # host a descent
+open http://localhost:8080                             # play it: walk to the
+                                                       # stairs, press F to descend
 open http://localhost:9090                             # admin dashboard (no auth — keep it private)
 echo '{"kind":"move","x":5000,"y":0}' | nc localhost 7777   # or be a brave TCP client
 ```

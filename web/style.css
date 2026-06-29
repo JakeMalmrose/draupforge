@@ -38,6 +38,30 @@ body {
 #xp-row .bar.xp { flex: 1; height: 8px; margin-top: 0; }
 .bar.xp .fill { background: linear-gradient(#c9b76a, #8a7a36); transition: width 200ms linear; }
 
+/* --- depth readout + descend prompt --- */
+#depth {
+  position: fixed;
+  top: 14px; left: 50%;
+  transform: translateX(-50%);
+  font-size: 15px; letter-spacing: 2px;
+  color: #c9b76a; text-shadow: 0 1px 3px #000;
+}
+#depth #depth-num { font-weight: bold; color: #efe9dc; }
+#descend-hint {
+  position: fixed;
+  top: 64px; left: 50%;
+  transform: translateX(-50%);
+  font-size: 18px; color: #efe9dc;
+  background: rgba(40, 30, 10, 0.85);
+  border: 1px solid #b8a44a; border-radius: 4px;
+  padding: 8px 18px;
+  text-shadow: 0 1px 3px #000;
+  box-shadow: 0 0 18px rgba(184, 164, 74, 0.5);
+  animation: descend-pulse 1.2s ease-in-out infinite;
+}
+#descend-hint b { color: #ffe680; }
+@keyframes descend-pulse { 0%, 100% { opacity: 0.7; } 50% { opacity: 1; } }
+
 /* --- inventory panel --- */
 #panel {
   position: fixed;
