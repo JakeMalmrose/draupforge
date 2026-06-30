@@ -17,6 +17,7 @@ type GridSave struct {
 	Tile      fm.Fixed `json:"tile"`
 	Clearance fm.Fixed `json:"clearance"`
 	Spawn     Vec2     `json:"spawn"`
+	Stairs    Vec2     `json:"stairs"`
 	Rows      []string `json:"rows"`
 }
 
@@ -40,7 +41,7 @@ func (g *Grid) Encode() GridSave {
 	return GridSave{
 		Width: g.Width, Height: g.Height,
 		Tile: g.Tile, Clearance: g.Clearance,
-		Spawn: g.Spawn, Rows: rows,
+		Spawn: g.Spawn, Stairs: g.Stairs, Rows: rows,
 	}
 }
 
@@ -53,6 +54,7 @@ func DecodeGrid(s GridSave) (*Grid, error) {
 	}
 	g := NewGrid(s.Width, s.Height, s.Tile, s.Clearance)
 	g.Spawn = s.Spawn
+	g.Stairs = s.Stairs
 	for y, row := range s.Rows {
 		if len(row) != s.Width {
 			return nil, fmt.Errorf("space: grid save row %d is %d wide, want %d", y, len(row), s.Width)

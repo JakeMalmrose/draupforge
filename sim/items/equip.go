@@ -66,6 +66,20 @@ func Equip(w *core.World, a *core.Actor, id core.EntityID, slot core.EquipSlot) 
 
 	equipped := item
 	a.Equipment[slot] = &equipped
+	GrantItemMods(a, &equipped)
+	clampPools(a)
+	w.Emit(core.Event{Kind: core.EvEquip, Actor: a.ID, Other: item.ID, Note: item.Base.ID})
+	return true
+}
+
+// GrantItemMods adds an item's implicit and affix modifiers to an actor's
+// sheet, sourced by the item's own ID (so RemoveSource(uint64(item.ID))
+// cleanly strips them again on unequip). Equip calls this for a normal
+// equip/swap; it's also exported for callers that place an item into
+// a.Equipment directly — e.g. the server re-minting a character's gear at
+// zone injection, where the item never passes through Equip's inventory/drop
+// resolution.
+func GrantItemMods(a *core.Actor, item *core.Item) {
 	if imp := item.Base.Implicit; imp != nil {
 		a.Sheet.Add(stats.Modifier{
 			Stat:   imp.Stat,
@@ -84,9 +98,6 @@ func Equip(w *core.World, a *core.Actor, id core.EntityID, slot core.EquipSlot) 
 			Source: uint64(item.ID),
 		})
 	}
-	clampPools(a)
-	w.Emit(core.Event{Kind: core.EvEquip, Actor: a.ID, Other: item.ID, Note: item.Base.ID})
-	return true
 }
 
 // Unequip moves an equipped item into the inventory. Rejected if the bag is

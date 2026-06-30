@@ -96,6 +96,8 @@ func GenerateRooms(spec MapSpec, rng Rand) *Grid {
 	if len(rooms) > 0 {
 		cx, cy := rooms[0].centerTile()
 		g.Spawn = g.TileCenter(cx, cy)
+		lx, ly := rooms[len(rooms)-1].centerTile()
+		g.Stairs = g.TileCenter(lx, ly)
 	}
 	g.Finalize()
 	g.pruneUnreachable(g.Spawn)

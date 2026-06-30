@@ -30,7 +30,9 @@ const names = new Map();    // entity id -> label, survives despawn
 // interpDelay). clockOffset locks onto the fastest-arriving views (max) and
 // decays slowly so a genuine latency increase re-converges; a huge backward
 // jump (server pause, long stall) resnaps instead of waiting out the decay.
-let worldMap = null;        // terrain from the welcome: {w, h, tile, rows}
+let worldMap = null;        // terrain from the welcome: {w, h, tile, rows, stairs}
+let runActive = false;      // does this instance have a descent running at all
+let runFloor = 0, runMaxFloor = 0, runPortalCharges = 0;
 let interpDelay = 150;      // ms; refined from the welcome's send cadence
 let tickMs = 1000 / 30;     // refined from the welcome's tick_hz
 let clockOffset = null;     // server-timeline ms minus performance.now() ms
@@ -49,6 +51,30 @@ let awaitKeyframe = false;  // lost our baseline; ignore deltas until reset
 
 const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d");
+
+// resetClientForWelcome clears every piece of state scoped to "the world we
+// were just looking at" — DESIGN.md §14: a welcome is a full client reset
+// (interp buffers, delta baselines, myId, map), the same machinery whether
+// this is the very first connect or a mid-session zone transfer (a descent,
+// a death, the hideout). Entity IDs and tick numbers are both world-local,
+// so anything keyed or ordered by them from the old world is meaningless —
+// and worse than meaningless for ticks, since onView only accepts strictly
+// advancing ones; carrying a high-water mark from the old world forward
+// would silently drop every frame of the new one.
+function resetClientForWelcome() {
+  snap = null;
+  seenSelf = false;
+  pendingPickup = 0;
+  lastPickupSent = 0;
+  clockOffset = null;
+  interpBuf.length = 0;
+  firstSeen.clear();
+  ghosts.length = 0;
+  viewHistory.clear();
+  awaitKeyframe = false;
+  names.clear();
+  hideOverlay();
+}
 
 // ------------------------------------------------------------- network
 
@@ -73,6 +99,18 @@ function connect() {
           const interval = tickMs * msg.send_every;
           interpDelay = Math.min(Math.max(1.5 * interval, 100), 250);
         }
+        // Every welcome is a full reset (DESIGN.md §14): a fresh world means
+        // last tick's number means nothing here — the new world's ticks
+        // start back near 0, so without this, onView's "only advancing
+        // ticks enter the interpolation timeline" guard (view.tick >
+        // newest.view.tick) would silently drop every post-swap frame
+        // forever, freezing the screen on whatever was last rendered.
+        resetClientForWelcome();
+        runActive = !!(msg.floor || msg.max_floor || msg.portal_charges);
+        runFloor = msg.floor || 0;
+        runMaxFloor = msg.max_floor || 0;
+        runPortalCharges = msg.portal_charges || 0;
+        updateRunHUD();
       } else if (msg.type === "pause") {
         if (msg.paused) showOverlay("PAUSED");
         else hideOverlay();
@@ -150,6 +188,7 @@ function onView(view) {
   } else if (seenSelf) {
     showOverlay("YOU DIED");
   }
+  updateDescendHint(self);
 
   for (const ev of view.events) {
     logEvent(ev);
@@ -262,6 +301,7 @@ function render() {
       cam.y += (Math.random() * 2 - 1) * k;
     }
     drawTerrain();
+    if (runActive) drawStairs();
     // Fade-out ghosts go under live entities; a ghost whose id reappears
     // (re-entered interest range) yields to the live drawing immediately.
     for (let i = ghosts.length - 1; i >= 0; i--) {
@@ -358,6 +398,30 @@ function drawTerrain() {
     ctx.lineTo(px((x1 + 1) * t), py(y * t));
   }
   ctx.stroke();
+}
+
+// drawStairs marks the descent point — a downward chevron over a glowing
+// disc, distinct from any actor or drop silhouette at a glance.
+function drawStairs() {
+  if (!worldMap || !worldMap.stairs) return;
+  const p = worldToScreen(worldMap.stairs.x, worldMap.stairs.y);
+  ctx.beginPath();
+  ctx.arc(p.x, p.y, 0.9 * SCALE, 0, Math.PI * 2);
+  ctx.fillStyle = "#221f14";
+  ctx.fill();
+  ctx.strokeStyle = "#c9b76a";
+  ctx.lineWidth = 2;
+  ctx.stroke();
+  ctx.strokeStyle = "#c9b76a";
+  ctx.lineWidth = 3;
+  ctx.lineCap = "round";
+  for (const dy of [-6, 2]) {
+    ctx.beginPath();
+    ctx.moveTo(p.x - 9, p.y + dy - 4);
+    ctx.lineTo(p.x, p.y + dy + 4);
+    ctx.lineTo(p.x + 9, p.y + dy - 4);
+    ctx.stroke();
+  }
 }
 
 function drawGrid() {
@@ -643,6 +707,12 @@ window.addEventListener("keydown", (e) => {
     case "i":
       panel.classList.toggle("hidden");
       if (!panel.classList.contains("hidden")) renderPanel(me(), true);
+      break;
+    case "g":
+      if (runActive) send({ kind: "descend" });
+      break;
+    case "p":
+      if (runActive) send({ kind: "portal" });
       break;
   }
 });
@@ -1003,6 +1073,21 @@ function logEvent(ev) {
     case "level_up":
       text = `${nameOf(ev.actor)} is now level ${Math.round(ev.amount / 1000)}!`;
       break;
+    // Descent events (server.go: synthesized directly as protocol.EventSnap,
+    // never through core.Event — ev.amount is a plain floor number here, not
+    // a milli-scaled fm.Fixed like the sim-sourced events above).
+    case "floor_change":
+      text = `descending to floor ${ev.amount}`;
+      break;
+    case "hideout_eject":
+      text = "ejected to the hideout";
+      break;
+    case "portal_planted":
+      text = `${nameOf(ev.actor)} planted a portal`;
+      break;
+    case "run_over":
+      text = `RUN OVER — reached floor ${ev.amount}`;
+      break;
   }
   if (!text) return;
   const div = document.createElement("div");
@@ -1029,13 +1114,44 @@ function updateHUD(self) {
   document.getElementById("xp-fill").style.width = `${xpPct}%`;
 }
 
+// updateRunHUD reflects welcome-carried run state — it changes only on a
+// floor transition (death-eject, descend, or run-over reset), never per
+// tick, so the welcome handler is the only caller.
+function updateRunHUD() {
+  document.getElementById("run-hud").classList.toggle("hidden", !runActive);
+  if (!runActive) return;
+  // Floor 0 is the wire's "hideout" sentinel (server/server.go welcomeMsg) —
+  // real floors are 1-indexed, so it's otherwise never seen.
+  const floorText = runFloor > 0 ? `Floor <b>${runFloor}</b>` : `<b>Hideout</b>`;
+  document.getElementById("floor-badge").innerHTML = `${floorText} &middot; Best ${runMaxFloor}`;
+  document.getElementById("portal-badge").textContent = `Lives ×${runPortalCharges}`;
+}
+
+// DESCEND_RANGE mirrors the server's descendRange (server/run.go) — cosmetic
+// only, the server is the authority on whether "descend" actually lands.
+const DESCEND_RANGE = 2;
+
+function updateDescendHint(self) {
+  const hint = document.getElementById("descend-hint");
+  if (!runActive || !self || !worldMap || !worldMap.stairs) {
+    hint.classList.add("hidden");
+    return;
+  }
+  const dx = toUnits(self.pos.x - worldMap.stairs.x);
+  const dy = toUnits(self.pos.y - worldMap.stairs.y);
+  hint.classList.toggle("hidden", Math.hypot(dx, dy) > DESCEND_RANGE);
+}
+
 function showOverlay(text) {
   document.getElementById("overlay-text").textContent = text;
   document.getElementById("overlay").classList.remove("hidden");
 }
 
-// hideOverlay only ends a pause: death re-asserts itself every view while
-// dead, and a closed socket can't deliver a resume, so neither is lost.
+// hideOverlay clears pause/death/disconnect text. Safe to call speculatively
+// (every welcome does): death re-asserts "YOU DIED" every view while
+// genuinely dead, a closed socket re-shows "DISCONNECTED", and a paused
+// instance re-announces itself on the next "pause" frame — so a welcome
+// that turns out to be wrong about clearing the overlay just gets it back.
 function hideOverlay() {
   document.getElementById("overlay").classList.add("hidden");
 }

@@ -65,6 +65,19 @@ var scatterMinSpawnDist = fm.FromInt(10)
 // ScatterSpawn places count actors on random walkable tiles (map RNG
 // stream), preferring spots away from the player spawn point.
 func (s *Sim) ScatterSpawn(defID string, count int) error {
+	return s.scatterSpawn(defID, count, 0)
+}
+
+// ScatterSpawnLeveled is ScatterSpawn with every spawned actor's level
+// overridden (e.g. floor-depth scaling) instead of the def's authored level.
+func (s *Sim) ScatterSpawnLeveled(defID string, count int, level int) error {
+	return s.scatterSpawn(defID, count, level)
+}
+
+// level 0 means "keep the def's authored level" — SetLevel already treats
+// <1 as a no-op clamp, but skipping the call entirely keeps the unscaled
+// path byte-identical to before this existed.
+func (s *Sim) scatterSpawn(defID string, count int, level int) error {
 	g := s.W.Grid
 	if g == nil {
 		return fmt.Errorf("sim: scatter spawn needs a generated map")
@@ -78,8 +91,15 @@ func (s *Sim) ScatterSpawn(defID string, count int) error {
 		for try := 0; try < 20 && space.Dist(pos, g.Spawn) < scatterMinSpawnDist; try++ {
 			pos = tiles[s.W.RNGMap.Uint64n(uint64(len(tiles)))]
 		}
-		if _, err := s.Spawn(defID, pos); err != nil {
+		id, err := s.Spawn(defID, pos)
+		if err != nil {
 			return err
+		}
+		if level >= 1 {
+			if a := s.W.ActorByID(id); a != nil {
+				a.SetLevel(level)
+				a.Life, a.Mana, a.ES = a.MaxLife(), a.MaxMana(), a.MaxES()
+			}
 		}
 	}
 	return nil

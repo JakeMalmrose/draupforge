@@ -38,6 +38,27 @@ body {
 #xp-row .bar.xp { flex: 1; height: 8px; margin-top: 0; }
 .bar.xp .fill { background: linear-gradient(#c9b76a, #8a7a36); transition: width 200ms linear; }
 
+/* --- run HUD: floor depth (the score) + portal charges --- */
+#run-hud {
+  position: fixed;
+  left: 16px; top: 16px;
+  display: flex; gap: 14px;
+  font-size: 13px;
+  text-shadow: 0 1px 2px #000;
+}
+#floor-badge { color: #cfc9bf; }
+#floor-badge b { color: #c9b76a; }
+#portal-badge { color: #7fa3d4; }
+
+#descend-hint {
+  position: fixed;
+  left: 50%; bottom: 100px;
+  transform: translateX(-50%);
+  font-size: 13px; color: #c9b76a;
+  text-shadow: 0 1px 2px #000;
+  pointer-events: none;
+}
+
 /* --- inventory panel --- */
 #panel {
   position: fixed;
@@ -133,6 +154,8 @@ body {
 #log .ev-chill { color: #7fd4ff; }
 #log .ev-shock { color: #f5e25f; }
 #log .ev-level_up { color: #c9b76a; font-weight: bold; }
+#log .ev-floor_change, #log .ev-hideout_eject, #log .ev-portal_planted { color: #7fa3d4; }
+#log .ev-run_over { color: #c0392b; font-weight: bold; }
 
 /* --- overlays --- */
 #overlay {

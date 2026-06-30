@@ -11,26 +11,30 @@ tests, and session-log entries older than a few sessions (git history is the
 archive). If this file outgrows ~150 lines, it has stopped being a status doc
 and started being a changelog — cut it back.
 
-**Last updated: 2026-06-12** (session 14: Loot 2.0 + XP/levels shipped;
-DESIGN.md §14 settles the character/zone/instance architecture)
+**Last updated: 2026-06-30** (session 15: the descent — ROADMAP.md phase 1
+shipped, including a hideout safe zone added mid-session)
 
 ## Where things stand
 
-The game is playable in a browser, now in a generated dungeon: `cmd/server`
-hosts the sim (TCP/NDJSON and WebSocket, same frames) and serves `web/` — a
-no-build-step canvas client with click-to-move (pathing around walls),
-Q fireball / E nova / R spark / T adrenaline (self-buff), drop pickup, a drag-drop inventory panel (I)
-with item icons and hover tooltips, HUD orbs, an event log, and a death
-screen. The full item flow works (kill → drop → pickup → bag → equip →
-affixes on the sheet); damage runs the whole pipeline; elemental hits
-inflict ailments (ignite/chill/shock); rooms and corridors make geometry
-matter — projectiles stop at walls, monsters path around them, and
-skeleton archers kite to firing range. Run it:
+The game is playable in a browser, now as an actual run, not just a
+sandbox: `cmd/server -descent` hosts a multi-floor descent (stairs escalate
+floors, death costs XP and ejects to a safe hideout, a run grants a few
+lives before it ends and resets — ROADMAP.md phase 1) over the same
+TCP/NDJSON and WebSocket wires `web/` — a no-build-step canvas client with
+click-to-move (pathing around walls), Q fireball / E nova / R spark / T
+adrenaline (self-buff), drop pickup, a drag-drop inventory panel (I) with
+item icons and hover tooltips, HUD orbs, floor/score/lives readout, an
+event log, and a death screen. The full item flow works (kill → drop →
+pickup → bag → equip → affixes on the sheet); damage runs the whole
+pipeline; elemental hits inflict ailments (ignite/chill/shock); rooms and
+corridors make geometry matter — projectiles stop at walls, monsters path
+around them, and skeleton archers kite to firing range. Run it:
 
 ```sh
-go test ./...                                    # ~40 tests, all green
+go test ./...                                    # tests, all green
 go run ./cmd/headless -script scripts/slice.json # watch the fight as events
-go run ./cmd/server -scenario scripts/arena.json # then open localhost:8080
+go run ./cmd/server -scenario scripts/arena.json -descent
+                                                 # open localhost:8080
                                                  # admin dashboard: localhost:9090
 ```
 
@@ -51,6 +55,7 @@ All foundational machinery from DESIGN.md is real, not stubbed:
 | Equipment: 10 slots (weapon…belt), slot-addressed equip command (auto fallback), affix→sheet | `sim/items/equip.go` | done, tested |
 | Inventory: pickup/unequip/drop_item, capacity | `sim/items/equip.go` | done, tested |
 | Server: TCP + WS transports, joins/leaves, send-rate decoupling, interest culling, binary deltas + acks, pause | `server/` | done, race-tested |
+| Descent: stairs escalate floors (monster level == floor depth), a safe monster-free hideout starts every run and catches every death, death halves XP progress and consumes one of a few lives, exhausting them hard-resets the run; character extract/inject re-mints item IDs across zone transfers | `server/run.go`, `cmd/server -descent` | done, tested (unit + WS e2e), verified live |
 | Admin dashboard: observe (tick health, counts, bandwidth, events, world hash) + poke (pause/resume, spawn, kick), own port, embedded HTML | `server/admin.go` | done, tested; NO AUTH — localhost/tailnet only |
 | Web client: canvas, input, terrain render (walls/floor), drag-drop inventory grid (icons, tooltips), delta decoding, tick-timeline interpolation, fade-in/out, cast/impact VFX + ailment rings | `web/` | working, no build step |
 | AI: behavior registry — `melee_chaser`, `ranged_kiter` (LoS-gated shooting, retreat band) | `sim/ai` | real, tested |
@@ -144,49 +149,92 @@ Structural risks live in `RISKS.md` — read it before building anything load-be
 - Affix pool is global — no per-slot pools, so boots can roll cast speed.
   Fine until itemization depth matters.
 - Spawn-room pressure is real: scatter keeps monsters 10u out, but they
-  converge once anyone aggros.
+  converge once anyone aggros. The hideout's exit, and wherever a portal
+  is planted, inherit this — both are fixed, deterministic points, so an
+  unlucky scatter roll right at a floor's entrance repeats every visit
+  until someone plants a portal somewhere safer.
+- Descent is single-instance, whole-party-follows (DESIGN.md §14: no
+  instance manager yet): one player's death, descend, or run-over drags
+  every connected client through the same transition. Fine solo or small
+  co-op; a stranger's death interrupting your fight is the rough edge.
+- Floors are stateless on revisit: portal-eject or hideout-resume
+  regenerates the target floor fresh (same seed → same layout, but new
+  monsters) — nothing about a previous visit (kills, picked-up loot)
+  persists. `core.World` truly is "one self-contained zone" each time.
+- A death that triggers a same-tick floor swap (hideout eject, run-over)
+  won't show its own death/hit lines in the dying client's event log:
+  `BuildSnapshotFor`'s interest-culling filters events by entity ID
+  against the *current* (post-swap) world, and the swap re-mints every
+  connected client's actor ID, so the old event's Actor/Other never
+  matches anyone there. The synthetic transition event (`hideout_eject`,
+  `floor_change`, `run_over`) still arrives — that's the signal that
+  actually matters — and the admin dashboard's `recentEvents` (omniscient)
+  isn't affected. Cosmetic gap, not a correctness one.
+- Run numbers (3 lives, monster level == floor depth, death halves XP
+  progress) are deliberately simple and tunable — see the constants and
+  comments at the top of `server/run.go`.
+- A freshly built World must never let its first view reach a client
+  before at least one tick has passed: the binary wire's keyframe sentinel
+  is baseline-tick 0, and a client's ack echoes a view's own tick, so a
+  genuine Tick-0 view gets misread as the unrelated "I lost my state, send
+  a keyframe" signal — and once that mismatch happens, every subsequent
+  delta inherits the corruption (verified live: a death→hideout eject left
+  "YOU DIED" stuck with zero actors in view, even though the server's own
+  state was correct). `server/run.go`'s `newFloorSim` bumps Tick before
+  anything else; any future code that builds a `*sim.Sim` mid-session
+  (not at process startup) needs the same.
 
-## Feature plan (set 2026-06-11, session 13 — the "more meat" run)
+## Feature plan (set 2026-06-30, session 15)
 
-The foundations are no longer the bottleneck. Loot 2.0 and XP/levels both
-shipped in session 14; next up:
+The descent shipped (ROADMAP.md phase 1) — floors escalate via stairs,
+death costs XP and ejects to a hideout, a run grants a few lives before a
+hard reset. ROADMAP.md's fun-first ordering says what's next:
 
-1. **The descent** (~2–3 sessions, the real meat). **Read DESIGN.md §14
-   first** — the character/zone/instance separation is decided; don't
-   re-derive it. Build order within the feature:
-   - *Character extract/inject*: portable character struct (def, level,
-     XP, bag, equipment — a subset of the save shapes; no zone-local
-     state), item IDs re-minted at injection, sheet rebuilt.
-   - *Re-welcome*: any welcome fully resets the client (interp buffers,
-     delta baselines, myId, map) and the server's per-client encoder/ack
-     state. Protocol bump. Same machinery as in-process load/rollback.
-   - *Floor swap*: stairs entity → extract everyone → new World from
-     (run seed + floor index), packs scaled via ActorDef.Level/PerLevel
-     (already built) → inject → re-welcome. One Instance swapping its
-     Sim; no instance manager yet.
-   - *Run rules* (Jake, 2026-06-12, numbers open): PoE-mapping flavor.
-     Death costs some XP (suggested: never below the current level's
-     floor) and ejects you to your portal. The portal starts on floor 1
-     and can be re-planted wherever you stand; a run grants a limited
-     number of portal uses — run out and the run is over. Cast-on-death
-     portal comes later and must carry an opportunity cost (likely a
-     skill gem slot once gems exist) — do not ship it free.
+1. **A telegraphed boss** at floor milestones (ROADMAP phase 2) — the
+   destination of a descent, and the first fight that's about reading and
+   dodging a wind-up rather than just trading hits. Forces the action
+   model to grow on purpose (RISKS.md #1) — design that state machine
+   first, don't accrete it onto the existing skill switch.
+2. **Pack variety and juice** (ROADMAP phase 2) — a few more monster
+   archetypes, occasional rare/magic packs, and the cheap client-side
+   feedback (damage numbers, hit flashes, telegraphs) that makes the
+   descent feel as good as it now functions. Sprinkle continuously rather
+   than batching into a polish pass.
+3. **Skill gems + a small passive choice** (ROADMAP phase 3) — build
+   identity is the next thing loot and levels are currently missing.
 
-After that, the natural queue: a boss with telegraphed multi-stage
-attacks (forces deliberate action-model growth, RISKS.md #1 — design the
-state machine first), then the character store + sessions (characters
-survive disconnects; pulls connection ownership above the instance —
-DESIGN.md §14 phase 2), then server hardening (replay log, per-client
-send queues) when strangers connect.
+Later: the character store + sessions (characters survive disconnects;
+pulls connection ownership above the instance — DESIGN.md §14 phase 2,
+and the natural fix for the single-instance/whole-party-follows shortcut
+above), then server hardening (replay log, per-client send queues) when
+strangers connect.
 
 ## Session log
 
+- **2026-06-30 (15)** — The descent (ROADMAP.md phase 1), end to end:
+  stairs (`space.Grid.Stairs`, last room's center) escalate floors via
+  `server.Instance.transitionToFloor` (extract every connected client's
+  character, build the next floor from `floorSeed(runSeed, floor)`,
+  re-mint item IDs at injection, re-welcome). Mid-session, on Jake's call,
+  reworked death from "eject to a portal on whatever floor you died on"
+  into a proper hideout: a small monster-free World every run starts in
+  and every death returns to (XP halved, a life consumed); the run's
+  floor/score/portal-plant survive the trip, so it's a pause, not a
+  reset. Exhausting lives hard-resets the run (new seed, fresh level-1
+  characters, back to the hideout) — `protocol.Version` 10 carries
+  Floor/MaxFloor/PortalCharges on the welcome (0 floor = hideout).
+  Shipped with real test coverage (sim/space + server unit tests, a WS
+  e2e test driving the full wire), then manually verified live in a
+  browser, which caught a genuine bug no test had: a freshly built
+  World's first view could carry Tick 0, colliding with the binary wire's
+  keyframe-ack sentinel and silently emptying every connected client's
+  view from then on (`newFloorSim` fix + regression test, see Known
+  shortcuts). `go test ./...` green, goldens untouched (descent code
+  never touches `sim/sim.go`'s phase order).
 - **2026-06-12 (14c)** — Docs only: DESIGN.md §14 settles the
-  character/zone/instance/server separation (worlds stay self-contained;
-  characters are server-owned projections; item IDs re-mint at zone
-  injection; transfer = full-reset re-welcome; run seed derives floor
-  seeds; single-instance Sim-swap before any instance manager). Descent
-  plan above rewritten against it, including Jake's run/portal rules.
+  character/zone/instance/server separation that session 15's descent
+  was built against (worlds self-contained, characters server-owned
+  projections, item IDs re-mint at zone injection, transfer = re-welcome).
 - **2026-06-12 (14b)** — XP and levels. New `sim/progress` (AwardXP off
   death events after RollLoot, 100·level² curve, cap 50, ding heal);
   `Actor.SetLevel` rebuilds `Def.PerLevel` mods under `LevelModSource`;
@@ -200,27 +248,4 @@ send queues) when strangers connect.
   item hash covers rarity+implicit, protocol v8, tooltip implicit line.
   Only `golden_slice` re-recorded. Verified live: spawned dummy's drop
   carried an in-range implicit. (Detail in both commit messages.)
-- **2026-06-11 (13)** — Merged `feature/mapgen` to main (fast-forward,
-  pushed). Fresh architecture audit (three parallel reviewers over
-  core/determinism/saves, combat/stats/content, server/protocol/client;
-  findings verified against source before recording): RISKS.md gains #2
-  (no mid-tick entity creation — design the spawn queue before minions),
-  the skill-switch half of #1, and smaller entries for stateless AI
-  deciders, the hash-is-a-curated-subset gap, conditional RNG
-  consumption, and the widened client mirror surface. Rejected on
-  verification: field-mask exhaustion (uvarint u64, 11/64 bits used),
-  TagSet-widening memo breakage, EntityID overflow. Feature plan set:
-  Loot 2.0 → XP/levels → the descent (multi-floor run loop). Docs only,
-  no behavior change.
-- **2026-06-11 (12)** — Risk burndown, top three in one run. (a) TagSet:
-  uint64 → compile-time-sized word array off `TagCount`; future widenings
-  are automatic and golden-invisible. (b) Persistence: `sim/core/save.go`
-  + `sim/space/save.go` serialize world ↔ versioned JSON; restored worlds
-  continue bit-identically (continuation tests); admin save button/API +
-  `cmd/server -load` (orphan player actors removed at load, gear dropped).
-  (c) Buffs: `Actor.Statuses` generalized — `BuffDef` content packages,
-  `SkillBuff` kind, pending-buff queue resolved before hits, `adrenaline`
-  player skill on T, AilBuffed ring. Protocol v7. Goldens untouched (all
-  three changes are behavior-neutral for existing scenarios); verified
-  live over the TCP wire and a save/restart cycle.
 - (older sessions pruned — git history is the archive)

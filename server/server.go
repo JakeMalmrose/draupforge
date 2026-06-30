@@ -79,6 +79,13 @@ type Config struct {
 	// to reclaim them) with their gear dropped at their feet, so a restart
 	// never deletes items.
 	Load []byte
+	// Descent turns the instance into a multi-floor run (ROADMAP.md phase 1,
+	// DESIGN.md §14) instead of one static world: Map (required) and Scatter
+	// describe every floor's template, regenerated and scaled by depth each
+	// time stairs are used; Spawns places fixed-position extras on every
+	// floor too. Seed seeds the whole run (floor N's world seed derives from
+	// it). Mutually exclusive with Load.
+	Descent bool
 }
 
 type Instance struct {
@@ -86,6 +93,9 @@ type Instance struct {
 	sim *sim.Sim
 	// mapSnap is the terrain encoded once at startup; rides every welcome.
 	mapSnap *protocol.MapSnap
+	// run is non-nil only when cfg.Descent: the floor/score/portal
+	// bookkeeping for the multi-floor loop (see run.go). Tick-goroutine-only.
+	run *runState
 
 	mu       sync.Mutex
 	pending  []core.Command
@@ -155,6 +165,19 @@ type client struct {
 	early []core.Command
 	wmu   sync.Mutex
 
+	// descendReq/portalReq are set by readLoop on the "descend"/"portal"
+	// wire kinds (intercepted before sim.DecodeCommand — the sim has no
+	// concept of either) and drained once a tick by the tick goroutine.
+	// Guarded by the instance mutex.
+	descendReq, portalReq bool
+
+	// lastChar is this client's character as of the start of the current
+	// tick (refreshed every tick before Step, descent instances only) — the
+	// fallback extraction source for a death-eject, since the dying actor is
+	// already compacted out of the world by the time Step returns. Read and
+	// written only by the tick goroutine.
+	lastChar *character
+
 	// ack is the latest view tick the client confirmed, recorded by readLoop
 	// and consumed by the tick goroutine. Guarded by the instance mutex.
 	ack      uint64
@@ -170,6 +193,14 @@ type client struct {
 	// bytesSent feeds the admin dashboard's bandwidth column. Sends happen
 	// only on the tick goroutine, which is also where admin ops read it.
 	bytesSent uint64
+}
+
+// resetWire clears a client's delta-encoder state and early-command buffer
+// after its actor changes underneath it (a descent floor swap or portal
+// eject) — the same reset a fresh join gets, since the caller is about to
+// send a full re-welcome (DESIGN.md §14: zone transfer = re-welcome).
+func (c *client) resetWire() {
+	c.baseline, c.sent, c.sentTicks, c.early = nil, nil, nil, nil
 }
 
 // maxUnackedViews bounds the per-client baseline candidates (~3s at the
@@ -198,6 +229,15 @@ func New(db *core.ContentDB, cfg Config) (*Instance, error) {
 		}
 		in.sim = s
 		reclaimOrphanPlayers(s.W, cfg.PlayerDef)
+		in.mapSnap = in.sim.EncodeMap()
+		return in, nil
+	}
+	if cfg.Descent {
+		if cfg.Map == nil {
+			return nil, fmt.Errorf("server: descent mode needs a Map template")
+		}
+		in.run = newRunState(cfg.Seed)
+		in.sim = buildHideout(db, floorSeed(in.run.seed, 0))
 		in.mapSnap = in.sim.EncodeMap()
 		return in, nil
 	}
@@ -326,6 +366,19 @@ func (in *Instance) readLoop(ctx context.Context, c *client) {
 			in.mu.Unlock()
 			continue
 		}
+		if wc.Kind == "descend" || wc.Kind == "portal" {
+			// Host-layer intent, not a sim command — the sim has no concept
+			// of floors or portals (DESIGN.md §14). Harmless to set on a
+			// non-descent instance; tick() only drains these when in.run != nil.
+			in.mu.Lock()
+			if wc.Kind == "descend" {
+				c.descendReq = true
+			} else {
+				c.portalReq = true
+			}
+			in.mu.Unlock()
+			continue
+		}
 		cmd, err := sim.DecodeCommand(wc)
 		if err != nil {
 			continue
@@ -341,6 +394,28 @@ func (in *Instance) readLoop(ctx context.Context, c *client) {
 	}
 }
 
+// welcomeMsg builds one client's welcome frame: protocol version, assigned
+// actor, tick/send cadence, terrain, and (descent instances only) the
+// current floor/score/portal-charges — Floor 0 means the hideout, since
+// real floors are 1-indexed. Shared by the new-joiner path and every
+// run-state transition (DESIGN.md §14: zone transfer = re-welcome).
+func (in *Instance) welcomeMsg(c *client) []byte {
+	msg := protocol.ServerMsg{
+		Type: "welcome", V: protocol.Version, Actor: uint64(c.actor),
+		TickHz: core.TicksPerSecond, SendEvery: in.cfg.SendEvery,
+		Map: in.mapSnap,
+	}
+	if in.run != nil {
+		floor := in.run.floor
+		if in.run.inHideout {
+			floor = 0
+		}
+		msg.Floor, msg.MaxFloor, msg.PortalCharges = floor, in.run.maxFloor, in.run.portalUses
+	}
+	b, _ := json.Marshal(msg)
+	return b
+}
+
 // tick is the heart of the server: drain the queues, mutate the world,
 // step, broadcast. Everything here runs on the one tick goroutine.
 func (in *Instance) tick() {
@@ -350,6 +425,22 @@ func (in *Instance) tick() {
 	cmds := in.pending
 	ops := in.adminOps
 	in.joins, in.leaves, in.pending, in.adminOps = nil, nil, nil, nil
+	// Drained every tick regardless of pause (like cmds: dropped, not
+	// queued, while paused — see below) so a request made mid-pause doesn't
+	// linger and fire stale the moment play resumes.
+	var descendReqs, portalReqs []*client
+	if in.run != nil {
+		for _, c := range in.clients {
+			if c.descendReq {
+				descendReqs = append(descendReqs, c)
+				c.descendReq = false
+			}
+			if c.portalReq {
+				portalReqs = append(portalReqs, c)
+				c.portalReq = false
+			}
+		}
+	}
 	in.mu.Unlock()
 
 	// Admin ops run here, where world and client-list access is safe. They
@@ -378,6 +469,22 @@ func (in *Instance) tick() {
 		}
 	}
 
+	// Refresh each connected client's last-known character before Step runs,
+	// so a death this tick (which compacts the actor away before Step
+	// returns) still leaves a fallback extraction source — see
+	// transitionToFloor and client.lastChar.
+	if in.run != nil {
+		for _, c := range in.clients {
+			if c.actor == 0 {
+				continue
+			}
+			if a := in.sim.W.ActorByID(c.actor); a != nil {
+				ch := extractCharacter(a)
+				c.lastChar = &ch
+			}
+		}
+	}
+
 	if !in.paused {
 		// Stable sort by actor: fair, and preserves each client's own command
 		// order. Arrival interleaving across clients is network timing — the
@@ -388,21 +495,14 @@ func (in *Instance) tick() {
 	// (Paused: cmds are dropped, not queued — a long pause must not release
 	// a flood of stale intent on resume.)
 
-	for _, c := range welcomes {
-		welcome, _ := json.Marshal(protocol.ServerMsg{
-			Type: "welcome", V: protocol.Version, Actor: uint64(c.actor),
-			TickHz: core.TicksPerSecond, SendEvery: in.cfg.SendEvery,
-			Map: in.mapSnap,
-		})
-		c.send(welcome, false)
-	}
-	if in.paused && len(welcomes) > 0 {
-		in.sendPause(welcomes, true) // joined mid-pause; tell them why nothing moves
-	}
-
-	// The sim runs every tick; views go out every SendEvery ticks, carrying
-	// the events of the whole window. A paused world re-reports its last
-	// step's events, so only harvest fresh ones.
+	// Harvest this tick's events (views go out every SendEvery ticks, carrying
+	// the whole window) from whichever world just stepped — BEFORE
+	// processRun, which may swap in.sim out from under us on a death/descend.
+	// Harvesting after the swap would silently lose the very combat events
+	// (the fatal hit, the death) that triggered it; harvesting before keeps
+	// them ahead of processRun's own synthetic events (floor_change,
+	// hideout_eject, ...) in chronological order. A paused world re-reports
+	// its last step's events, so only harvest fresh ones.
 	if !in.paused {
 		fresh := in.sim.EncodeEvents()
 		in.eventBuf = append(in.eventBuf, fresh...)
@@ -412,6 +512,25 @@ func (in *Instance) tick() {
 		if len(in.recentEvents) > adminEventCap {
 			in.recentEvents = in.recentEvents[len(in.recentEvents)-adminEventCap:]
 		}
+	}
+
+	// A death-eject, descend, or run-over reset swaps in.sim out from under
+	// every connected client — re-welcome everyone, not just this tick's
+	// joiners (who are already folded into in.clients by spawnClient above,
+	// so they get exactly one welcome either way).
+	swapped := !in.paused && in.run != nil && in.processRun(descendReqs, portalReqs)
+
+	if swapped {
+		for _, c := range in.clients {
+			c.send(in.welcomeMsg(c), false)
+		}
+	} else {
+		for _, c := range welcomes {
+			c.send(in.welcomeMsg(c), false)
+		}
+	}
+	if in.paused && len(welcomes) > 0 {
+		in.sendPause(welcomes, true) // joined mid-pause; tell them why nothing moves
 	}
 	in.sinceSend++
 	if in.sinceSend < in.cfg.SendEvery {

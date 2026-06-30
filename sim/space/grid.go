@@ -24,6 +24,9 @@ type Grid struct {
 	Clearance     fm.Fixed // actor radius all walkability promises hold for
 	// Spawn is where players enter (mapgen: first room's center).
 	Spawn Vec2
+	// Stairs is where a descent to the next floor happens (mapgen: last
+	// room's center; equal to Spawn on a single-room map).
+	Stairs Vec2
 
 	solid []bool // row-major y*Width+x
 	walk  []bool // eroded: a Clearance circle at the tile center fits

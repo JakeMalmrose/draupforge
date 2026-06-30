@@ -8,7 +8,7 @@ package protocol
 // it on any change a deployed client could misread — renamed/removed JSON
 // fields (omitempty makes those fail silently) or any binary frame layout
 // change. Clients hard-fail on mismatch instead of limping.
-const Version = 9 // v9: actor level/xp/xp_next (v8: item implicit in ItemSnap)
+const Version = 10 // v10: descent (MapSnap.Stairs, ServerMsg run fields) (v9: actor level/xp/xp_next)
 
 // Command is the wire form of player intent. Kind is one of "move",
 // "use_skill", "stop", the item verbs "pickup", "equip", "unequip",
@@ -130,25 +130,37 @@ type MapSnap struct {
 	Height int      `json:"h"`
 	Tile   int64    `json:"tile"` // milli-units per tile edge
 	Rows   []string `json:"rows"`
+	// Stairs is where a "descend" command takes effect (descent runs only;
+	// zero on a plain static-scenario map). Rides the welcome like the rest
+	// of the terrain since it never moves within an instance's lifetime.
+	Stairs Vec `json:"stairs,omitempty"`
 }
 
 // ServerMsg is one server→client JSON frame. "welcome" carries the protocol
 // version, the client's assigned actor ID, the tick/send cadence (so
-// clients can size interpolation buffers), and the terrain map when the
-// instance has one; "snapshot" carries one view in
-// full JSON (the TCP/nc wire and the ?format=json debug mode — the binary
-// WS wire sends view frames instead, see binary.go); "pause" announces the
-// instance freezing or resuming (sent on transitions, and once to clients
-// that join while paused).
+// clients can size interpolation buffers), the terrain map when the
+// instance has one, and — on a descent run — Floor/MaxFloor/PortalCharges
+// (the current floor, the run's deepest reached — the score — and the
+// rescues left before the next death ends the run; all zero on instances
+// without a run). Every run-state change also swaps the World, so a fresh
+// welcome (DESIGN.md §14: zone transfer = re-welcome) always carries the
+// current numbers — no separate message type needed. "snapshot" carries one
+// view in full JSON (the TCP/nc wire and the ?format=json debug mode — the
+// binary WS wire sends view frames instead, see binary.go); "pause"
+// announces the instance freezing or resuming (sent on transitions, and
+// once to clients that join while paused).
 type ServerMsg struct {
-	Type      string    `json:"type"` // "welcome" | "snapshot" | "pause"
-	V         int       `json:"v,omitempty"`
-	Actor     uint64    `json:"actor,omitempty"`
-	TickHz    int       `json:"tick_hz,omitempty"`
-	SendEvery int       `json:"send_every,omitempty"`
-	Map       *MapSnap  `json:"map,omitempty"`
-	Snapshot  *Snapshot `json:"snapshot,omitempty"`
-	Paused    *bool     `json:"paused,omitempty"`
+	Type          string    `json:"type"` // "welcome" | "snapshot" | "pause"
+	V             int       `json:"v,omitempty"`
+	Actor         uint64    `json:"actor,omitempty"`
+	TickHz        int       `json:"tick_hz,omitempty"`
+	SendEvery     int       `json:"send_every,omitempty"`
+	Map           *MapSnap  `json:"map,omitempty"`
+	Snapshot      *Snapshot `json:"snapshot,omitempty"`
+	Paused        *bool     `json:"paused,omitempty"`
+	Floor         int       `json:"floor,omitempty"`
+	MaxFloor      int       `json:"max_floor,omitempty"`
+	PortalCharges int       `json:"portal_charges,omitempty"`
 }
 
 // Script is the headless runner's input: a scenario plus scheduled commands.

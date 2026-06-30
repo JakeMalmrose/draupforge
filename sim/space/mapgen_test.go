@@ -34,6 +34,23 @@ func TestGenerateRoomsDeterministic(t *testing.T) {
 	if a.Spawn != b.Spawn {
 		t.Errorf("spawn differs between same-seed generations: %v vs %v", a.Spawn, b.Spawn)
 	}
+	if a.Stairs != b.Stairs {
+		t.Errorf("stairs differ between same-seed generations: %v vs %v", a.Stairs, b.Stairs)
+	}
+}
+
+// TestGenerateRoomsStairsWalkable: stairs sit at the last room's center
+// (mirroring Spawn at the first), so a descent always lands on legal ground.
+func TestGenerateRoomsStairsWalkable(t *testing.T) {
+	for seed := uint64(1); seed <= 25; seed++ {
+		g := space.GenerateRooms(testSpec, &testRand{s: seed})
+		if g.Stairs == (space.Vec2{}) {
+			t.Fatalf("seed %d: no stairs point set", seed)
+		}
+		if !g.Fits(g.Stairs) {
+			t.Errorf("seed %d: stairs at %v is not standable ground", seed, g.Stairs)
+		}
+	}
 }
 
 func TestGenerateRoomsBorderSolid(t *testing.T) {

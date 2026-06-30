@@ -52,7 +52,7 @@ func (s *Sim) EncodeMap() *protocol.MapSnap {
 		}
 		rows[y] = string(buf)
 	}
-	return &protocol.MapSnap{Width: g.Width, Height: g.Height, Tile: g.Tile.Milli(), Rows: rows}
+	return &protocol.MapSnap{Width: g.Width, Height: g.Height, Tile: g.Tile.Milli(), Rows: rows, Stairs: vec(g.Stairs)}
 }
 
 // BuildSnapshotFor encodes one viewer's view of the world: entities within

@@ -23,7 +23,7 @@ func TestGridSaveRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	if r.Width != g.Width || r.Height != g.Height || r.Tile != g.Tile ||
-		r.Clearance != g.Clearance || r.Spawn != g.Spawn {
+		r.Clearance != g.Clearance || r.Spawn != g.Spawn || r.Stairs != g.Stairs {
 		t.Fatal("grid metadata changed across save round-trip")
 	}
 

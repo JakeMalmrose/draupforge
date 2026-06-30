@@ -25,6 +25,7 @@ func main() {
 	seed := flag.Uint64("seed", 1, "world seed")
 	scenario := flag.String("scenario", "", "scenario script (JSON); only spawns are used")
 	load := flag.String("load", "", "world save file to restore (admin /api/save writes them); overrides -seed and -scenario")
+	descent := flag.Bool("descent", false, "multi-floor run: -scenario's map/spawns/scatter become every floor's template, regenerated and scaled by depth through the stairs")
 	sendEvery := flag.Int("sendevery", 3, "send a view every N sim ticks (3 = 10Hz at the 30Hz sim)")
 	interest := flag.Int64("interest", 60, "interest radius in world units for WS clients (0 = whole world)")
 	flag.Parse()
@@ -52,6 +53,9 @@ func main() {
 		cfg.Map = script.Map
 		cfg.Spawns = script.Spawns
 		cfg.Scatter = script.Scatter
+	}
+	if *descent {
+		cfg.Descent = true
 	}
 
 	in, err := server.New(content.DB(), cfg)
