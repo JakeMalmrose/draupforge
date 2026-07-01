@@ -9,6 +9,17 @@ body {
 
 #game { display: block; cursor: crosshair; }
 
+/* --- run status (the descent scoreboard) --- */
+#run-status {
+  position: fixed;
+  left: 50%; top: 14px;
+  transform: translateX(-50%);
+  font-size: 13px; color: #c9b76a;
+  letter-spacing: 1px;
+  text-shadow: 0 1px 2px #000;
+  pointer-events: none;
+}
+
 /* --- HUD --- */
 #hud {
   position: fixed;
@@ -133,6 +144,10 @@ body {
 #log .ev-chill { color: #7fd4ff; }
 #log .ev-shock { color: #f5e25f; }
 #log .ev-level_up { color: #c9b76a; font-weight: bold; }
+#log .ev-descend { color: #c9b76a; font-weight: bold; }
+#log .ev-portal { color: #7fd4ff; }
+#log .ev-death_eject { color: #c0392b; font-weight: bold; }
+#log .ev-run_over { color: #c0392b; font-weight: bold; }
 
 /* --- overlays --- */
 #overlay {

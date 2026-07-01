@@ -170,6 +170,30 @@ func (a *Actor) SetLevel(level int) {
 	}
 }
 
+// AddItemMods grants an equipped item's implicit and affix modifiers on the
+// actor's sheet, sourced by the item's ID so a later unequip (or zone exit)
+// can remove them cleanly with RemoveSource.
+func (a *Actor) AddItemMods(item *Item) {
+	if imp := item.Base.Implicit; imp != nil {
+		a.Sheet.Add(stats.Modifier{
+			Stat:   imp.Stat,
+			Layer:  imp.Layer,
+			Value:  item.Implicit,
+			Tags:   imp.Tags,
+			Source: uint64(item.ID),
+		})
+	}
+	for _, af := range item.Affixes {
+		a.Sheet.Add(stats.Modifier{
+			Stat:   af.Def.Stat,
+			Layer:  af.Def.Layer,
+			Value:  af.Value,
+			Tags:   af.Def.Tags,
+			Source: uint64(item.ID),
+		})
+	}
+}
+
 func (a *Actor) MaxLife() fm.Fixed { return a.Sheet.Eval(stats.Life, stats.TagSet{}) }
 func (a *Actor) MaxMana() fm.Fixed { return a.Sheet.Eval(stats.Mana, stats.TagSet{}) }
 func (a *Actor) MaxES() fm.Fixed   { return a.Sheet.Eval(stats.EnergyShield, stats.TagSet{}) }

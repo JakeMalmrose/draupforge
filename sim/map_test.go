@@ -253,3 +253,25 @@ func TestGoldenDungeon(t *testing.T) {
 		t.Errorf("dungeon replay diverged from golden trace.\ngot:\n%s\nwant:\n%s", got, want)
 	}
 }
+
+// TestScatterSpawnLeveled: floor-scaled packs spawn at the requested level
+// with growth mods applied and pools filled at the grown maxima.
+func TestScatterSpawnLeveled(t *testing.T) {
+	s := sim.New(content.DB(), 11)
+	s.GenerateMap(space.MapSpec{Width: 24, Height: 24, Rooms: 4})
+	if err := s.ScatterSpawnLeveled("zombie", 3, 4); err != nil {
+		t.Fatal(err)
+	}
+	for _, a := range s.W.Actors {
+		if a.Level != 4 {
+			t.Errorf("zombie level = %d, want 4", a.Level)
+		}
+		// Zombie PerLevel life is +8 flat per level past 1: 60 + 3*8 = 84.
+		if want := fm.FromInt(84); a.MaxLife() != want {
+			t.Errorf("leveled zombie max life = %v, want %v", a.MaxLife(), want)
+		}
+		if a.Life != a.MaxLife() {
+			t.Errorf("leveled zombie spawned at %v/%v life, want full", a.Life, a.MaxLife())
+		}
+	}
+}

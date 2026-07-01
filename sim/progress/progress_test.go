@@ -139,3 +139,17 @@ func TestLevelSurvivesSaveLoad(t *testing.T) {
 		t.Fatal("hash mismatch after save/load round-trip")
 	}
 }
+
+func TestAwardXPScalesWithMonsterLevel(t *testing.T) {
+	db := content.DB()
+	w := core.NewWorld(db, 1)
+	player := w.SpawnActor(db.Actors["player"], space.V(0, 0))
+	zombie := w.SpawnActor(db.Actors["zombie"], space.V(5000, 0))
+	zombie.SetLevel(4) // a floor-4 pack member
+
+	kill(w, zombie, player)
+	want := db.Actors["zombie"].XPValue * 4
+	if player.XP != want {
+		t.Fatalf("player XP = %d, want %d (XPValue x monster level)", player.XP, want)
+	}
+}

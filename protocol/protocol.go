@@ -8,13 +8,14 @@ package protocol
 // it on any change a deployed client could misread — renamed/removed JSON
 // fields (omitempty makes those fail silently) or any binary frame layout
 // change. Clients hard-fail on mismatch instead of limping.
-const Version = 9 // v9: actor level/xp/xp_next (v8: item implicit in ItemSnap)
+const Version = 10 // v10: descent — welcome gen/stairs/run, "run" frames, gen-tagged acks
 
 // Command is the wire form of player intent. Kind is one of "move",
 // "use_skill", "stop", the item verbs "pickup", "equip", "unequip",
-// "drop_item" (Target = the drop/item entity ID), or "ack" (Tick = the
-// latest view tick received; consumed by the server's delta encoder, never
-// forwarded to the sim).
+// "drop_item" (Target = the drop/item entity ID), or a server-level verb
+// the sim never sees: "ack" (Tick = the latest view tick received, consumed
+// by the delta encoder), "descend" (use the floor's stairs), "plant_portal"
+// (move the run's portal to where you stand).
 type Command struct {
 	Tick   uint64 `json:"tick,omitempty"` // used by script files; live play is "now"
 	Actor  uint64 `json:"actor"`
@@ -26,6 +27,10 @@ type Command struct {
 	// Slot names the concrete equipment slot for "equip" ("weapon",
 	// "ring2", ...); empty lets the sim pick by family preference.
 	Slot string `json:"slot,omitempty"`
+	// Gen tags an ack with the welcome generation it belongs to. A floor
+	// swap re-welcomes the client and bumps the generation; acks from the
+	// old world are dropped instead of poisoning the new delta encoder.
+	Gen int `json:"gen,omitempty"`
 }
 
 type Vec struct {
@@ -132,21 +137,40 @@ type MapSnap struct {
 	Rows   []string `json:"rows"`
 }
 
+// RunSnap is the descent-run state a client shows: current floor, portal
+// uses left, run number, best floor reached this process, and the portal's
+// position when it stands on the current floor. It rides every welcome and
+// its own "run" frames when run state changes without a floor swap.
+type RunSnap struct {
+	Floor   int  `json:"floor"`
+	Portals int  `json:"portals"`
+	Run     int  `json:"run"`
+	Best    int  `json:"best"`
+	Portal  *Vec `json:"portal,omitempty"`
+}
+
 // ServerMsg is one server→client JSON frame. "welcome" carries the protocol
-// version, the client's assigned actor ID, the tick/send cadence (so
-// clients can size interpolation buffers), and the terrain map when the
-// instance has one; "snapshot" carries one view in
+// version, the welcome generation (bumped by every re-welcome; acks echo
+// it), the client's assigned actor ID, the tick/send cadence (so clients
+// can size interpolation buffers), the terrain map when the instance has
+// one, and — on descent worlds — the stairs position and run state. Any
+// welcome fully resets the client: a new one means a new world (floor swap)
+// on the same socket. "snapshot" carries one view in
 // full JSON (the TCP/nc wire and the ?format=json debug mode — the binary
 // WS wire sends view frames instead, see binary.go); "pause" announces the
 // instance freezing or resuming (sent on transitions, and once to clients
-// that join while paused).
+// that join while paused); "run" announces run-state changes that don't
+// come with a new world (portal planted).
 type ServerMsg struct {
-	Type      string    `json:"type"` // "welcome" | "snapshot" | "pause"
+	Type      string    `json:"type"` // "welcome" | "snapshot" | "pause" | "run"
 	V         int       `json:"v,omitempty"`
+	Gen       int       `json:"gen,omitempty"`
 	Actor     uint64    `json:"actor,omitempty"`
 	TickHz    int       `json:"tick_hz,omitempty"`
 	SendEvery int       `json:"send_every,omitempty"`
 	Map       *MapSnap  `json:"map,omitempty"`
+	Stairs    *Vec      `json:"stairs,omitempty"`
+	Run       *RunSnap  `json:"run,omitempty"`
 	Snapshot  *Snapshot `json:"snapshot,omitempty"`
 	Paused    *bool     `json:"paused,omitempty"`
 }

@@ -11,21 +11,29 @@ tests, and session-log entries older than a few sessions (git history is the
 archive). If this file outgrows ~150 lines, it has stopped being a status doc
 and started being a changelog — cut it back.
 
-**Last updated: 2026-06-12** (session 14: Loot 2.0 + XP/levels shipped;
-DESIGN.md §14 settles the character/zone/instance architecture)
+**Last updated: 2026-07-01** (session 15: the descent shipped — floors,
+portals, hideout, run rules, e2e-tested)
 
 ## Where things stand
 
-The game is playable in a browser, now in a generated dungeon: `cmd/server`
-hosts the sim (TCP/NDJSON and WebSocket, same frames) and serves `web/` — a
-no-build-step canvas client with click-to-move (pathing around walls),
-Q fireball / E nova / R spark / T adrenaline (self-buff), drop pickup, a drag-drop inventory panel (I)
-with item icons and hover tooltips, HUD orbs, an event log, and a death
-screen. The full item flow works (kill → drop → pickup → bag → equip →
-affixes on the sheet); damage runs the whole pipeline; elemental hits
-inflict ailments (ignite/chill/shock); rooms and corridors make geometry
-matter — projectiles stop at walls, monsters path around them, and
-skeleton archers kite to firing range. Run it:
+The game is a game now: you descend. `cmd/server` hosts one run at a time —
+floors are whole fresh Worlds seeded from (run seed, floor index); stairs at
+the far end of each floor take everyone a level deeper; packs grow and level
+with depth (and pay leveled XP). Death costs XP (never de-levels) and ejects
+everyone to the portal, burning one of the run's portal uses (`-portals`,
+default 3) — none left and the run is over: a new run starts on a fresh seed,
+best-floor kept as the score, the character (level/XP/gear) surviving it all.
+The portal starts at the floor-1 spawn, re-plants wherever you stand (P), and
+walking into it travels to the hideout — a small safe world, floor 0 — for
+one use; stepping back through is free. The HUD shows run · floor · portals ·
+best; stairs and portal render in-world and are click-to-use.
+
+Under it: characters extract/inject across worlds (`sim/core/character.go` —
+item IDs re-minted, sheet rebuilt, pools carried; zone-local state dropped),
+and every transfer is a re-welcome on the same socket (welcome generation
+tags acks so stale ones die with their world). All of session 14's game
+loop still holds: click-to-move with pathing, Q/E/R/T skills, the full item
+flow, ailments, kiting archers. Run it:
 
 ```sh
 go test ./...                                    # ~40 tests, all green
@@ -47,7 +55,9 @@ All foundational machinery from DESIGN.md is real, not stubbed:
 | Persistence: `World.Save`/`LoadWorld` (versioned JSON, content by string ID, bit-exact continuation), admin `POST /api/save`, `cmd/server -load` | `sim/core/save.go`, `sim/space/save.go` | done, tested |
 | Actions (windup/recovery) + projectiles | `sim/skills` | done |
 | Loot: per-table rarity weights, weighted affixes, group caps, rolled base implicits, starved-pool event | `sim/items` | done, tested |
-| Progression: XP on kill, quadratic curve, level cap 50, PerLevel growth mods under `LevelModSource`, ding heal, HUD level + XP bar | `sim/progress`, `core.Actor.SetLevel` | done, tested |
+| Progression: XP on kill (scaled by monster level), quadratic curve, level cap 50, PerLevel growth mods under `LevelModSource`, ding heal, HUD level + XP bar | `sim/progress`, `core.Actor.SetLevel` | done, tested |
+| Character extract/inject: portable struct (def/level/XP/pools/gear), IDs re-minted at injection, sheet rebuilt, walkable-clamped | `sim/core/character.go` | done, tested |
+| The descent: floor swap (build → extract → inject → re-welcome), run rules (portal economy, XP death penalty, run-over → new run), hideout, leveled+thickened packs, stairs/portal/run on the wire | `server/descent.go`, protocol v10 | done, unit + e2e tested, verified live in the browser |
 | Equipment: 10 slots (weapon…belt), slot-addressed equip command (auto fallback), affix→sheet | `sim/items/equip.go` | done, tested |
 | Inventory: pickup/unequip/drop_item, capacity | `sim/items/equip.go` | done, tested |
 | Server: TCP + WS transports, joins/leaves, send-rate decoupling, interest culling, binary deltas + acks, pause | `server/` | done, race-tested |
@@ -99,6 +109,18 @@ All foundational machinery from DESIGN.md is real, not stubbed:
 - `protocol/binary.go` and `web/net.js` are a hand-maintained codec pair.
   Any wire change updates both AND bumps `protocol.Version` — a stale client
   fails loudly at the welcome instead of misreading frames.
+- A tick-0 view is never stored as a delta baseline: `baseTick 0` is the
+  wire's keyframe sentinel and ack 0 is the client reset signal, and a
+  freshly swapped world really is at tick 0 (`server.frameFor`;
+  `TestDescentOverTheWire` caught the collision).
+- Any welcome fully resets the client and the server's per-client encoder;
+  welcome `gen` increments per re-welcome and acks must echo it. On a floor
+  swap the actor-ID/gen/pending-queue cutover is one mutex section —
+  commands tagged with old-world IDs must never drive whichever actor wears
+  that ID in the new world.
+- Characters transfer only durables (def/level/XP/pools/bag/gear); position,
+  action, buffs, DoTs deliberately die with the zone. Life ≤ 0 at injection
+  means "arrive refilled" — the death-respawn convention.
 
 Structural risks live in `RISKS.md` — read it before building anything load-bearing (top entry: the action model is still one-thing-at-a-time — no channelling/stun/interrupt).
 
@@ -143,84 +165,58 @@ Structural risks live in `RISKS.md` — read it before building anything load-be
   cornered archer stands and fights.
 - Affix pool is global — no per-slot pools, so boots can roll cast speed.
   Fine until itemization depth matters.
-- Spawn-room pressure is real: scatter keeps monsters 10u out, but they
-  converge once anyone aggros.
+- Spawn-room pressure is now a run-killer: the pack converges on the spawn
+  room, which is also where the portal starts — death-eject respawns you
+  into the same converged pack and the portal budget evaporates (watched it
+  live: 3 uses in under a minute). Needs tuning: aggro leashing, a safe
+  entry room, or eject invulnerability ticks.
+- Run state (floor, portals, run seed) is host-layer and NOT in World.Save:
+  `-load` resumes the world as floor 1 of a fresh run. Fine until runs are
+  worth persisting.
+- The run is per-instance, designed single-player-first: any player's death
+  ejects *everyone* to the portal, and portal/stairs travel moves the whole
+  instance (co-op parties live and die together). One eject consumes one
+  portal use however many died that tick.
+- Numbers all open for tuning (Jake): death costs 1/5 of the level's XP
+  requirement; packs gain +1 monster and +1 level per floor; monster XP
+  scales linearly with level; hideout trips cost 1 use, returns free.
+- Cast-on-death portal still deliberately unshipped — it must carry an
+  opportunity cost (a gem slot once gems exist), never free.
 
-## Feature plan (set 2026-06-11, session 13 — the "more meat" run)
+## Feature plan
 
-The foundations are no longer the bottleneck. Loot 2.0 and XP/levels both
-shipped in session 14; next up:
-
-1. **The descent** (~2–3 sessions, the real meat). **Read DESIGN.md §14
-   first** — the character/zone/instance separation is decided; don't
-   re-derive it. Build order within the feature:
-   - *Character extract/inject*: portable character struct (def, level,
-     XP, bag, equipment — a subset of the save shapes; no zone-local
-     state), item IDs re-minted at injection, sheet rebuilt.
-   - *Re-welcome*: any welcome fully resets the client (interp buffers,
-     delta baselines, myId, map) and the server's per-client encoder/ack
-     state. Protocol bump. Same machinery as in-process load/rollback.
-   - *Floor swap*: stairs entity → extract everyone → new World from
-     (run seed + floor index), packs scaled via ActorDef.Level/PerLevel
-     (already built) → inject → re-welcome. One Instance swapping its
-     Sim; no instance manager yet.
-   - *Run rules* (Jake, 2026-06-12, numbers open): PoE-mapping flavor.
-     Death costs some XP (suggested: never below the current level's
-     floor) and ejects you to your portal. The portal starts on floor 1
-     and can be re-planted wherever you stand; a run grants a limited
-     number of portal uses — run out and the run is over. Cast-on-death
-     portal comes later and must carry an opportunity cost (likely a
-     skill gem slot once gems exist) — do not ship it free.
-
-After that, the natural queue: a boss with telegraphed multi-stage
-attacks (forces deliberate action-model growth, RISKS.md #1 — design the
-state machine first), then the character store + sessions (characters
-survive disconnects; pulls connection ownership above the instance —
-DESIGN.md §14 phase 2), then server hardening (replay log, per-client
-send queues) when strangers connect.
+The descent shipped (session 15). The natural queue, unchanged: a boss
+with telegraphed multi-stage attacks at floor milestones (forces
+deliberate action-model growth, RISKS.md #1 — design the state machine
+first), then the character store + sessions (characters survive
+disconnects; pulls connection ownership above the instance — DESIGN.md
+§14 phase 2), then server hardening (replay log, per-client send queues)
+when strangers connect. ROADMAP.md phase 2 (pack variety, juice) is the
+fun-first counterweight to all of that.
 
 ## Session log
 
-- **2026-06-12 (14c)** — Docs only: DESIGN.md §14 settles the
-  character/zone/instance/server separation (worlds stay self-contained;
-  characters are server-owned projections; item IDs re-mint at zone
-  injection; transfer = full-reset re-welcome; run seed derives floor
-  seeds; single-instance Sim-swap before any instance manager). Descent
-  plan above rewritten against it, including Jake's run/portal rules.
-- **2026-06-12 (14b)** — XP and levels. New `sim/progress` (AwardXP off
-  death events after RollLoot, 100·level² curve, cap 50, ding heal);
-  `Actor.SetLevel` rebuilds `Def.PerLevel` mods under `LevelModSource`;
-  monsters carry levels/XP values/growth packages for future floor
-  scaling. SaveVersion 3, hash covers level+XP, protocol v9, HUD level
-  badge + XP bar. Goldens re-recorded (hash shape). Verified live: dummy
-  kill paid 10 XP on the wire.
-- **2026-06-12 (14)** — Loot 2.0. Rolled implicit per base, affix pool
-  10 → 32 with tiered groups, per-actor drop tables with rarity weights
-  in `LootTableDef`, `EvLootStarved` on pool starvation. SaveVersion 2,
-  item hash covers rarity+implicit, protocol v8, tooltip implicit line.
-  Only `golden_slice` re-recorded. Verified live: spawned dummy's drop
-  carried an in-range implicit. (Detail in both commit messages.)
-- **2026-06-11 (13)** — Merged `feature/mapgen` to main (fast-forward,
-  pushed). Fresh architecture audit (three parallel reviewers over
-  core/determinism/saves, combat/stats/content, server/protocol/client;
-  findings verified against source before recording): RISKS.md gains #2
-  (no mid-tick entity creation — design the spawn queue before minions),
-  the skill-switch half of #1, and smaller entries for stateless AI
-  deciders, the hash-is-a-curated-subset gap, conditional RNG
-  consumption, and the widened client mirror surface. Rejected on
-  verification: field-mask exhaustion (uvarint u64, 11/64 bits used),
-  TagSet-widening memo breakage, EntityID overflow. Feature plan set:
-  Loot 2.0 → XP/levels → the descent (multi-floor run loop). Docs only,
-  no behavior change.
-- **2026-06-11 (12)** — Risk burndown, top three in one run. (a) TagSet:
-  uint64 → compile-time-sized word array off `TagCount`; future widenings
-  are automatic and golden-invisible. (b) Persistence: `sim/core/save.go`
-  + `sim/space/save.go` serialize world ↔ versioned JSON; restored worlds
-  continue bit-identically (continuation tests); admin save button/API +
-  `cmd/server -load` (orphan player actors removed at load, gear dropped).
-  (c) Buffs: `Actor.Statuses` generalized — `BuffDef` content packages,
-  `SkillBuff` kind, pending-buff queue resolved before hits, `adrenaline`
-  player skill on T, AilBuffed ring. Protocol v7. Goldens untouched (all
-  three changes are behavior-neutral for existing scenarios); verified
-  live over the TCP wire and a save/restart cycle.
+- **2026-07-01 (15)** — The descent + hideout, e2e. Sim side stayed thin
+  and golden-neutral: `core.Character` extract/inject (IDs re-minted,
+  sheet rebuilt, pools carried, Life≤0 = arrive refilled),
+  `Actor.AddItemMods` shared with equip, `SpawnLeveled`/
+  `ScatterSpawnLeveled`, XP × monster level. Everything else is host
+  layer (`server/descent.go`): per-floor world builds off derived seeds,
+  stairs = farthest walkable tile, swap = extract → inject → re-welcome
+  with an atomic actor/gen/pending cutover, death→portal-eject→run-over
+  chain, plant/enter portal verbs riding the transport like acks,
+  hideout as floor 0. Protocol v10 (welcome gen/stairs/run, "run"
+  frames, gen-tagged acks) — no binary format change. Two real bugs
+  found by the new e2e suite, both fixed: tick-0 views could become
+  delta baselines (baseTick-0 keyframe sentinel collision), and
+  commands decoded mid-swap could drive the old entity ID's new owner.
+  Client: full reset on any welcome, stairs/portal rendering +
+  click-to-use, P to plant, run HUD. Verified live in the browser:
+  descend, plant, hideout round trip, death eject, run over — and the
+  spawn-camp death spiral (see shortcuts).
+- **2026-06-12 (14, a–c)** — Loot 2.0 (rolled implicits, 32-affix pool,
+  per-actor drop tables; protocol v8, SaveVersion 2) and XP/levels
+  (`sim/progress`, quadratic curve, PerLevel growth, ding heal; protocol
+  v9, SaveVersion 3, goldens re-recorded); DESIGN.md §14 settled the
+  character/zone/instance separation the descent was then built on.
 - (older sessions pruned — git history is the archive)
