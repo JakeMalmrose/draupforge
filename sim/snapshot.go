@@ -103,6 +103,22 @@ func (s *Sim) BuildSnapshotFor(viewer core.EntityID, radius fm.Fixed, events []p
 		for _, n := range a.Orbs {
 			orbs = append(orbs, int64(n))
 		}
+		var gems []protocol.GemSnap
+		for i := range a.Gems {
+			g := &a.Gems[i]
+			gs := protocol.GemSnap{
+				Skill: g.Skill.ID, Level: g.Level, Sockets: g.Sockets,
+				ManaCost: g.ManaCost().Milli(),
+			}
+			for _, sup := range g.Supports {
+				if sup == nil {
+					gs.Supports = append(gs.Supports, "")
+				} else {
+					gs.Supports = append(gs.Supports, sup.ID)
+				}
+			}
+			gems = append(gems, gs)
+		}
 		var equipment []protocol.EquippedSnap
 		for slot := core.EquipSlot(0); slot < core.EquipSlotCount; slot++ {
 			if item := a.Equipment[slot]; item != nil {
@@ -135,6 +151,7 @@ func (s *Sim) BuildSnapshotFor(viewer core.EntityID, radius fm.Fixed, events []p
 			Passives:  passives,
 			Flasks:    flasks,
 			Orbs:      orbs,
+			Gems:      gems,
 			Level:     a.Level,
 			XP:        a.XP,
 			XPNext:    xpNext(a.Level),
@@ -208,6 +225,11 @@ func vec(v space.Vec2) protocol.Vec {
 }
 
 func itemSnap(item core.Item) protocol.ItemSnap {
+	if item.Gem != nil {
+		return protocol.ItemSnap{ID: uint64(item.ID), Rarity: "normal", Gem: &protocol.GemItemSnap{
+			Support: item.Gem.Support, Level: item.Gem.Level, Choices: item.Gem.Choices,
+		}}
+	}
 	out := protocol.ItemSnap{ID: uint64(item.ID), Base: item.Base.ID, Rarity: item.Rarity.String()}
 	if imp := item.Base.Implicit; imp != nil {
 		out.Implicit = &protocol.AffixSnap{ID: imp.ID, Value: item.Implicit.Milli()}
@@ -274,6 +296,18 @@ func DecodeCommand(c protocol.Command) (core.Command, error) {
 		}
 		out.Kind = core.CmdApplyOrb
 		out.Orb = orb
+	case "cut_skill":
+		out.Kind = core.CmdCutSkill
+		out.Choice, out.GemIndex, out.Replace = c.Choice, c.Gem, c.Replace
+	case "level_gem":
+		out.Kind = core.CmdLevelGem
+		out.GemIndex = c.Gem
+	case "cut_support":
+		out.Kind = core.CmdCutSupport
+		out.Choice, out.GemIndex, out.Socket = c.Choice, c.Gem, c.Socket
+	case "add_socket":
+		out.Kind = core.CmdAddSocket
+		out.GemIndex = c.Gem
 	default:
 		return core.Command{}, fmt.Errorf("protocol: unknown command kind %q", c.Kind)
 	}

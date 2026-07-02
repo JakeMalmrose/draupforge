@@ -8,7 +8,10 @@ package protocol
 // it on any change a deployed client could misread — renamed/removed JSON
 // fields (omitempty makes those fail silently) or any binary frame layout
 // change. Clients hard-fail on mismatch instead of limping.
-const Version = 17 // v17: parties — social frames, invite verbs (v16: identity)
+// v18 unifies two parallel branches that both claimed v16 (gems on main,
+// identity on the multiplayer branch; parties took v17) — jumping past all
+// of them so no deployed client can match a wrong meaning.
+const Version = 18 // v18: gems + identity + parties (v15: currency)
 
 // Command is the wire form of player intent. Kind is one of "move",
 // "use_skill", "stop", the item verbs "pickup", "equip", "unequip",
@@ -39,6 +42,14 @@ type Command struct {
 	// (the social verbs "accept_invite", "decline_invite" and "leave_party"
 	// carry nothing).
 	Name string `json:"name,omitempty"`
+	// Gem-verb addressing ("cut_skill", "level_gem", "cut_support",
+	// "add_socket"): Choice indexes the uncut gem's draft, Gem the actor's
+	// cut gems, Socket the gem's sockets; Replace arms cut_skill's
+	// destroy-to-make-room path.
+	Choice  int  `json:"choice,omitempty"`
+	Gem     int  `json:"gem,omitempty"`
+	Socket  int  `json:"socket,omitempty"`
+	Replace bool `json:"replace,omitempty"`
 }
 
 type Vec struct {
@@ -73,8 +84,12 @@ type ActorSnap struct {
 	Passives []string `json:"passives,omitempty"`
 	// Flasks: charges per flask slot (order = the def's flask order).
 	Flasks []int64 `json:"flasks,omitempty"`
-	// Orbs: crafting-currency counts, OrbKind order (transmute/alch/chaos).
+	// Orbs: crafting-currency counts, OrbKind order (transmutation,
+	// alchemy, chaos, jeweller).
 	Orbs []int64 `json:"orbs,omitempty"`
+	// Gems: the actor's cut skill gems in bar order. Own binary field
+	// group — it changes on cut/level/socket verbs.
+	Gems []GemSnap `json:"gems,omitempty"`
 	// Progression: Level for everyone (nameplates someday), XP/XPNext as
 	// progress into the current level (the HUD bar divides them). XPNext 0
 	// means no further progression (max level).
@@ -112,12 +127,50 @@ type AffixSnap struct {
 
 type ItemSnap struct {
 	ID     uint64 `json:"id"` // stable item identity; the target for equip/unequip/drop_item
-	Base   string `json:"base"`
+	Base   string `json:"base,omitempty"` // empty for uncut gems
 	Rarity string `json:"rarity"`
 	// Implicit is the base type's inherent modifier (rolled per item),
 	// rendered above the affix block; nil when the base has none.
 	Implicit *AffixSnap  `json:"implicit,omitempty"`
 	Affixes  []AffixSnap `json:"affixes,omitempty"`
+	// Gem marks an uncut gem item: its kind, found-at level, and the
+	// pre-rolled draft the cutting dialog offers.
+	Gem *GemItemSnap `json:"gem,omitempty"`
+}
+
+// GemItemSnap is the gem part of an uncut gem item.
+type GemItemSnap struct {
+	Support bool     `json:"support,omitempty"`
+	Level   int      `json:"level,omitempty"`
+	Choices []string `json:"choices"`
+}
+
+// GemSnap is one cut skill gem as the client sees it: the skill, its level,
+// socket-addressed supports ("" = empty socket), and the effective mana
+// cost (milli) so the HUD never re-derives cost math.
+type GemSnap struct {
+	Skill    string   `json:"skill"`
+	Level    int      `json:"level"`
+	Sockets  int      `json:"sockets"`
+	Supports []string `json:"supports"`
+	ManaCost int64    `json:"mana_cost"`
+}
+
+// SupportSnap is one support gem's static content: what the cutting/socket
+// UI renders, plus which cuttable skills it legally sockets into
+// (precomputed from tag requirements). Rides the welcome once.
+type SupportSnap struct {
+	ID       string   `json:"id"`
+	Name     string   `json:"name"`
+	Desc     string   `json:"desc"`
+	LegalFor []string `json:"legal_for"`
+}
+
+// SkillSnap is one cuttable skill's static content for the cutting dialog
+// and skill bar. Rides the welcome once.
+type SkillSnap struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
 }
 
 type DropSnap struct {
@@ -204,6 +257,10 @@ type ServerMsg struct {
 	Paused    *bool     `json:"paused,omitempty"`
 	// Passives is the milestone-choice table (static content), welcome only.
 	Passives []PassiveSnap `json:"passives,omitempty"`
+	// Supports and CutSkills are the gem-content tables (static), welcome
+	// only: every support gem, and every skill an uncut gem can offer.
+	Supports  []SupportSnap `json:"supports,omitempty"`
+	CutSkills []SkillSnap   `json:"cut_skills,omitempty"`
 	// Name is the receiving client's own identity name ("" = guest);
 	// welcome only. Roster maps live actor IDs to identity names — on every
 	// welcome, and re-broadcast as "roster" when membership changes.
@@ -253,9 +310,12 @@ type Scatter struct {
 }
 
 // ScriptSpawn places an actor at startup. Entity IDs are assigned in spawn
-// order starting at 1, which is how Commands reference them.
+// order starting at 1, which is how Commands reference them. Gems cuts
+// extra level-1 skill gems onto the spawned actor (players start with only
+// their def's starting gems; scenarios that exercise more skills say so).
 type ScriptSpawn struct {
-	Def string `json:"def"`
-	X   int64  `json:"x"` // milli-units
-	Y   int64  `json:"y"`
+	Def  string   `json:"def"`
+	X    int64    `json:"x"` // milli-units
+	Y    int64    `json:"y"`
+	Gems []string `json:"gems,omitempty"`
 }

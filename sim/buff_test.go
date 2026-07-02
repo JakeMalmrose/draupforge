@@ -17,6 +17,7 @@ import (
 func TestAdrenalineEndToEnd(t *testing.T) {
 	s := sim.New(content.DB(), 21)
 	player := mustSpawn(t, s, "player", 0, 0)
+	grantGems(t, s, player, "adrenaline")
 	a := s.W.ActorByID(player)
 	baseSpeed := a.Sheet.Eval(stats.MoveSpeed, stats.TagSet{})
 
@@ -62,6 +63,7 @@ func TestAdrenalineEndToEnd(t *testing.T) {
 func TestSaveRestoreActiveBuff(t *testing.T) {
 	s := sim.New(content.DB(), 22)
 	player := mustSpawn(t, s, "player", 0, 0)
+	grantGems(t, s, player, "adrenaline")
 	s.Step([]core.Command{{Actor: player, Kind: core.CmdUseSkill, Skill: "adrenaline"}})
 	for i := 0; i < 30; i++ {
 		s.Step(nil)

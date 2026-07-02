@@ -24,12 +24,29 @@ type CharAffix struct {
 
 // CharItem is an item in character form — no entity ID; IDs are minted at
 // injection because they double as sheet mod sources and would collide in a
-// fresh world.
+// fresh world. Uncut gems carry Gem instead of Base.
 type CharItem struct {
-	Base     string      `json:"base"`
+	Base     string      `json:"base,omitempty"`
 	Rarity   uint8       `json:"rarity"`
 	Implicit fm.Fixed    `json:"implicit,omitempty"`
 	Affixes  []CharAffix `json:"affixes,omitempty"`
+	Gem      *CharUncut  `json:"gem,omitempty"`
+}
+
+// CharUncut is an uncut gem item's payload in character form.
+type CharUncut struct {
+	Support bool     `json:"support,omitempty"`
+	Level   int      `json:"level,omitempty"`
+	Choices []string `json:"choices"`
+}
+
+// CharGem is one cut skill gem in character form; Supports is
+// socket-addressed, "" = empty socket.
+type CharGem struct {
+	Skill    string   `json:"skill"`
+	Level    int      `json:"level"`
+	Sockets  int      `json:"sockets"`
+	Supports []string `json:"supports"`
 }
 
 // Character is the portable player state that survives zone transfers.
@@ -48,6 +65,10 @@ type Character struct {
 	// Passives are milestone choices, by ID in pick order — durable build
 	// identity, unlike zone-local statuses.
 	Passives []string `json:"passives,omitempty"`
+	// Gems are the cut skill gems, in cut order — the other half of build
+	// identity. A character without any (legacy saves) is re-granted its
+	// def's starting gems at injection.
+	Gems []CharGem `json:"gems,omitempty"`
 	// FlaskCharges carries the flask bank across zones, like pools.
 	FlaskCharges []int32 `json:"flask_charges,omitempty"`
 	// Orbs carries the crafting wallet, OrbKind order.
@@ -77,6 +98,18 @@ func ExtractCharacter(a *Actor) Character {
 	for _, p := range a.Passives {
 		ch.Passives = append(ch.Passives, p.ID)
 	}
+	for i := range a.Gems {
+		g := &a.Gems[i]
+		cg := CharGem{Skill: g.Skill.ID, Level: g.Level, Sockets: g.Sockets}
+		for _, sup := range g.Supports {
+			if sup == nil {
+				cg.Supports = append(cg.Supports, "")
+			} else {
+				cg.Supports = append(cg.Supports, sup.ID)
+			}
+		}
+		ch.Gems = append(ch.Gems, cg)
+	}
 	ch.FlaskCharges = a.FlaskCharges
 	for _, n := range a.Orbs {
 		if n != 0 {
@@ -88,6 +121,11 @@ func ExtractCharacter(a *Actor) Character {
 }
 
 func charItem(item Item) CharItem {
+	if item.Gem != nil {
+		return CharItem{Gem: &CharUncut{
+			Support: item.Gem.Support, Level: item.Gem.Level, Choices: item.Gem.Choices,
+		}}
+	}
 	ci := CharItem{Base: item.Base.ID, Rarity: uint8(item.Rarity), Implicit: item.Implicit}
 	for _, af := range item.Affixes {
 		ci.Affixes = append(ci.Affixes, CharAffix{ID: af.Def.ID, Value: af.Value})
@@ -146,6 +184,30 @@ func InjectCharacter(w *World, ch Character, pos space.Vec2) (*Actor, error) {
 		}
 		a.TakePassive(pd)
 	}
+	// Cut gems replace the def's starting grant; a character without any
+	// (legacy saves predating gems) keeps the starters SpawnActor gave it.
+	if len(ch.Gems) > 0 {
+		a.Gems = nil
+		for _, cg := range ch.Gems {
+			sk := w.Content.Skills[cg.Skill]
+			if sk == nil {
+				return nil, fmt.Errorf("core: character references unknown skill %q", cg.Skill)
+			}
+			g := Gem{Skill: sk, Level: cg.Level, Sockets: cg.Sockets}
+			for _, id := range cg.Supports {
+				if id == "" {
+					g.Supports = append(g.Supports, nil)
+					continue
+				}
+				sup := w.Content.Support(id)
+				if sup == nil {
+					return nil, fmt.Errorf("core: character references unknown support %q", id)
+				}
+				g.Supports = append(g.Supports, sup)
+			}
+			a.Gems = append(a.Gems, g)
+		}
+	}
 	// Mint IDs in slot-then-bag order so injection is deterministic.
 	for slot := range equipment {
 		if item := equipment[slot]; item != nil {
@@ -184,6 +246,20 @@ func InjectCharacter(w *World, ch Character, pos space.Vec2) (*Actor, error) {
 }
 
 func decodeCharItem(db *ContentDB, affixes map[string]*AffixDef, ci CharItem) (Item, error) {
+	if ci.Gem != nil {
+		for _, c := range ci.Gem.Choices {
+			if ci.Gem.Support {
+				if db.Support(c) == nil {
+					return Item{}, fmt.Errorf("core: character references unknown support %q", c)
+				}
+			} else if db.Skills[c] == nil {
+				return Item{}, fmt.Errorf("core: character references unknown skill %q", c)
+			}
+		}
+		return Item{Gem: &UncutGem{
+			Support: ci.Gem.Support, Level: ci.Gem.Level, Choices: ci.Gem.Choices,
+		}}, nil
+	}
 	base := db.BaseItems[ci.Base]
 	if base == nil {
 		return Item{}, fmt.Errorf("core: character references unknown base item %q", ci.Base)

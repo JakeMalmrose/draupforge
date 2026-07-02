@@ -9,7 +9,7 @@
 
 "use strict";
 
-const PROTOCOL_VERSION = 17;
+const PROTOCOL_VERSION = 18;
 
 const FRAME_VIEW = 1;
 
@@ -28,6 +28,7 @@ const ACTOR_PROGRESS = 1 << 11; // level, xp, xp_next
 const ACTOR_PASSIVES = 1 << 12; // taken milestone-passive IDs
 const ACTOR_FLASKS = 1 << 13; // charges per flask slot
 const ACTOR_ORBS = 1 << 14; // crafting-currency wallet
+const ACTOR_GEMS = 1 << 15; // cut skill gems (skill bar + gem panel)
 
 const PROJ_IDENTITY = 1 << 0; // skill, radius
 const PROJ_POS = 1 << 1;
@@ -77,6 +78,11 @@ function readItem(r) {
   if (n > 0) {
     item.affixes = [];
     for (let i = 0; i < n; i++) item.affixes.push({ id: r.str(), value: r.sv() });
+  }
+  if (r.u8() === 1) {
+    const gem = { support: r.u8() === 1, level: r.uv(), choices: [] };
+    for (let m = r.uv(); m > 0; m--) gem.choices.push(r.str());
+    item.gem = gem;
   }
   return item;
 }
@@ -169,6 +175,15 @@ function decodeViewFrame(buf, baseFor) {
     if (mask & ACTOR_ORBS) {
       a.orbs = [];
       for (let m = r.uv(); m > 0; m--) a.orbs.push(r.sv());
+    }
+    if (mask & ACTOR_GEMS) {
+      a.gems = [];
+      for (let m = r.uv(); m > 0; m--) {
+        const g = { skill: r.str(), level: r.uv(), sockets: r.uv(), supports: [] };
+        for (let k = r.uv(); k > 0; k--) g.supports.push(r.str());
+        g.mana_cost = r.sv();
+        a.gems.push(g);
+      }
     }
     view.actors.set(id, a);
   }

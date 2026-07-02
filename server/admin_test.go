@@ -85,8 +85,12 @@ func TestAdminStatus(t *testing.T) {
 	if st.Paused {
 		t.Error("instance reports paused at boot")
 	}
-	if st.WorldHash == "" || len(st.ActorDefs) == 0 {
-		t.Errorf("missing observability fields: hash=%q defs=%v", st.WorldHash, st.ActorDefs)
+	if st.WorldHash == "" || len(st.ActorDefs) == 0 || len(st.CutSkills) == 0 {
+		t.Errorf("missing observability fields: hash=%q defs=%v cuttable=%v",
+			st.WorldHash, st.ActorDefs, st.CutSkills)
+	}
+	if st.Run != nil {
+		t.Errorf("plain arena reports run state %+v", st.Run)
 	}
 
 	// The world must be advancing.
@@ -181,6 +185,63 @@ func TestAdminSpawnAndKick(t *testing.T) {
 	}
 	if res := adminPOST(t, ts, "/api/kick", map[string]uint64{"actor": welcome.Actor}); res.StatusCode != http.StatusBadRequest {
 		t.Errorf("kicking a gone client = %d, want 400", res.StatusCode)
+	}
+}
+
+// TestAdminCheats: the dev pokes — force-cut gems, the god-mode toggle, orb
+// grants — hold their HTTP contracts. Spawn order makes the player actor 1.
+func TestAdminCheats(t *testing.T) {
+	_, ts := startAdminInstance(t, []protocol.ScriptSpawn{
+		{Def: "player", X: 0, Y: 0},
+	})
+
+	// Force-cut grants once, rejects the duplicate and unknown actors.
+	if res := adminPOST(t, ts, "/api/gem", map[string]any{"actor": 1, "skill": "arc", "level": 5}); res.StatusCode != http.StatusOK {
+		t.Fatalf("gem = %d", res.StatusCode)
+	}
+	if res := adminPOST(t, ts, "/api/gem", map[string]any{"actor": 1, "skill": "arc"}); res.StatusCode != http.StatusBadRequest {
+		t.Errorf("duplicate gem = %d, want 400", res.StatusCode)
+	}
+	if res := adminPOST(t, ts, "/api/gem", map[string]any{"actor": 99, "skill": "spark"}); res.StatusCode != http.StatusBadRequest {
+		t.Errorf("gem for unknown actor = %d, want 400", res.StatusCode)
+	}
+
+	// God mode toggles on, then off.
+	var god struct {
+		God bool `json:"god"`
+	}
+	res := adminPOST(t, ts, "/api/god", map[string]any{"actor": 1})
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("god = %d", res.StatusCode)
+	}
+	if json.NewDecoder(res.Body).Decode(&god); !god.God {
+		t.Error("first /api/god did not enable")
+	}
+	res = adminPOST(t, ts, "/api/god", map[string]any{"actor": 1})
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("god (second) = %d", res.StatusCode)
+	}
+	if json.NewDecoder(res.Body).Decode(&god); god.God {
+		t.Error("second /api/god did not toggle off")
+	}
+
+	// Orbs accumulate; unknown kinds are rejected.
+	var orbs struct {
+		Count int32 `json:"count"`
+	}
+	res = adminPOST(t, ts, "/api/orbs", map[string]any{"actor": 1, "orb": "jeweller", "count": 10})
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("orbs = %d", res.StatusCode)
+	}
+	if json.NewDecoder(res.Body).Decode(&orbs); orbs.Count != 10 {
+		t.Errorf("orb count = %d, want 10", orbs.Count)
+	}
+	res = adminPOST(t, ts, "/api/orbs", map[string]any{"actor": 1, "orb": "jeweller", "count": 10})
+	if json.NewDecoder(res.Body).Decode(&orbs); orbs.Count != 20 {
+		t.Errorf("orb count after second grant = %d, want 20", orbs.Count)
+	}
+	if res := adminPOST(t, ts, "/api/orbs", map[string]any{"actor": 1, "orb": "nope"}); res.StatusCode != http.StatusBadRequest {
+		t.Errorf("unknown orb kind = %d, want 400", res.StatusCode)
 	}
 }
 

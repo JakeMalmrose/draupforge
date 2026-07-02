@@ -19,7 +19,7 @@ func Pickup(w *core.World, a *core.Actor, dropID core.EntityID) bool {
 	}
 	drop.Taken = true
 	a.Inventory = append(a.Inventory, drop.Item)
-	w.Emit(core.Event{Kind: core.EvPickup, Actor: a.ID, Other: drop.Item.ID, Note: drop.Item.Base.ID})
+	w.Emit(core.Event{Kind: core.EvPickup, Actor: a.ID, Other: drop.Item.ID, Note: drop.Item.Name()})
 	return true
 }
 
@@ -41,6 +41,9 @@ func Equip(w *core.World, a *core.Actor, id core.EntityID, slot core.EquipSlot) 
 		item = drop.Item
 	} else {
 		return false
+	}
+	if item.Gem != nil {
+		return false // uncut gems have no slot; cutting is their only verb
 	}
 	if slot == core.EquipAuto {
 		slot = chooseSlot(a, item.Base.Slot)
@@ -102,7 +105,7 @@ func DropItem(w *core.World, a *core.Actor, itemID core.EntityID) bool {
 	item := a.Inventory[idx]
 	a.Inventory = append(a.Inventory[:idx], a.Inventory[idx+1:]...)
 	d := w.SpawnDrop(a.Pos, item)
-	w.Emit(core.Event{Kind: core.EvDrop, Actor: a.ID, Other: d.ID, Note: item.Base.ID})
+	w.Emit(core.Event{Kind: core.EvDrop, Actor: a.ID, Other: d.ID, Note: item.Name()})
 	return true
 }
 

@@ -180,6 +180,7 @@ func dungeonScenario(t *testing.T) (*sim.Sim, map[uint64][]core.Command) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	grantGems(t, s, id, "spark", "frost_nova")
 	if err := s.ScatterSpawn("zombie", 4); err != nil {
 		t.Fatal(err)
 	}

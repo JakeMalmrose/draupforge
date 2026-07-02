@@ -793,6 +793,18 @@ func (in *Instance) welcomeFrame(c *client) []byte {
 			ID: p.ID, Name: p.Name, Desc: p.Desc, Milestone: p.Milestone,
 		})
 	}
+	for _, sup := range in.db.Supports {
+		ss := protocol.SupportSnap{ID: sup.ID, Name: sup.Name, Desc: sup.Desc}
+		for _, sk := range in.db.Cuttable {
+			if sk.Tags.ContainsAll(sup.Requires) {
+				ss.LegalFor = append(ss.LegalFor, sk.ID)
+			}
+		}
+		msg.Supports = append(msg.Supports, ss)
+	}
+	for _, sk := range in.db.Cuttable {
+		msg.CutSkills = append(msg.CutSkills, protocol.SkillSnap{ID: sk.ID, Name: sk.Name})
+	}
 	if in.run > 0 {
 		if in.floor > 0 {
 			msg.Stairs = &protocol.Vec{X: in.stairs.X.Milli(), Y: in.stairs.Y.Milli()}

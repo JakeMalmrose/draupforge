@@ -33,6 +33,20 @@ const (
 	// CmdApplyOrb spends one Orb (kind in the Orb field) on the inventory
 	// item named by TargetID, rerolling or upgrading its rarity.
 	CmdApplyOrb
+	// CmdCutSkill consumes the uncut skill gem named by TargetID and cuts
+	// its draft choice Choice as a new gem. With Replace set, the gem at
+	// GemIndex is destroyed to make room (mandatory at the skill-gem cap).
+	CmdCutSkill
+	// CmdLevelGem consumes the uncut skill gem named by TargetID to raise
+	// the gem at GemIndex to the uncut gem's drop level (must be higher).
+	CmdLevelGem
+	// CmdCutSupport consumes the uncut support gem named by TargetID and
+	// sockets its draft choice Choice into the gem at GemIndex, socket
+	// Socket. An occupied socket's old support is destroyed.
+	CmdCutSupport
+	// CmdAddSocket spends a jeweller orb to add a support socket to the
+	// gem at GemIndex (capped at MaxGemSockets).
+	CmdAddSocket
 )
 
 // Command is the only way anything outside the sim affects it. The sim
@@ -54,6 +68,14 @@ type Command struct {
 	Passive string
 	// Orb is the currency kind for CmdApplyOrb.
 	Orb OrbKind
+	// Gem-verb addressing: Choice indexes an uncut gem's draft, GemIndex
+	// an actor's cut gems, Socket a gem's support sockets. Replace guards
+	// CmdCutSkill's destroy-to-make-room path so a zero-valued command
+	// can't silently eat gem 0.
+	Choice   int
+	GemIndex int
+	Socket   int
+	Replace  bool
 }
 
 type EventKind uint8
@@ -80,6 +102,10 @@ const (
 	// EvOrb: Actor banked a dropped orb (Note = kind, Amount = new count),
 	// or crafted with one (Other = the item, Note = "kind:item_base").
 	EvOrb
+	// EvGem narrates gem verbs: Note = "cut:skill_id", "level:skill_id"
+	// (Amount = new level), "support:support_id:skill_id", or
+	// "socket:skill_id" (Amount = new socket count).
+	EvGem
 )
 
 func (k EventKind) String() string {
@@ -112,6 +138,8 @@ func (k EventKind) String() string {
 		return "passive"
 	case EvOrb:
 		return "orb"
+	case EvGem:
+		return "gem"
 	default:
 		return "unequip"
 	}
@@ -213,6 +241,11 @@ func (w *World) SpawnActor(def *ActorDef, pos space.Vec2) *Actor {
 			a.FlaskCharges[i] = FlaskMaxCharges // start full — fun over friction
 		}
 	}
+	for _, id := range def.StartingGems {
+		if sk := w.Content.Skills[id]; sk != nil { // content.DB() asserts these resolve
+			a.GrantGem(sk, 1)
+		}
+	}
 	w.Actors = append(w.Actors, a)
 	w.idx[a.ID] = a
 	return a
@@ -229,6 +262,15 @@ func (w *World) SpawnProjectile(src *Actor, sk *SkillDef, pos, vel space.Vec2) *
 		TicksLeft: sk.ProjTTL,
 	}
 	w.Projectiles = append(w.Projectiles, p)
+	return p
+}
+
+// SpawnProjectileGem is SpawnProjectile with a baked gem context and chain
+// budget — the player-cast path.
+func (w *World) SpawnProjectileGem(src *Actor, sk *SkillDef, pos, vel space.Vec2, gem GemCtx) *Projectile {
+	p := w.SpawnProjectile(src, sk, pos, vel)
+	p.Gem = gem
+	p.ChainsLeft = gem.Chains()
 	return p
 }
 
