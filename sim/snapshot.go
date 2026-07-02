@@ -28,6 +28,7 @@ func (s *Sim) EncodeEvents() []protocol.EventSnap {
 			Other:  uint64(ev.Other),
 			Amount: ev.Amount.Milli(),
 			Note:   ev.Note,
+			Crit:   ev.Crit,
 		})
 	}
 	return out

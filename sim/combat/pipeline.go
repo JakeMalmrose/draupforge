@@ -56,7 +56,7 @@ func resolve(w *core.World, h *core.Hit) {
 	total := mitigate(att, def, h, tags)
 
 	// Stage: apply to pools, ES before life.
-	applyDamage(w, att, def, total, h.Skill.ID)
+	applyDamage(w, att, def, total, h.Skill.ID, h.Crit)
 
 	// Stage: post-hit effects, fixed order (ignite → chill → shock; the
 	// order is part of the RNG-consumption contract).
@@ -152,14 +152,14 @@ func mitigate(att, def *core.Actor, h *core.Hit, tags stats.TagSet) fm.Fixed {
 	return total
 }
 
-func applyDamage(w *core.World, att, def *core.Actor, total fm.Fixed, note string) {
+func applyDamage(w *core.World, att, def *core.Actor, total fm.Fixed, note string, crit bool) {
 	if total <= 0 {
 		return
 	}
 	absorbed := fm.Min(def.ES, total)
 	def.ES -= absorbed
 	def.Life -= total - absorbed
-	w.Emit(core.Event{Kind: core.EvHit, Actor: att.ID, Other: def.ID, Amount: total, Note: note})
+	w.Emit(core.Event{Kind: core.EvHit, Actor: att.ID, Other: def.ID, Amount: total, Note: note, Crit: crit})
 	if def.Life <= 0 && !def.Dead {
 		kill(w, def, att.ID)
 	}

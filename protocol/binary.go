@@ -76,6 +76,7 @@ func EncodeViewFrame(base, view *Snapshot) []byte {
 		w.uv(ev.Other)
 		w.sv(ev.Amount)
 		w.str(ev.Note)
+		w.u8(boolByte(ev.Crit))
 	}
 	return w.buf
 }
@@ -103,6 +104,7 @@ func DecodeViewFrame(frame []byte, base *Snapshot) (Snapshot, error) {
 	for n := r.uv(); n > 0 && r.err == nil; n-- {
 		view.Events = append(view.Events, EventSnap{
 			Kind: r.str(), Actor: r.uv(), Other: r.uv(), Amount: r.sv(), Note: r.str(),
+			Crit: r.u8() == 1,
 		})
 	}
 	if r.err != nil {
@@ -568,6 +570,13 @@ func decodeDrops(r *breader, base []DropSnap) []DropSnap {
 type bwriter struct{ buf []byte }
 
 func (w *bwriter) u8(v byte)    { w.buf = append(w.buf, v) }
+
+func boolByte(b bool) byte {
+	if b {
+		return 1
+	}
+	return 0
+}
 func (w *bwriter) uv(v uint64)  { w.buf = binary.AppendUvarint(w.buf, v) }
 func (w *bwriter) sv(v int64)   { w.buf = binary.AppendVarint(w.buf, v) } // zigzag
 func (w *bwriter) str(s string) { w.uv(uint64(len(s))); w.buf = append(w.buf, s...) }

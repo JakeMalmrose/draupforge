@@ -11,8 +11,8 @@ tests, and session-log entries older than a few sessions (git history is the
 archive). If this file outgrows ~150 lines, it has stopped being a status doc
 and started being a changelog — cut it back.
 
-**Last updated: 2026-07-01** (session 17: magic/rare monsters — modifier
-packages, rarity XP/loot payouts, floor-scaled spawn chances, protocol v11)
+**Last updated: 2026-07-01** (session 18: combat juice — floating damage
+numbers with crit emphasis, hit flashes, death pops; crit on the wire, v12)
 
 ## Where things stand
 
@@ -63,7 +63,7 @@ All foundational machinery from DESIGN.md is real, not stubbed:
 | Inventory: pickup/unequip/drop_item, capacity | `sim/items/equip.go` | done, tested |
 | Server: TCP + WS transports, joins/leaves, send-rate decoupling, interest culling, binary deltas + acks, pause | `server/` | done, race-tested |
 | Admin dashboard: observe (tick health, counts, bandwidth, events, world hash) + poke (pause/resume, spawn, kick), own port, embedded HTML | `server/admin.go` | done, tested; NO AUTH — localhost/tailnet only |
-| Web client: canvas, input, terrain render (walls/floor), drag-drop inventory grid (icons, tooltips), delta decoding, tick-timeline interpolation, fade-in/out, cast/impact VFX + ailment rings | `web/` | working, no build step |
+| Web client: canvas, input, terrain render (walls/floor), drag-drop inventory grid (icons, tooltips), delta decoding, tick-timeline interpolation, fade-in/out, cast/impact VFX + ailment rings, floating damage numbers (crit/self emphasis), hit flashes, death pops (rarity-scaled) | `web/` | working, no build step |
 | AI: behavior registry — `melee_chaser`, `ranged_kiter` (LoS-gated shooting, retreat band); territorial aggro: LoS/hearing acquisition, leash to `Actor.Home`, return-home (SaveVersion 4) | `sim/ai` | real, tested |
 | Phase order + command validation | `sim/sim.go` | done — this IS the determinism contract |
 | Wire types: versioned welcome, JSON snapshots, binary delta view codec | `protocol/` | done, tested |
@@ -136,6 +136,8 @@ Structural risks live in `RISKS.md` — read it before building anything load-be
 - Client cast VFX key off windup→done action transitions between views;
   a windup shorter than the send interval (~3 ticks) would slip through
   unrendered. No current skill is that fast.
+- Damage numbers and death pops anchor at the event-tick position and
+  don't follow a moving target — invisible at current speeds.
 - Corpses compact away at tick end — fine until on-corpse mechanics matter.
 - Inventory is a flat ID-addressed bag — no stacking. Bag *arrangement* is
   client-side presentation state (`bagLayout` in client.js): rearranging
@@ -202,6 +204,16 @@ fun-first counterweight to all of that.
 
 ## Session log
 
+- **2026-07-01 (18)** — Combat juice (ROADMAP's cross-cutting slice).
+  Hit events now carry `Crit` (sim → EventSnap → binary wire, protocol
+  v12, net.js in lockstep; headless prints " CRIT"). Client: floating
+  damage numbers (crit = big/gold/lingers, damage-on-you = red, chip
+  damage keeps a decimal), white hit flashes (`flashes` map consulted
+  against the interp clock), death pops (rarity-colored, bigger for
+  magic/rare), all on the existing server-timeline effect system; dead
+  entities' positions resolve via the previous view. Verified live in
+  Chrome: real fight (crit line in the log over the binary wire), all
+  four elements on screen, zero console errors.
 - **2026-07-01 (17)** — Magic/rare monsters. `MonsterModDef` (4 mods:
   Fleet/Brawny/Deadly/Stalwart) as permanent sheet packages under
   `MonsterModSource` (bits 63+61); `ScatterSpawnPack` rolls rarity + mods

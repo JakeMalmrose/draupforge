@@ -8,7 +8,7 @@ package protocol
 // it on any change a deployed client could misread — renamed/removed JSON
 // fields (omitempty makes those fail silently) or any binary frame layout
 // change. Clients hard-fail on mismatch instead of limping.
-const Version = 11 // v11: monster rarity + mods in the actor identity group (v10: descent)
+const Version = 12 // v12: crit flag on hit events (v11: monster rarity + mods)
 
 // Command is the wire form of player intent. Kind is one of "move",
 // "use_skill", "stop", the item verbs "pickup", "equip", "unequip",
@@ -117,6 +117,7 @@ type EventSnap struct {
 	Other  uint64 `json:"other,omitempty"`
 	Amount int64  `json:"amount,omitempty"`
 	Note   string `json:"note,omitempty"`
+	Crit   bool   `json:"crit,omitempty"`
 }
 
 // Snapshot is one client's view of one tick — with interest management,

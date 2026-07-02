@@ -104,6 +104,7 @@ type Event struct {
 	Other  EntityID // object (defender, killer, drop id, …)
 	Amount fm.Fixed
 	Note   string // skill id, item base, …
+	Crit   bool   // hit events: the strike crit (display emphasis)
 }
 
 // World is all mutable state for one map instance. It is strictly

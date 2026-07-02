@@ -131,6 +131,7 @@ function resetWorld(msg) {
   firstSeen.clear();
   ghosts.length = 0;
   effects.length = 0;
+  flashes.clear();
   names.clear();
   bagLayout.clear();
   panelKey = "";
@@ -191,14 +192,31 @@ function onView(view) {
     showOverlay("YOU DIED");
   }
 
+  // Position lookups fall back to the previous view: the victim of a
+  // killing blow (and the dier of a death event) is already compacted out
+  // of the view that carries the event.
+  const findEnt = (id) =>
+    view.actors.get(id) || (newest && newest.view.actors.get(id)) || null;
   for (const ev of view.events) {
     logEvent(ev);
     if (ev.kind === "hit") {
       const v = IMPACT_VFX[ev.note];
-      const target = view.actors.get(ev.other);
+      const target = findEnt(ev.other);
       if (v && target) spawnImpact(target.pos, view.tick * tickMs, v);
+      if (target) {
+        spawnDamageNumber(target.pos, view.tick * tickMs, ev.amount, ev.crit, ev.other === myId);
+        flashes.set(ev.other, view.tick * tickMs + FLASH_MS);
+      }
       if (ev.other === myId) shakeUntil = performance.now() + SHAKE_MS;
     }
+    if (ev.kind === "death") {
+      const dier = findEnt(ev.actor);
+      if (dier) spawnDeathPop(dier.pos, view.tick * tickMs, dier);
+    }
+  }
+  // Flash entries expire by clock; sweep the map so dead IDs don't pile up.
+  for (const [id, until] of flashes) {
+    if (until < view.tick * tickMs - 2000) flashes.delete(id);
   }
   autoPickup(self);
   autoDescend(self);
@@ -318,6 +336,7 @@ function render() {
   const s = span();
   if (s) {
     const now = performance.now();
+    renderClock = now + clockOffset - interpDelay; // delayed server-timeline clock
     const self = s.to.actors.get(myId);
     if (self) {
       const p = lerpPos(s.from.actors, self, s.t);
@@ -358,7 +377,7 @@ function render() {
 
     // Client VFX run on the same delayed server-timeline clock as span();
     // an effect whose moment hasn't been rendered yet (t < 0) just waits.
-    const rt = now + clockOffset - interpDelay;
+    const rt = renderClock;
     for (let i = effects.length - 1; i >= 0; i--) {
       const e = effects[i];
       const t = (rt - e.st) / e.dur;
@@ -521,6 +540,18 @@ function drawActor(a, pos) {
   ctx.lineWidth = rarityColor ? 2.5 : 2;
   ctx.strokeStyle = rarityColor || (isMe ? "#cfc9bf" : "#00000066");
   ctx.stroke();
+
+  // hit flash: a white pulse that decays over FLASH_MS
+  const flashUntil = flashes.get(a.id);
+  if (flashUntil && renderClock < flashUntil) {
+    const prev = ctx.globalAlpha;
+    ctx.globalAlpha = prev * 0.8 * ((flashUntil - renderClock) / FLASH_MS);
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+    ctx.fillStyle = "#ffffff";
+    ctx.fill();
+    ctx.globalAlpha = prev;
+  }
 
   // casting telegraph: a thin arc while winding up
   if (a.action.startsWith("windup")) {
@@ -733,6 +764,66 @@ function spawnImpact(pos, st, v) {
 let shakeUntil = 0;
 const SHAKE_MS = 220;
 const SHAKE_PX = 5;
+
+// Hit flashes: entity id → server-time the white pulse ends. Consulted by
+// drawActor against renderClock (set each frame from the interp clock).
+const flashes = new Map();
+const FLASH_MS = 130;
+let renderClock = 0;
+
+// Floating damage numbers: drift up and fade. Crits punch — bigger,
+// golden, and they linger a beat longer; damage on *you* reads red.
+function spawnDamageNumber(pos, st, amount, crit, onMe) {
+  const jx = (Math.random() - 0.5) * 0.7; // de-stack simultaneous hits
+  const text = fmtDamage(amount);
+  spawnEffect(st, crit ? 900 : 650, (t) => {
+    const p = worldToScreen(pos.x, pos.y);
+    const rise = (crit ? 1.5 : 1.0) * easeOut(t) * SCALE;
+    ctx.globalAlpha = t < 0.6 ? 1 : 1 - (t - 0.6) / 0.4;
+    ctx.font = crit ? "bold 17px Georgia" : onMe ? "bold 13px Georgia" : "12px Georgia";
+    ctx.textAlign = "center";
+    const x = p.x + jx * SCALE;
+    const y = p.y - 14 - rise;
+    ctx.strokeStyle = "#000000cc";
+    ctx.lineWidth = 3;
+    ctx.strokeText(text, x, y);
+    ctx.fillStyle = crit ? "#ffcf4d" : onMe ? "#ff7d6a" : "#f2ead8";
+    ctx.fillText(text, x, y);
+  });
+}
+
+// Milli-damage → display: whole numbers once they'd round cleanly, one
+// decimal for chip damage so it doesn't read as "0".
+function fmtDamage(amount) {
+  const d = amount / 1000;
+  return d >= 10 ? String(Math.round(d)) : d.toFixed(1);
+}
+
+// Death pop: a bursting ring plus shards where something died — larger
+// and rarity-colored for magic/rare monsters, so a rare kill lands.
+function spawnDeathPop(pos, st, dier) {
+  const color = RARITY_COLORS[dier.rarity] || (dier.team === 1 ? "#7fa4d1" : "#c96a4a");
+  const size = dier.rarity ? 1.6 : 1.0;
+  const r0 = toUnits(dier.radius);
+  const base = Math.random() * Math.PI;
+  spawnEffect(st, dier.rarity ? 600 : 420, (t) => {
+    const p = worldToScreen(pos.x, pos.y);
+    const r = (r0 + 1.5 * size * easeOut(t)) * SCALE;
+    ctx.globalAlpha = (1 - t) * 0.9;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1 + 2.5 * (1 - t);
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.beginPath();
+    for (let i = 0; i < 8; i++) {
+      const ang = base + (Math.PI / 4) * i;
+      ctx.moveTo(p.x + Math.cos(ang) * r * 0.7, p.y + Math.sin(ang) * r * 0.7);
+      ctx.lineTo(p.x + Math.cos(ang) * r * 1.15, p.y + Math.sin(ang) * r * 1.15);
+    }
+    ctx.stroke();
+  });
+}
 
 // --------------------------------------------------------------- input
 
@@ -1116,7 +1207,7 @@ function logEvent(ev) {
   let text = null;
   switch (ev.kind) {
     case "hit":
-      text = `${nameOf(ev.actor)} hit ${nameOf(ev.other)} for ${(ev.amount / 1000).toFixed(1)} (${ev.note})`;
+      text = `${nameOf(ev.actor)} hit ${nameOf(ev.other)} for ${(ev.amount / 1000).toFixed(1)}${ev.crit ? " CRIT" : ""} (${ev.note})`;
       break;
     case "miss":
       text = `${nameOf(ev.actor)} missed ${nameOf(ev.other)}`;

@@ -9,7 +9,7 @@
 
 "use strict";
 
-const PROTOCOL_VERSION = 11;
+const PROTOCOL_VERSION = 12;
 
 const FRAME_VIEW = 1;
 
@@ -184,7 +184,7 @@ function decodeViewFrame(buf, baseFor) {
 
   // Events ride along in full.
   for (let n = r.uv(); n > 0; n--) {
-    view.events.push({ kind: r.str(), actor: r.uv(), other: r.uv(), amount: r.sv(), note: r.str() });
+    view.events.push({ kind: r.str(), actor: r.uv(), other: r.uv(), amount: r.sv(), note: r.str(), crit: r.u8() === 1 });
   }
   return view;
 }
