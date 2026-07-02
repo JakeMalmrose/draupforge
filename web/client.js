@@ -909,25 +909,50 @@ canvas.addEventListener("mousedown", (e) => {
   }
 });
 
+// The skill bar is the single source for skill keybinds: keydown and the
+// clickable slots both cast through castSlot. Mana costs mirror content
+// (like BASE_SLOTS) — display-only, the server validates the real cost.
+const SKILL_BAR = [
+  { key: "q", skill: "fireball", name: "Fireball", aimed: true, mana: 10, color: "#d35400" },
+  { key: "e", skill: "frost_nova", name: "Frost Nova", aimed: false, mana: 15, color: "#7fd4ff" },
+  { key: "r", skill: "spark", name: "Spark", aimed: true, mana: 6, color: "#5fa8f5" },
+  { key: "t", skill: "adrenaline", name: "Adrenaline", aimed: false, mana: 15, color: "#9fff9f" },
+];
+
+function castSlot(s) {
+  if (s.aimed) {
+    const w = screenToWorldUnits(mouse.x, mouse.y);
+    send({ kind: "use_skill", skill: s.skill, x: toMilli(w.x), y: toMilli(w.y) });
+  } else {
+    send({ kind: "use_skill", skill: s.skill });
+  }
+  const el = document.getElementById(`slot-${s.skill}`);
+  if (el) {
+    el.classList.add("cast-flash");
+    setTimeout(() => el.classList.remove("cast-flash"), 160);
+  }
+}
+
+const skillBarEl = document.getElementById("skill-bar");
+for (const s of SKILL_BAR) {
+  const btn = document.createElement("button");
+  btn.className = "skill-slot";
+  btn.id = `slot-${s.skill}`;
+  btn.title = `${s.name} (${s.mana} mana)`;
+  btn.innerHTML = `<div class="glyph" style="background: radial-gradient(circle at 35% 30%, #fff8, ${s.color}); color: ${s.color}"></div><span class="slot-name">${s.name}</span><span class="key">${s.key.toUpperCase()}</span>`;
+  btn.onclick = () => castSlot(s);
+  skillBarEl.appendChild(btn);
+}
+
 window.addEventListener("keydown", (e) => {
   if (e.repeat) return;
-  switch (e.key.toLowerCase()) {
-    case "q": {
-      const w = screenToWorldUnits(mouse.x, mouse.y);
-      send({ kind: "use_skill", skill: "fireball", x: toMilli(w.x), y: toMilli(w.y) });
-      break;
-    }
-    case "e":
-      send({ kind: "use_skill", skill: "frost_nova" });
-      break;
-    case "r": {
-      const w = screenToWorldUnits(mouse.x, mouse.y);
-      send({ kind: "use_skill", skill: "spark", x: toMilli(w.x), y: toMilli(w.y) });
-      break;
-    }
-    case "t":
-      send({ kind: "use_skill", skill: "adrenaline" });
-      break;
+  const key = e.key.toLowerCase();
+  const slot = SKILL_BAR.find((s) => s.key === key);
+  if (slot) {
+    castSlot(slot);
+    return;
+  }
+  switch (key) {
     case "p":
       send({ kind: "plant_portal" });
       break;
@@ -1334,8 +1359,12 @@ function logEvent(ev) {
 function updateHUD(self) {
   const lifePct = self.max_life > 0 ? (100 * self.life) / self.max_life : 0;
   const manaPct = self.max_mana > 0 ? (100 * self.mana) / self.max_mana : 0;
-  document.getElementById("life-fill").style.width = `${lifePct}%`;
-  document.getElementById("mana-fill").style.width = `${manaPct}%`;
+  document.getElementById("life-fill").style.height = `${lifePct}%`;
+  document.getElementById("mana-fill").style.height = `${manaPct}%`;
+  for (const s of SKILL_BAR) {
+    const el = document.getElementById(`slot-${s.skill}`);
+    if (el) el.classList.toggle("drained", self.mana < s.mana * 1000);
+  }
   document.getElementById("life-text").textContent =
     `${Math.ceil(self.life / 1000)} / ${Math.ceil(self.max_life / 1000)}`;
   document.getElementById("mana-text").textContent =
