@@ -194,6 +194,24 @@ func buffDefs() []*core.BuffDef {
 			},
 		},
 		{
+			// The life flask's sip: a strong regen burst, PoE1-style recovery
+			// (100 life over 4s at base scale). Charges gate it, not mana.
+			ID:            "life_flask",
+			Name:          "Life Flask",
+			DurationTicks: 4 * core.TicksPerSecond,
+			Mods: []core.BuffMod{
+				{Stat: stats.LifeRegen, Layer: stats.LayerFlat, Value: fm.FromInt(25)},
+			},
+		},
+		{
+			ID:            "mana_flask",
+			Name:          "Mana Flask",
+			DurationTicks: 4 * core.TicksPerSecond,
+			Mods: []core.BuffMod{
+				{Stat: stats.ManaRegen, Layer: stats.LayerFlat, Value: fm.FromInt(15)},
+			},
+		},
+		{
 			// Arrival protection after a death eject: hits deal nothing while
 			// you reorient (DamageTaken overridden to zero also starves
 			// ailments — their magnitudes scale off dealt damage). The host
@@ -370,6 +388,7 @@ func actorDefs() []*core.ActorDef {
 			stats.CritChance: fm.FromMilli(50), // 5%
 		}),
 		Skills:        []string{"fireball", "frost_nova", "spark", "adrenaline"},
+		Flasks:        []string{"life_flask", "mana_flask"},
 		InventorySize: 20,
 		Level:         1,
 		PerLevel: []core.BuffMod{

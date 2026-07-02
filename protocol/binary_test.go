@@ -16,6 +16,7 @@ func sampleView() Snapshot {
 				ES: 1000, Action: "idle", Ail: AilIgnited | AilChilled, InvSize: 20,
 				Level: 3, XP: 250, XPNext: 900,
 				Passives: []string{"iron_constitution", "executioner"},
+				Flasks:   []int64{45, 60},
 				Equipment: []EquippedSnap{{
 					Slot: "weapon",
 					Item: ItemSnap{ID: 7, Base: "rusty_sword", Rarity: "magic",

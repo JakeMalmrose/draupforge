@@ -48,6 +48,8 @@ type Character struct {
 	// Passives are milestone choices, by ID in pick order — durable build
 	// identity, unlike zone-local statuses.
 	Passives []string `json:"passives,omitempty"`
+	// FlaskCharges carries the flask bank across zones, like pools.
+	FlaskCharges []int32 `json:"flask_charges,omitempty"`
 }
 
 // ExtractCharacter reduces an actor to its character state — the reverse of
@@ -73,6 +75,7 @@ func ExtractCharacter(a *Actor) Character {
 	for _, p := range a.Passives {
 		ch.Passives = append(ch.Passives, p.ID)
 	}
+	ch.FlaskCharges = a.FlaskCharges
 	return ch
 }
 
@@ -147,6 +150,14 @@ func InjectCharacter(w *World, ch Character, pos space.Vec2) (*Actor, error) {
 		inventory[i].ID = w.AllocID()
 	}
 	a.Inventory = inventory
+
+	// Flask charges carry like pools; length re-clamps to the def's flasks
+	// (content edits between sessions shrink or grow the bank sanely).
+	for i := range a.FlaskCharges {
+		if i < len(ch.FlaskCharges) {
+			a.FlaskCharges[i] = min(max(ch.FlaskCharges[i], 0), FlaskMaxCharges)
+		}
+	}
 
 	// Pools: carry, clamped to the rebuilt maxima. Life <= 0 means a
 	// death-respawn — arrive refilled rather than dead.

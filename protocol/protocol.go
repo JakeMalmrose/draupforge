@@ -8,7 +8,7 @@ package protocol
 // it on any change a deployed client could misread — renamed/removed JSON
 // fields (omitempty makes those fail silently) or any binary frame layout
 // change. Clients hard-fail on mismatch instead of limping.
-const Version = 13 // v13: passives — choose_passive, actor passives group, table in welcome
+const Version = 14 // v14: flasks — use_flask, per-actor charge group (v13: passives)
 
 // Command is the wire form of player intent. Kind is one of "move",
 // "use_skill", "stop", the item verbs "pickup", "equip", "unequip",
@@ -65,6 +65,8 @@ type ActorSnap struct {
 	// Passives: taken milestone-passive IDs, in pick order. Own binary
 	// field group — it changes on a pick, unlike the identity fields.
 	Passives []string `json:"passives,omitempty"`
+	// Flasks: charges per flask slot (order = the def's flask order).
+	Flasks []int64 `json:"flasks,omitempty"`
 	// Progression: Level for everyone (nameplates someday), XP/XPNext as
 	// progress into the current level (the HUD bar divides them). XPNext 0
 	// means no further progression (max level).

@@ -22,7 +22,7 @@ import (
 // SaveVersion gates restores: a format change bumps it, and old files fail
 // loudly instead of misloading. Saves are durable state — unlike replays,
 // they must never depend on re-execution of the code that wrote them.
-const SaveVersion = 6 // v6: actor passives (v5: monster rarity + mods)
+const SaveVersion = 7 // v7: flask charges (v6: actor passives)
 
 type saveFile struct {
 	Version     int              `json:"version"`
@@ -100,6 +100,7 @@ type actorSave struct {
 	Rarity    uint8        `json:"rarity,omitempty"`
 	MonMods   []string     `json:"mon_mods,omitempty"`  // MonsterModDef IDs
 	Passives  []string     `json:"passives,omitempty"` // PassiveDef IDs
+	Flasks    []int32      `json:"flasks,omitempty"`   // charges per flask slot
 	Base      []fm.Fixed   `json:"base"` // sheet base values, StatID order
 	Mods      []modSave    `json:"mods,omitempty"`
 	Action    actionSave   `json:"action"`
@@ -199,6 +200,7 @@ func encodeActor(a *Actor) actorSave {
 	for _, ps := range a.Passives {
 		as.Passives = append(as.Passives, ps.ID)
 	}
+	as.Flasks = a.FlaskCharges
 	for st := stats.StatID(0); st < stats.StatCount; st++ {
 		as.Base[st] = a.Sheet.Base(st)
 	}
@@ -379,6 +381,7 @@ func decodeActor(db *ContentDB, affixes map[string]*AffixDef, as actorSave) (*Ac
 		}
 		a.Passives = append(a.Passives, pd)
 	}
+	a.FlaskCharges = as.Flasks
 	for _, ds := range as.DoTs {
 		a.DoTs = append(a.DoTs, DoT{
 			Type: DamageType(ds.Type), PerTick: ds.PerTick, TicksLeft: ds.TicksLeft, Source: EntityID(ds.Source),
