@@ -44,7 +44,8 @@ const (
 	actorProgress
 	actorPassives
 	actorFlasks
-	actorOrbs // level, xp, xp_next
+	actorOrbs
+	actorGems
 )
 
 // Projectile field-mask bits.
@@ -233,6 +234,19 @@ func encodeActors(w *bwriter, base, view []ActorSnap) {
 				w.sv(n)
 			}
 		}
+		if c.mask&actorGems != 0 {
+			w.uv(uint64(len(a.Gems)))
+			for _, g := range a.Gems {
+				w.str(g.Skill)
+				w.uv(uint64(g.Level))
+				w.uv(uint64(g.Sockets))
+				w.uv(uint64(len(g.Supports)))
+				for _, sup := range g.Supports {
+					w.str(sup)
+				}
+				w.sv(g.ManaCost)
+			}
+		}
 	}
 }
 
@@ -240,7 +254,8 @@ func actorMask(b, a *ActorSnap) uint64 {
 	if b == nil {
 		return actorIdentity | actorPos | actorLife | actorMaxLife | actorMana |
 			actorMaxMana | actorES | actorAction | actorEquipment | actorInventory |
-			actorAilments | actorProgress | actorPassives | actorFlasks | actorOrbs
+			actorAilments | actorProgress | actorPassives | actorFlasks | actorOrbs |
+			actorGems
 	}
 	var mask uint64
 	if b.Def != a.Def || b.Team != a.Team || b.Radius != a.Radius || b.InvSize != a.InvSize ||
@@ -288,6 +303,9 @@ func actorMask(b, a *ActorSnap) uint64 {
 	}
 	if !reflect.DeepEqual(b.Orbs, a.Orbs) {
 		mask |= actorOrbs
+	}
+	if !reflect.DeepEqual(b.Gems, a.Gems) {
+		mask |= actorGems
 	}
 	return mask
 }
@@ -371,6 +389,16 @@ func decodeActors(r *breader, base []ActorSnap) []ActorSnap {
 				a.Orbs = append(a.Orbs, r.sv())
 			}
 		}
+		if mask&actorGems != 0 {
+			for m := r.uv(); m > 0 && r.err == nil; m-- {
+				g := GemSnap{Skill: r.str(), Level: int(r.uv()), Sockets: int(r.uv())}
+				for k := r.uv(); k > 0 && r.err == nil; k-- {
+					g.Supports = append(g.Supports, r.str())
+				}
+				g.ManaCost = r.sv()
+				a.Gems = append(a.Gems, g)
+			}
+		}
 		changed[id] = actorDelta{a, mask}
 		order = append(order, id)
 	}
@@ -450,6 +478,9 @@ func mergeActor(b ActorSnap, d actorDelta) ActorSnap {
 	}
 	if d.mask&actorOrbs != 0 {
 		a.Orbs = n.Orbs
+	}
+	if d.mask&actorGems != 0 {
+		a.Gems = n.Gems
 	}
 	return a
 }
@@ -656,6 +687,17 @@ func (w *bwriter) item(it ItemSnap) {
 		w.str(af.ID)
 		w.sv(af.Value)
 	}
+	if it.Gem != nil {
+		w.u8(1)
+		w.u8(boolByte(it.Gem.Support))
+		w.uv(uint64(it.Gem.Level))
+		w.uv(uint64(len(it.Gem.Choices)))
+		for _, c := range it.Gem.Choices {
+			w.str(c)
+		}
+	} else {
+		w.u8(0)
+	}
 }
 
 // breader carries a sticky error: after the first malformed read every
@@ -734,6 +776,13 @@ func (r *breader) item() ItemSnap {
 	}
 	for n := r.uv(); n > 0 && r.err == nil; n-- {
 		it.Affixes = append(it.Affixes, AffixSnap{ID: r.str(), Value: r.sv()})
+	}
+	if r.u8() == 1 {
+		g := &GemItemSnap{Support: r.u8() == 1, Level: int(r.uv())}
+		for n := r.uv(); n > 0 && r.err == nil; n-- {
+			g.Choices = append(g.Choices, r.str())
+		}
+		it.Gem = g
 	}
 	return it
 }

@@ -17,14 +17,24 @@ func sampleView() Snapshot {
 				Level: 3, XP: 250, XPNext: 900,
 				Passives: []string{"iron_constitution", "executioner"},
 				Flasks:   []int64{45, 60},
-				Orbs:     []int64{3, 0, 7},
+				Orbs:     []int64{3, 0, 7, 2},
+				Gems: []GemSnap{
+					{Skill: "fireball", Level: 4, Sockets: 2, Supports: []string{"chain", ""}, ManaCost: 16900},
+					{Skill: "spark", Level: 1, Sockets: 1, Supports: []string{""}, ManaCost: 6000},
+				},
 				Equipment: []EquippedSnap{{
 					Slot: "weapon",
 					Item: ItemSnap{ID: 7, Base: "rusty_sword", Rarity: "magic",
 						Implicit: &AffixSnap{ID: "increased_damage", Value: 80},
 						Affixes:  []AffixSnap{{ID: "added_fire", Value: 3000}}},
 				}},
-				Inventory: []ItemSnap{{ID: 9, Base: "leather_cap", Rarity: "normal"}},
+				Inventory: []ItemSnap{
+					{ID: 9, Base: "leather_cap", Rarity: "normal"},
+					{ID: 10, Rarity: "normal", Gem: &GemItemSnap{
+						Level: 6, Choices: []string{"spark", "arc_bolt", "frost_nova"}}},
+					{ID: 12, Rarity: "normal", Gem: &GemItemSnap{
+						Support: true, Choices: []string{"chain", "glaciate", "inspiration"}}},
+				},
 			},
 			{
 				ID: 2, Def: "zombie", Team: 2,
@@ -79,6 +89,8 @@ func TestDeltaRoundTrip(t *testing.T) {
 	view.Actors[0].Level = 4
 	view.Actors[0].XP = 30
 	view.Actors[0].XPNext = 1600
+	view.Actors[0].Gems[0].Level = 9 // gem leveled between views
+	view.Actors[0].Gems[0].ManaCost = 19600
 	view.Actors[0].Equipment = nil
 	view.Actors[0].Inventory = append(view.Actors[0].Inventory,
 		ItemSnap{ID: 7, Base: "rusty_sword", Rarity: "magic",
