@@ -348,3 +348,30 @@ body {
   font-size: 10px; color: #6a6455;
   text-transform: uppercase; letter-spacing: 0.5px;
 }
+
+/* Join screen: name claim or guest, shown before the socket opens. */
+#join {
+  position: fixed; inset: 0;
+  background: rgba(10, 0, 0, 0.88);
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  gap: 14px;
+}
+#join-title { font-size: 48px; letter-spacing: 8px; color: #cfc9bf; margin-bottom: 10px; }
+#join input {
+  font: inherit; font-size: 18px; text-align: center;
+  background: #1a1a22; color: #cfc9bf;
+  border: 1px solid #3a3a45; border-radius: 3px;
+  padding: 8px 16px; width: 240px; outline: none;
+}
+#join input:focus { border-color: #6a6455; }
+#join button {
+  font: inherit; font-size: 16px;
+  background: #1a1a22; color: #cfc9bf;
+  border: 1px solid #3a3a45; border-radius: 3px;
+  padding: 8px 24px; cursor: pointer; width: 274px;
+}
+#join button:hover { border-color: #6a6455; }
+#join button.ghost { background: none; border-color: transparent; color: #55504a; }
+#join button.ghost:hover { color: #8d8678; }
+#join-error { font-size: 13px; color: #a32626; min-height: 16px; }

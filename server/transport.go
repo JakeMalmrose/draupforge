@@ -3,13 +3,17 @@ package server
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"time"
 
 	"github.com/coder/websocket"
+
+	"github.com/JakeMalmrose/draupforge/protocol"
 )
 
 // transport is one client connection, whatever the wire. Inbound frames are
@@ -83,7 +87,10 @@ func (t *wsTransport) Close() error {
 
 // HandleWS upgrades an HTTP request to a WebSocket client of this instance.
 // It blocks until the client disconnects, like any connection read loop.
-// ?format=json swaps the binary delta wire for full-JSON views (debug).
+// ?format=json swaps the binary delta wire for full-JSON views (debug);
+// ?guest=1 ignores any identity cookie and plays ephemerally. A token
+// cookie (identity.go) resumes that identity's character — unless the
+// identity is already connected, which is refused: one session per name.
 func (in *Instance) HandleWS(w http.ResponseWriter, r *http.Request) {
 	ws, err := websocket.Accept(w, r, &websocket.AcceptOptions{
 		// Dev server: accept any origin so LAN machines can join.
@@ -100,6 +107,25 @@ func (in *Instance) HandleWS(w http.ResponseWriter, r *http.Request) {
 		m = modeJSONView
 	}
 	c := &client{tr: &wsTransport{conn: ws}, mode: m}
+	if tok := cookieToken(r); tok != "" && r.URL.Query().Get("guest") == "" {
+		name, char, ok, dup := in.ids.Connect(tok)
+		switch {
+		case dup:
+			frame, _ := json.Marshal(protocol.ServerMsg{
+				Type: "error", Error: fmt.Sprintf("%s is already connected", name),
+			})
+			c.send(frame, false)
+			c.tr.Close()
+			return
+		case ok:
+			c.name, c.token = name, tok
+			if char != nil {
+				c.lastChar, c.hasChar = *char, true
+			}
+		}
+		// Unknown token: a stale cookie (wiped store). Play as guest; the
+		// join screen offers a fresh claim next time whoami comes up empty.
+	}
 	in.mu.Lock()
 	in.joins = append(in.joins, c)
 	in.mu.Unlock()

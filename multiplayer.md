@@ -20,7 +20,8 @@ in the feature branches.
    get their own instance. This is the real engineering lift — `server` goes
    from hosting one Instance to a lobby that routes connections to many.
 
-Build order: identity + guests → per-party instances → friends/invites UI.
+Build order: identity + guests (**done** — `server/identity.go`, wire v16)
+→ per-party instances → friends/invites UI.
 
 ## Hosting (the nuc, no port forwarding needed)
 

@@ -8,7 +8,7 @@ package protocol
 // it on any change a deployed client could misread — renamed/removed JSON
 // fields (omitempty makes those fail silently) or any binary frame layout
 // change. Clients hard-fail on mismatch instead of limping.
-const Version = 15 // v15: currency — apply_orb, per-actor orb wallet group (v14: flasks)
+const Version = 16 // v16: identity — welcome name, roster + error frames (v15: currency)
 
 // Command is the wire form of player intent. Kind is one of "move",
 // "use_skill", "stop", the item verbs "pickup", "equip", "unequip",
@@ -187,7 +187,7 @@ type PassiveSnap struct {
 // that join while paused); "run" announces run-state changes that don't
 // come with a new world (portal planted).
 type ServerMsg struct {
-	Type      string    `json:"type"` // "welcome" | "snapshot" | "pause" | "run"
+	Type      string    `json:"type"` // "welcome" | "snapshot" | "pause" | "run" | "roster" | "error"
 	V         int       `json:"v,omitempty"`
 	Gen       int       `json:"gen,omitempty"`
 	Actor     uint64    `json:"actor,omitempty"`
@@ -200,6 +200,14 @@ type ServerMsg struct {
 	Paused    *bool     `json:"paused,omitempty"`
 	// Passives is the milestone-choice table (static content), welcome only.
 	Passives []PassiveSnap `json:"passives,omitempty"`
+	// Name is the receiving client's own identity name ("" = guest);
+	// welcome only. Roster maps live actor IDs to identity names — on every
+	// welcome, and re-broadcast as "roster" when membership changes.
+	Name   string            `json:"name,omitempty"`
+	Roster map[uint64]string `json:"roster,omitempty"`
+	// Error rides a terminal "error" frame: the connection is refused (a
+	// duplicate session, say) and closes after this message.
+	Error string `json:"error,omitempty"`
 }
 
 // Script is the headless runner's input: a scenario plus scheduled commands.

@@ -52,6 +52,15 @@
     <button onclick="location.reload()">rise again</button>
   </div>
 
+  <div id="join" class="hidden">
+    <div id="join-title">DRAUPFORGE</div>
+    <input id="join-name" maxlength="16" placeholder="choose a name" autocomplete="off"
+           onkeydown="if (event.key === 'Enter') claimName()">
+    <div id="join-error"></div>
+    <button onclick="claimName()">descend</button>
+    <button class="ghost" onclick="playGuest()">play as guest</button>
+  </div>
+
   <div id="help">WASD or click to move &middot; click pickup/stairs/portal &middot; <b>Q</b> fireball &middot; <b>E</b> nova &middot; <b>R</b> spark &middot; <b>T</b> adrenaline &middot; <b>1</b>/<b>2</b> flasks &middot; <b>P</b> plant portal &middot; <b>I</b> inventory &middot; <b>M</b> mute</div>
 
   <script src="net.js"></script>

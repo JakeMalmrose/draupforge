@@ -207,6 +207,15 @@ fun-first counterweight to all of that.
 
 ## Session log
 
+- **2026-07-02 (35)** — Identity: named players + guests (multiplayer.md
+  phase 1, wire v16). `server/identity.go`: name claim mints a 32-byte
+  secret token in an HttpOnly cookie; the token (never the name) resumes
+  the character — banked on disconnect + every 30s, `-identities` JSON on
+  disk, one session per name (dup gets an error frame and the join screen).
+  Guests skip it all and stay ephemeral. Welcomes/roster frames carry
+  actor→name for nameplates; join screen in the client. Shortcut: a claim
+  under an existing cookie with a new name orphans the old identity (no
+  rename/list yet). Next: friends list + per-party instances.
 - **2026-07-02 (34)** — Public hosting. `web/client.js` picks ws/wss by
   page protocol (was hardcoded ws://, which HTTPS blocks). Deployed to
   the nuc (Ubuntu, `~/draupforge`, systemd unit `draupforge`, `-addr ""

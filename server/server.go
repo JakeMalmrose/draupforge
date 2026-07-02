@@ -79,18 +79,27 @@ type Config struct {
 	Portals int
 	// Load, if set, restores the world from a World.Save file instead of
 	// building one — Seed, Map, Spawns, and Scatter are ignored. Player-def
-	// actors in the save are removed at load (no session identity exists yet
-	// to reclaim them) with their gear dropped at their feet, so a restart
-	// never deletes items.
+	// actors in the save are removed at load (live sessions don't survive a
+	// restart; identities bank characters separately) with their gear
+	// dropped at their feet, so a restart never deletes items.
 	Load []byte
+	// IdentityPath persists named players (identity.go). "" keeps
+	// identities in memory only — they still work, but a restart forgets
+	// everyone.
+	IdentityPath string
 }
 
 type Instance struct {
 	cfg Config
 	db  *core.ContentDB
 	sim *sim.Sim
+	ids *IdentityStore
 	// mapSnap is the terrain encoded once per world; rides every welcome.
 	mapSnap *protocol.MapSnap
+
+	// tickCount drives periodic host-layer work (character banking); it is
+	// process time, not world time — world swaps don't reset it.
+	tickCount uint64
 
 	// Descent run state (descent.go), tick-goroutine-only. run == 0 means
 	// no descent (open-plane worlds); everything else is meaningful only
@@ -165,6 +174,12 @@ type client struct {
 	tr   transport
 	mode mode
 
+	// name/token identify a named player (identity.go); both empty for
+	// guests. Set before the join is queued, then tick-goroutine-only;
+	// removeClient clears token so a double leave can't double-disconnect.
+	name  string
+	token string
+
 	actor core.EntityID
 	// early buffers commands that arrive before the tick loop has spawned
 	// this client's actor (a fast client races its own welcome); they flush
@@ -222,9 +237,14 @@ func New(db *core.ContentDB, cfg Config) (*Instance, error) {
 	if cfg.PlayerDef == "" {
 		cfg.PlayerDef = "player"
 	}
+	ids, err := NewIdentityStore(cfg.IdentityPath)
+	if err != nil {
+		return nil, err
+	}
 	in := &Instance{
 		cfg:          cfg,
 		db:           db,
+		ids:          ids,
 		listenerAddr: make(chan net.Addr, 1),
 	}
 	if cfg.Load != nil {
@@ -470,13 +490,15 @@ func (in *Instance) tick() {
 		in.tickTimes = in.tickTimes[1:]
 	}
 
+	rosterChanged := false
 	for _, c := range leaves {
-		in.removeClient(c)
+		rosterChanged = in.removeClient(c) || rosterChanged
 	}
 	var welcomes []*client
 	for _, c := range joins {
 		if in.spawnClient(c) {
 			welcomes = append(welcomes, c)
+			rosterChanged = rosterChanged || c.name != ""
 		}
 	}
 
@@ -514,6 +536,28 @@ func (in *Instance) tick() {
 	if in.paused && len(welcomes) > 0 {
 		in.sendPause(welcomes, true) // joined mid-pause; tell them why nothing moves
 	}
+	if rosterChanged {
+		// Welcomes already carry the roster; this catches everyone else.
+		in.broadcastRoster()
+	}
+
+	// Character banking: periodically copy every named client's live
+	// character into the store so a crash loses minutes, not sessions.
+	// SaveIfDue then debounces the actual disk write.
+	in.tickCount++
+	if in.tickCount%(30*core.TicksPerSecond) == 0 {
+		for _, c := range in.clients {
+			if c.token == "" {
+				continue
+			}
+			if a := in.sim.W.ActorByID(c.actor); a != nil && !a.Dead {
+				ch := core.ExtractCharacter(a)
+				in.ids.Bank(c.token, &ch)
+			}
+		}
+	}
+	in.ids.SaveIfDue()
+
 	in.sinceSend++
 	if in.sinceSend < in.cfg.SendEvery {
 		return
@@ -528,7 +572,14 @@ func (in *Instance) tick() {
 			continue
 		}
 		if !c.send(frame, binary) {
-			c.tr.Close() // readLoop notices and files the leave
+			// Close for readLoop's sake, but also file the leave ourselves:
+			// a client whose readLoop already exited (connected and dropped
+			// within one tick) would otherwise linger as a zombie — and a
+			// zombie named client squats its identity's online slot.
+			c.tr.Close()
+			in.mu.Lock()
+			in.leaves = append(in.leaves, c)
+			in.mu.Unlock()
 		}
 	}
 }
@@ -613,8 +664,33 @@ func (in *Instance) welcomeFrame(c *client) []byte {
 		}
 		msg.Run = in.runSnap()
 	}
+	msg.Name = c.name
+	msg.Roster = in.roster()
 	frame, _ := json.Marshal(msg)
 	return frame
+}
+
+// roster maps live named actors to display names. Guests aren't in it —
+// clients label them generically. Rebuilt per send; it's tiny.
+func (in *Instance) roster() map[uint64]string {
+	r := map[uint64]string{}
+	for _, c := range in.clients {
+		if c.name != "" && c.actor != 0 {
+			r[uint64(c.actor)] = c.name
+		}
+	}
+	return r
+}
+
+// broadcastRoster announces a membership change that comes without a new
+// world — swaps don't need it, their welcomes carry the roster.
+func (in *Instance) broadcastRoster() {
+	frame, _ := json.Marshal(protocol.ServerMsg{Type: "roster", Roster: in.roster()})
+	for _, c := range in.clients {
+		if !c.send(frame, false) {
+			c.tr.Close()
+		}
+	}
 }
 
 func (in *Instance) spawnClient(c *client) bool {
@@ -625,10 +701,23 @@ func (in *Instance) spawnClient(c *client) bool {
 	if g := in.sim.W.Grid; g != nil {
 		pos = g.Spawn.Add(space.V(fm.FromInt(int64(in.joinCount%4)), 0))
 	}
-	id, err := in.sim.Spawn(in.cfg.PlayerDef, pos)
-	if err != nil {
-		c.tr.Close()
-		return false
+	var id core.EntityID
+	// A named player with a banked character resumes it — level, gear,
+	// passives, wallet — exactly like a floor swap resumes everyone.
+	if c.hasChar {
+		if a, err := core.InjectCharacter(in.sim.W, c.lastChar, pos); err == nil {
+			id = a.ID
+		} else {
+			log.Printf("server: inject %q: %v", c.name, err)
+		}
+	}
+	if id == 0 {
+		var err error
+		id, err = in.sim.Spawn(in.cfg.PlayerDef, pos)
+		if err != nil {
+			c.tr.Close()
+			return false
+		}
 	}
 	in.joinCount++
 	in.mu.Lock()
@@ -644,7 +733,10 @@ func (in *Instance) spawnClient(c *client) bool {
 	return true
 }
 
-func (in *Instance) removeClient(c *client) {
+// removeClient despawns a leaver and, for named players, banks their
+// character. Idempotent (a leave can be filed twice); reports whether the
+// visible roster changed.
+func (in *Instance) removeClient(c *client) bool {
 	for i, cc := range in.clients {
 		if cc == c {
 			in.clients = append(in.clients[:i], in.clients[i+1:]...)
@@ -652,12 +744,29 @@ func (in *Instance) removeClient(c *client) {
 		}
 	}
 	// Despawn between ticks: tombstone now, the next EndTick compacts.
-	// Carried items vanish with the actor — no persistence yet.
+	// Named players' characters are banked below; a guest's carried items
+	// vanish with the actor — ephemerality is the guest deal.
+	var live *core.Character
 	if c.actor != 0 {
 		if a := in.sim.W.ActorByID(c.actor); a != nil {
+			if !a.Dead {
+				ch := core.ExtractCharacter(a)
+				live = &ch
+			}
 			a.Dead = true
 		}
 	}
+	if c.token == "" {
+		return false
+	}
+	// Prefer the still-standing actor; fall back to the death-machinery
+	// copy (at most one tick stale) so dying mid-disconnect loses nothing.
+	if live == nil && c.hasChar {
+		live = &c.lastChar
+	}
+	in.ids.Disconnect(c.token, live)
+	c.token = ""
+	return true
 }
 
 func (c *client) send(frame []byte, binary bool) bool {
@@ -678,15 +787,22 @@ func (in *Instance) sendPause(cs []*client, paused bool) {
 	}
 }
 
-// serveHTTP hosts the WebSocket endpoint (and the web client, if a static
-// dir is configured) until ctx ends.
-func (in *Instance) serveHTTP(ctx context.Context) {
+// Handler is the instance's whole HTTP surface: the WebSocket endpoint,
+// the identity API, and (with StaticDir) the web client.
+func (in *Instance) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/ws", in.HandleWS)
+	mux.HandleFunc("/api/claim", in.handleClaim)
+	mux.HandleFunc("/api/whoami", in.handleWhoami)
 	if in.cfg.StaticDir != "" {
 		mux.Handle("/", http.FileServer(http.Dir(in.cfg.StaticDir)))
 	}
-	srv := &http.Server{Addr: in.cfg.HTTPAddr, Handler: mux}
+	return mux
+}
+
+// serveHTTP hosts Handler until ctx ends.
+func (in *Instance) serveHTTP(ctx context.Context) {
+	srv := &http.Server{Addr: in.cfg.HTTPAddr, Handler: in.Handler()}
 	go func() {
 		<-ctx.Done()
 		srv.Close()
