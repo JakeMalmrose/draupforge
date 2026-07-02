@@ -22,7 +22,7 @@ import (
 // SaveVersion gates restores: a format change bumps it, and old files fail
 // loudly instead of misloading. Saves are durable state — unlike replays,
 // they must never depend on re-execution of the code that wrote them.
-const SaveVersion = 5 // v5: monster rarity + mods (v4: actor home anchor)
+const SaveVersion = 6 // v6: actor passives (v5: monster rarity + mods)
 
 type saveFile struct {
 	Version     int              `json:"version"`
@@ -98,7 +98,8 @@ type actorSave struct {
 	Level     int          `json:"level"`
 	XP        int64        `json:"xp,omitempty"`
 	Rarity    uint8        `json:"rarity,omitempty"`
-	MonMods   []string     `json:"mon_mods,omitempty"` // MonsterModDef IDs
+	MonMods   []string     `json:"mon_mods,omitempty"`  // MonsterModDef IDs
+	Passives  []string     `json:"passives,omitempty"` // PassiveDef IDs
 	Base      []fm.Fixed   `json:"base"` // sheet base values, StatID order
 	Mods      []modSave    `json:"mods,omitempty"`
 	Action    actionSave   `json:"action"`
@@ -194,6 +195,9 @@ func encodeActor(a *Actor) actorSave {
 	}
 	for _, md := range a.Mods {
 		as.MonMods = append(as.MonMods, md.ID)
+	}
+	for _, ps := range a.Passives {
+		as.Passives = append(as.Passives, ps.ID)
 	}
 	for st := stats.StatID(0); st < stats.StatCount; st++ {
 		as.Base[st] = a.Sheet.Base(st)
@@ -358,14 +362,22 @@ func decodeActor(db *ContentDB, affixes map[string]*AffixDef, as actorSave) (*Ac
 		}
 		a.Action.Skill = sk
 	}
-	// The mods' stat packages are already in the saved modifier list (under
-	// MonsterModSource); the defs are resolved only so snapshots can name them.
+	// The mods'/passives' stat packages are already in the saved modifier
+	// list (under their shared sources); the defs are resolved only so
+	// snapshots can name them and milestone checks can see them.
 	for _, id := range as.MonMods {
 		md := db.MonsterMod(id)
 		if md == nil {
 			return nil, fmt.Errorf("core: save references unknown monster mod %q", id)
 		}
 		a.Mods = append(a.Mods, md)
+	}
+	for _, id := range as.Passives {
+		pd := db.Passive(id)
+		if pd == nil {
+			return nil, fmt.Errorf("core: save references unknown passive %q", id)
+		}
+		a.Passives = append(a.Passives, pd)
 	}
 	for _, ds := range as.DoTs {
 		a.DoTs = append(a.DoTs, DoT{

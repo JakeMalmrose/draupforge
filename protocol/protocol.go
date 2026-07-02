@@ -8,7 +8,7 @@ package protocol
 // it on any change a deployed client could misread — renamed/removed JSON
 // fields (omitempty makes those fail silently) or any binary frame layout
 // change. Clients hard-fail on mismatch instead of limping.
-const Version = 12 // v12: crit flag on hit events (v11: monster rarity + mods)
+const Version = 13 // v13: passives — choose_passive, actor passives group, table in welcome
 
 // Command is the wire form of player intent. Kind is one of "move",
 // "use_skill", "stop", the item verbs "pickup", "equip", "unequip",
@@ -31,6 +31,8 @@ type Command struct {
 	// swap re-welcomes the client and bumps the generation; acks from the
 	// old world are dropped instead of poisoning the new delta encoder.
 	Gen int `json:"gen,omitempty"`
+	// Passive names the PassiveDef for "choose_passive".
+	Passive string `json:"passive,omitempty"`
 }
 
 type Vec struct {
@@ -60,6 +62,9 @@ type ActorSnap struct {
 	// and rare monsters. Static per actor life; identity field group.
 	Rarity string   `json:"rarity,omitempty"`
 	Mods   []string `json:"mods,omitempty"`
+	// Passives: taken milestone-passive IDs, in pick order. Own binary
+	// field group — it changes on a pick, unlike the identity fields.
+	Passives []string `json:"passives,omitempty"`
 	// Progression: Level for everyone (nameplates someday), XP/XPNext as
 	// progress into the current level (the HUD bar divides them). XPNext 0
 	// means no further progression (max level).
@@ -154,6 +159,15 @@ type RunSnap struct {
 	Portal  *Vec `json:"portal,omitempty"`
 }
 
+// PassiveSnap is one milestone-passive choice as the client sees it: the
+// static content the chooser UI renders. Rides the welcome once.
+type PassiveSnap struct {
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	Desc      string `json:"desc"`
+	Milestone int    `json:"milestone"`
+}
+
 // ServerMsg is one server→client JSON frame. "welcome" carries the protocol
 // version, the welcome generation (bumped by every re-welcome; acks echo
 // it), the client's assigned actor ID, the tick/send cadence (so clients
@@ -178,6 +192,8 @@ type ServerMsg struct {
 	Run       *RunSnap  `json:"run,omitempty"`
 	Snapshot  *Snapshot `json:"snapshot,omitempty"`
 	Paused    *bool     `json:"paused,omitempty"`
+	// Passives is the milestone-choice table (static content), welcome only.
+	Passives []PassiveSnap `json:"passives,omitempty"`
 }
 
 // Script is the headless runner's input: a scenario plus scheduled commands.

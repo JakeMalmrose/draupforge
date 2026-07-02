@@ -148,6 +148,11 @@ type Actor struct {
 	Rarity Rarity
 	Mods   []*MonsterModDef
 
+	// Passives: milestone choices taken, in pick order — durable character
+	// state (transfers across zones, unlike everything else status-shaped).
+	// Their stat packages live on the sheet under PassiveModSource.
+	Passives []*PassiveDef
+
 	// Dead actors are tombstoned during the tick and compacted at tick end,
 	// so slice indices stay stable while a tick is in flight.
 	Dead bool
@@ -164,6 +169,39 @@ const LevelModSource uint64 = 1 << 62
 // buff sources (bits 63+62). One source for all rarity mods is enough
 // because they are permanent — nothing ever removes them individually.
 const MonsterModSource uint64 = 1<<63 | 1<<61
+
+// PassiveModSource is the shared sheet source for milestone passives —
+// bit 63 with bit 60 alone in the low-space, disjoint from every other
+// source space (see MonsterModSource). Shared for the same reason: a
+// taken passive never comes off.
+const PassiveModSource uint64 = 1<<63 | 1<<60
+
+// HasMilestone reports whether the actor already took a passive of the
+// given milestone.
+func (a *Actor) HasMilestone(m int) bool {
+	for _, p := range a.Passives {
+		if p.Milestone == m {
+			return true
+		}
+	}
+	return false
+}
+
+// TakePassive grants a milestone passive: records it and installs its
+// modifiers under PassiveModSource. Callers gate on level and milestone
+// (the command validator, character injection).
+func (a *Actor) TakePassive(def *PassiveDef) {
+	a.Passives = append(a.Passives, def)
+	for _, m := range def.Mods {
+		a.Sheet.Add(stats.Modifier{
+			Stat:   m.Stat,
+			Layer:  m.Layer,
+			Value:  m.Value,
+			Tags:   m.Tags,
+			Source: PassiveModSource,
+		})
+	}
+}
 
 // ApplyMonsterMods sets the actor's rarity and grants each modifier
 // package on the sheet under MonsterModSource. Callers refill pools

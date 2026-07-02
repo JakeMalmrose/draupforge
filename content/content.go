@@ -4,6 +4,8 @@
 package content
 
 import (
+	"fmt"
+
 	"github.com/JakeMalmrose/draupforge/sim/core"
 	fm "github.com/JakeMalmrose/draupforge/sim/fixmath"
 	"github.com/JakeMalmrose/draupforge/sim/stats"
@@ -66,7 +68,80 @@ func DB() *core.ContentDB {
 		}
 		seen[m.ID] = true
 	}
+	db.Passives = passiveDefs()
+	seenPassive := map[string]bool{}
+	milestoneForks := map[int]int{}
+	for _, p := range db.Passives {
+		if p.ID == "" || len(p.Mods) == 0 || p.Milestone < 2 {
+			panic("content: passive " + p.ID + " is malformed")
+		}
+		if seenPassive[p.ID] {
+			panic("content: duplicate passive " + p.ID)
+		}
+		seenPassive[p.ID] = true
+		milestoneForks[p.Milestone]++
+	}
+	for m, n := range milestoneForks {
+		if n < 2 {
+			panic(fmt.Sprintf("content: milestone %d has %d fork(s); a choice needs at least 2", m, n))
+		}
+	}
 	return db
+}
+
+// passiveDefs is the milestone-choice table: at each milestone level the
+// player takes exactly one fork, permanently. Keep forks per milestone
+// meaningfully different — this is the build-identity lever.
+func passiveDefs() []*core.PassiveDef {
+	return []*core.PassiveDef{
+		{
+			ID: "iron_constitution", Name: "Iron Constitution", Milestone: 5,
+			Desc: "+40 life, +25 armour",
+			Mods: []core.BuffMod{
+				{Stat: stats.Life, Layer: stats.LayerFlat, Value: fm.FromInt(40)},
+				{Stat: stats.Armour, Layer: stats.LayerFlat, Value: fm.FromInt(25)},
+			},
+		},
+		{
+			ID: "keen_eye", Name: "Keen Eye", Milestone: 5,
+			Desc: "+40 accuracy, +2% crit chance",
+			Mods: []core.BuffMod{
+				{Stat: stats.Accuracy, Layer: stats.LayerFlat, Value: fm.FromInt(40)},
+				{Stat: stats.CritChance, Layer: stats.LayerFlat, Value: fm.FromMilli(20)},
+			},
+		},
+		{
+			ID: "clear_mind", Name: "Clear Mind", Milestone: 5,
+			Desc: "+20 mana, 10% increased cast speed",
+			Mods: []core.BuffMod{
+				{Stat: stats.Mana, Layer: stats.LayerFlat, Value: fm.FromInt(20)},
+				{Stat: stats.CastSpeed, Layer: stats.LayerIncreased, Value: fm.FromMilli(100)},
+			},
+		},
+		{
+			ID: "executioner", Name: "Executioner", Milestone: 10,
+			Desc: "20% increased damage",
+			Mods: []core.BuffMod{
+				{Stat: stats.Damage, Layer: stats.LayerIncreased, Value: fm.FromMilli(200)},
+			},
+		},
+		{
+			ID: "shadow_step", Name: "Shadow Step", Milestone: 10,
+			Desc: "8% increased move speed, +40 evasion",
+			Mods: []core.BuffMod{
+				{Stat: stats.MoveSpeed, Layer: stats.LayerIncreased, Value: fm.FromMilli(80)},
+				{Stat: stats.Evasion, Layer: stats.LayerFlat, Value: fm.FromInt(40)},
+			},
+		},
+		{
+			ID: "spellweaver", Name: "Spellweaver", Milestone: 10,
+			Desc: "15% increased spell damage, +1 mana regen",
+			Mods: []core.BuffMod{
+				{Stat: stats.Damage, Layer: stats.LayerIncreased, Tags: stats.T(stats.TagSpell), Value: fm.FromMilli(150)},
+				{Stat: stats.ManaRegen, Layer: stats.LayerFlat, Value: fm.One},
+			},
+		},
+	}
 }
 
 // monsterModDefs is the rarity-modifier pool: what a magic (one mod) or

@@ -173,3 +173,46 @@ body {
 }
 
 .hidden { display: none !important; }
+
+/* Passive chooser: the milestone-choice card, bottom center above the HUD. */
+#passive-chooser {
+  position: absolute;
+  bottom: 110px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #14141dee;
+  border: 1px solid #3a3a4e;
+  border-radius: 6px;
+  padding: 10px 14px;
+  text-align: center;
+  z-index: 5;
+}
+#passive-chooser h3 {
+  margin: 0 0 8px;
+  font-size: 13px;
+  color: #b8a44a;
+  font-weight: normal;
+  letter-spacing: 0.06em;
+}
+.passive-option {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0 4px;
+  padding: 8px 12px;
+  background: #1c1c28;
+  border: 1px solid #3a3a4e;
+  border-radius: 4px;
+  color: #cfc9bf;
+  font-family: Georgia, serif;
+  font-size: 12px;
+  cursor: pointer;
+}
+.passive-option:hover {
+  border-color: #b8a44a;
+  background: #232331;
+}
+.passive-option span {
+  color: #8d8678;
+  font-size: 11px;
+}

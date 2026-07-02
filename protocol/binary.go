@@ -41,7 +41,8 @@ const (
 	actorEquipment
 	actorInventory
 	actorAilments
-	actorProgress // level, xp, xp_next
+	actorProgress
+	actorPassives // level, xp, xp_next
 )
 
 // Projectile field-mask bits.
@@ -212,6 +213,12 @@ func encodeActors(w *bwriter, base, view []ActorSnap) {
 			w.sv(a.XP)
 			w.sv(a.XPNext)
 		}
+		if c.mask&actorPassives != 0 {
+			w.uv(uint64(len(a.Passives)))
+			for _, ps := range a.Passives {
+				w.str(ps)
+			}
+		}
 	}
 }
 
@@ -219,7 +226,7 @@ func actorMask(b, a *ActorSnap) uint64 {
 	if b == nil {
 		return actorIdentity | actorPos | actorLife | actorMaxLife | actorMana |
 			actorMaxMana | actorES | actorAction | actorEquipment | actorInventory |
-			actorAilments | actorProgress
+			actorAilments | actorProgress | actorPassives
 	}
 	var mask uint64
 	if b.Def != a.Def || b.Team != a.Team || b.Radius != a.Radius || b.InvSize != a.InvSize ||
@@ -258,6 +265,9 @@ func actorMask(b, a *ActorSnap) uint64 {
 	}
 	if b.Level != a.Level || b.XP != a.XP || b.XPNext != a.XPNext {
 		mask |= actorProgress
+	}
+	if !reflect.DeepEqual(b.Passives, a.Passives) {
+		mask |= actorPassives
 	}
 	return mask
 }
@@ -325,6 +335,11 @@ func decodeActors(r *breader, base []ActorSnap) []ActorSnap {
 			a.Level = int(r.uv())
 			a.XP = r.sv()
 			a.XPNext = r.sv()
+		}
+		if mask&actorPassives != 0 {
+			for m := r.uv(); m > 0 && r.err == nil; m-- {
+				a.Passives = append(a.Passives, r.str())
+			}
 		}
 		changed[id] = actorDelta{a, mask}
 		order = append(order, id)
@@ -396,6 +411,9 @@ func mergeActor(b ActorSnap, d actorDelta) ActorSnap {
 	}
 	if d.mask&actorProgress != 0 {
 		a.Level, a.XP, a.XPNext = n.Level, n.XP, n.XPNext
+	}
+	if d.mask&actorPassives != 0 {
+		a.Passives = n.Passives
 	}
 	return a
 }

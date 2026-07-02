@@ -277,6 +277,17 @@ type MonsterModDef struct {
 	Mods []BuffMod
 }
 
+// PassiveDef is one fork of a level-milestone choice: a named, permanent
+// package of stat modifiers. Reaching Milestone unlocks the pick; an actor
+// takes at most one passive per milestone, and it never comes off.
+type PassiveDef struct {
+	ID        string
+	Name      string
+	Desc      string // one line the chooser UI shows
+	Milestone int    // level that unlocks this fork
+	Mods      []BuffMod
+}
+
 type ContentDB struct {
 	Skills     map[string]*SkillDef
 	Actors     map[string]*ActorDef
@@ -287,6 +298,8 @@ type ContentDB struct {
 	// MonsterMods is ordered — rarity rolls index into it, so reordering
 	// is a replay-relevant change (same rule as the affix table).
 	MonsterMods []*MonsterModDef
+	// Passives is ordered for stable presentation; lookups go by ID.
+	Passives []*PassiveDef
 }
 
 // MonsterMod resolves a rarity-modifier ID; nil if unknown. Linear scan —
@@ -295,6 +308,17 @@ func (db *ContentDB) MonsterMod(id string) *MonsterModDef {
 	for _, m := range db.MonsterMods {
 		if m.ID == id {
 			return m
+		}
+	}
+	return nil
+}
+
+// Passive resolves a passive ID; nil if unknown. Linear scan, same
+// reasoning as MonsterMod.
+func (db *ContentDB) Passive(id string) *PassiveDef {
+	for _, p := range db.Passives {
+		if p.ID == id {
+			return p
 		}
 	}
 	return nil

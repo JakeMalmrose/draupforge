@@ -230,6 +230,16 @@ func applyCommands(w *core.World, cmds []core.Command) {
 				items.DropItem(w, a, c.TargetID)
 			}
 
+		case core.CmdChoosePassive:
+			// Not an action — legal even mid-swing. Level-gated, one pick
+			// per milestone, permanent.
+			def := w.Content.Passive(c.Passive)
+			if def == nil || a.Level < def.Milestone || a.HasMilestone(def.Milestone) {
+				continue
+			}
+			a.TakePassive(def)
+			w.Emit(core.Event{Kind: core.EvPassive, Actor: a.ID, Note: def.ID})
+
 		case core.CmdUseSkill:
 			if a.Action.Kind == core.ActionSkill {
 				continue
