@@ -4,7 +4,6 @@ import (
 	"github.com/JakeMalmrose/draupforge/sim/core"
 	fm "github.com/JakeMalmrose/draupforge/sim/fixmath"
 	"github.com/JakeMalmrose/draupforge/sim/space"
-	"github.com/JakeMalmrose/draupforge/sim/stats"
 )
 
 // PickupRange is how far an actor can reach to grab a ground drop, measured
@@ -66,24 +65,7 @@ func Equip(w *core.World, a *core.Actor, id core.EntityID, slot core.EquipSlot) 
 
 	equipped := item
 	a.Equipment[slot] = &equipped
-	if imp := item.Base.Implicit; imp != nil {
-		a.Sheet.Add(stats.Modifier{
-			Stat:   imp.Stat,
-			Layer:  imp.Layer,
-			Value:  item.Implicit,
-			Tags:   imp.Tags,
-			Source: uint64(item.ID),
-		})
-	}
-	for _, af := range item.Affixes {
-		a.Sheet.Add(stats.Modifier{
-			Stat:   af.Def.Stat,
-			Layer:  af.Def.Layer,
-			Value:  af.Value,
-			Tags:   af.Def.Tags,
-			Source: uint64(item.ID),
-		})
-	}
+	a.AddItemMods(&equipped)
 	clampPools(a)
 	w.Emit(core.Event{Kind: core.EvEquip, Actor: a.ID, Other: item.ID, Note: item.Base.ID})
 	return true

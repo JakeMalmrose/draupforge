@@ -9,6 +9,7 @@
 
 const SCALE = 42;          // pixels per world unit
 const PICKUP_RANGE = 1.9;  // world units; matches server (with margin)
+const USE_RANGE = 1.9;     // stairs/portal use range; matches server (with margin)
 const LOG_LINES = 9;
 const VIEW_HISTORY = 32;   // kept as delta baselines; matches the server cap
 
@@ -16,10 +17,17 @@ const VIEW_HISTORY = 32;   // kept as delta baselines; matches the server cap
 
 let ws = null;
 let myId = 0;
+let gen = 0;                // welcome generation; acks echo it
 let snap = null;            // newest reconstructed view (HUD, log, input)
 let seenSelf = false;       // distinguishes "not spawned yet" from "died"
 let pendingPickup = 0;      // drop entity we're walking toward
 let lastPickupSent = 0;
+let stairs = null;          // {x, y} milli — this floor's descent stairs
+let runState = null;        // RunSnap: {floor, portals, run, best, portal?}
+let pendingDescend = false; // walking toward the stairs to take them
+let lastDescendSent = 0;
+let pendingPortal = false;  // walking toward the portal to enter it
+let lastPortalSent = 0;
 let mouse = { x: 0, y: 0 }; // canvas px
 let cam = { x: 0, y: 0 };   // world units
 const names = new Map();    // entity id -> label, survives despawn
@@ -64,8 +72,7 @@ function connect() {
           ws.close();
           return;
         }
-        myId = msg.actor;
-        worldMap = msg.map || null;
+        resetWorld(msg);
         if (msg.tick_hz && msg.send_every) {
           // 1.5 send intervals behind: one interval to always have a newer
           // view to lerp toward, half an interval of jitter slack.
@@ -73,6 +80,9 @@ function connect() {
           const interval = tickMs * msg.send_every;
           interpDelay = Math.min(Math.max(1.5 * interval, 100), 250);
         }
+      } else if (msg.type === "run") {
+        runState = msg.run || null;
+        updateRunHUD();
       } else if (msg.type === "pause") {
         if (msg.paused) showOverlay("PAUSED");
         else hideOverlay();
@@ -85,7 +95,7 @@ function connect() {
     if (view.needBaseline) {
       // We pruned the view this frame deltas against. Tell the server to
       // start over; skip frames until the keyframe lands.
-      if (!awaitKeyframe) send({ kind: "ack", tick: 0 });
+      if (!awaitKeyframe) send({ kind: "ack", tick: 0, gen });
       awaitKeyframe = true;
       return;
     }
@@ -94,10 +104,38 @@ function connect() {
     while (viewHistory.size > VIEW_HISTORY) {
       viewHistory.delete(viewHistory.keys().next().value);
     }
-    send({ kind: "ack", tick: view.tick });
+    send({ kind: "ack", tick: view.tick, gen });
     onView(view);
   };
   ws.onclose = () => showOverlay("DISCONNECTED");
+}
+
+// resetWorld applies a welcome. Every welcome is a whole new world on the
+// same socket (join, floor swap, portal travel, death eject), so all
+// world-derived state resets: views, interpolation, fades, names, layouts.
+function resetWorld(msg) {
+  myId = msg.actor;
+  gen = msg.gen || 0;
+  worldMap = msg.map || null;
+  stairs = msg.stairs || null;
+  runState = msg.run || null;
+  snap = null;
+  seenSelf = false;
+  pendingPickup = 0;
+  pendingDescend = false;
+  pendingPortal = false;
+  clockOffset = null;
+  interpBuf.length = 0;
+  viewHistory.clear();
+  awaitKeyframe = false;
+  firstSeen.clear();
+  ghosts.length = 0;
+  effects.length = 0;
+  names.clear();
+  bagLayout.clear();
+  panelKey = "";
+  hideOverlay();
+  updateRunHUD();
 }
 
 function send(cmd) {
@@ -161,6 +199,8 @@ function onView(view) {
     }
   }
   autoPickup(self);
+  autoDescend(self);
+  autoPortal(self);
   if (!panel.classList.contains("hidden")) renderPanel(self);
 }
 
@@ -175,6 +215,32 @@ function autoPickup(self) {
     send({ kind: "pickup", target: pendingPickup });
     lastPickupSent = now;
   }
+}
+
+// autoDescend/autoPortal mirror autoPickup: a click on the stairs/portal
+// walks there, and the use command fires once in range. The server
+// validates range again; the welcome for the new world clears the flag.
+function autoDescend(self) {
+  if (!pendingDescend || !self || !stairs) return;
+  const now = performance.now();
+  if (near(self, stairs, USE_RANGE) && now - lastDescendSent > 300) {
+    send({ kind: "descend" });
+    lastDescendSent = now;
+  }
+}
+
+function autoPortal(self) {
+  const portal = runState && runState.portal;
+  if (!pendingPortal || !self || !portal) return;
+  const now = performance.now();
+  if (near(self, portal, USE_RANGE) && now - lastPortalSent > 300) {
+    send({ kind: "enter_portal" });
+    lastPortalSent = now;
+  }
+}
+
+function near(self, p, range) {
+  return Math.hypot(toUnits(p.x - self.pos.x), toUnits(p.y - self.pos.y)) <= range;
 }
 
 // -------------------------------------------------------------- render
@@ -262,6 +328,8 @@ function render() {
       cam.y += (Math.random() * 2 - 1) * k;
     }
     drawTerrain();
+    drawStairs(now);
+    drawPortal(now);
     // Fade-out ghosts go under live entities; a ghost whose id reappears
     // (re-entered interest range) yields to the live drawing immediately.
     for (let i = ghosts.length - 1; i >= 0; i--) {
@@ -358,6 +426,64 @@ function drawTerrain() {
     ctx.lineTo(px((x1 + 1) * t), py(y * t));
   }
   ctx.stroke();
+}
+
+// drawStairs paints the descent stairs (from the welcome — they never move
+// within a floor): a shrinking stack of steps sinking into the dark.
+function drawStairs(now) {
+  if (!stairs) return;
+  const p = worldToScreen(stairs.x, stairs.y);
+  const s = SCALE * 0.45;
+  ctx.save();
+  ctx.translate(p.x, p.y);
+  ctx.fillStyle = "#0b0b10";
+  ctx.fillRect(-s, -s, 2 * s, 2 * s);
+  ctx.strokeStyle = "#b8a44a";
+  ctx.lineWidth = 1.5;
+  ctx.strokeRect(-s, -s, 2 * s, 2 * s);
+  ctx.fillStyle = "#3a3a4e";
+  for (let i = 0; i < 4; i++) {
+    const k = 1 - i * 0.22;
+    ctx.fillRect(-s * k, s * (1 - k) - s * 0.15, 2 * s * k, s * 0.24);
+  }
+  ctx.restore();
+  ctx.fillStyle = "#b8a44a";
+  ctx.font = "11px Georgia";
+  ctx.textAlign = "center";
+  ctx.fillText("stairs down", p.x, p.y - s - 6);
+}
+
+// drawPortal paints the run's portal when it stands on this world: a slow
+// two-arc swirl. In the hideout it is the way back; in the dungeon it is
+// the death anchor and the door home.
+function drawPortal(now) {
+  const portal = runState && runState.portal;
+  if (!portal) return;
+  const p = worldToScreen(portal.x, portal.y);
+  const r = SCALE * 0.55;
+  const spin = now / 900;
+  ctx.save();
+  ctx.strokeStyle = "#7fd4ff";
+  ctx.lineWidth = 2.5;
+  for (let i = 0; i < 2; i++) {
+    const a0 = spin + i * Math.PI;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, r, a0, a0 + Math.PI * 0.7);
+    ctx.stroke();
+  }
+  ctx.strokeStyle = "#bfeaff";
+  ctx.lineWidth = 1.5;
+  for (let i = 0; i < 2; i++) {
+    const a0 = -spin * 1.4 + i * Math.PI;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, r * 0.62, a0, a0 + Math.PI * 0.6);
+    ctx.stroke();
+  }
+  ctx.restore();
+  ctx.fillStyle = "#7fd4ff";
+  ctx.font = "11px Georgia";
+  ctx.textAlign = "center";
+  ctx.fillText("portal", p.x, p.y - r - 6);
 }
 
 function drawGrid() {
@@ -608,15 +734,24 @@ canvas.addEventListener("mousemove", (e) => { mouse.x = e.offsetX; mouse.y = e.o
 canvas.addEventListener("mousedown", (e) => {
   if (e.button !== 0 || !snap) return;
   const w = screenToWorldUnits(e.offsetX, e.offsetY);
+  const clicked = (p, r) => p && Math.hypot(toUnits(p.x) - w.x, toUnits(p.y) - w.y) < r;
+  pendingPickup = 0;
+  pendingDescend = false;
+  pendingPortal = false;
   let drop = null;
   for (const d of snap.drops.values()) {
-    if (Math.hypot(toUnits(d.pos.x) - w.x, toUnits(d.pos.y) - w.y) < 0.8) { drop = d; break; }
+    if (clicked(d.pos, 0.8)) { drop = d; break; }
   }
   if (drop) {
     pendingPickup = drop.id;
     send({ kind: "move", x: drop.pos.x, y: drop.pos.y });
+  } else if (clicked(stairs, 1.0)) {
+    pendingDescend = true;
+    send({ kind: "move", x: stairs.x, y: stairs.y });
+  } else if (clicked(runState && runState.portal, 1.0)) {
+    pendingPortal = true;
+    send({ kind: "move", x: runState.portal.x, y: runState.portal.y });
   } else {
-    pendingPickup = 0;
     send({ kind: "move", x: toMilli(w.x), y: toMilli(w.y) });
   }
 });
@@ -639,6 +774,9 @@ window.addEventListener("keydown", (e) => {
     }
     case "t":
       send({ kind: "use_skill", skill: "adrenaline" });
+      break;
+    case "p":
+      send({ kind: "plant_portal" });
       break;
     case "i":
       panel.classList.toggle("hidden");
@@ -1003,6 +1141,32 @@ function logEvent(ev) {
     case "level_up":
       text = `${nameOf(ev.actor)} is now level ${Math.round(ev.amount / 1000)}!`;
       break;
+    // Run events are host-synthesized (amounts are floors/counts × 1000).
+    case "descend":
+      text = `descended to floor ${Math.round(ev.amount / 1000)}`;
+      break;
+    case "death_eject":
+      text = `death! ejected to the portal — ${Math.round(ev.amount / 1000)} portal uses left`;
+      break;
+    case "run_over":
+      text = `THE RUN IS OVER — reached floor ${Math.round(ev.amount / 1000)}. a new run begins`;
+      break;
+    case "portal":
+      switch (ev.note) {
+        case "planted":
+          text = `portal planted on floor ${Math.round(ev.amount / 1000)}`;
+          break;
+        case "hideout":
+          text = `stepped through to the hideout — ${Math.round(ev.amount / 1000)} portal uses left`;
+          break;
+        case "return":
+          text = `returned to floor ${Math.round(ev.amount / 1000)}`;
+          break;
+        case "exhausted":
+          text = "no portal uses left";
+          break;
+      }
+      break;
   }
   if (!text) return;
   const div = document.createElement("div");
@@ -1027,6 +1191,18 @@ function updateHUD(self) {
   // xp_next 0 = max level: show a full bar instead of dividing by zero.
   const xpPct = self.xp_next > 0 ? (100 * self.xp) / self.xp_next : 100;
   document.getElementById("xp-fill").style.width = `${xpPct}%`;
+}
+
+// updateRunHUD paints the descent scoreboard; floor 0 is the hideout.
+function updateRunHUD() {
+  const el = document.getElementById("run-status");
+  if (!runState) {
+    el.textContent = "";
+    return;
+  }
+  const where = runState.floor === 0 ? "Hideout" : `Floor ${runState.floor}`;
+  el.textContent =
+    `Run ${runState.run} · ${where} · Portals ${runState.portals} · Best floor ${runState.best}`;
 }
 
 function showOverlay(text) {

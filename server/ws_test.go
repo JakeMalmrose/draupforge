@@ -45,6 +45,7 @@ type wsClient struct {
 	t       *testing.T
 	ws      *websocket.Conn
 	actor   uint64
+	gen     int // welcome generation; acks must echo it
 	welcome protocol.ServerMsg
 	views   map[uint64]*protocol.Snapshot
 	acks    bool // whether to ack received views
@@ -72,6 +73,7 @@ func dialWS(t *testing.T, url string, acks bool) *wsClient {
 		t.Fatalf("first frame = %+v, want a welcome with an actor", c.welcome)
 	}
 	c.actor = c.welcome.Actor
+	c.gen = c.welcome.Gen
 	return c
 }
 
@@ -114,7 +116,7 @@ func (c *wsClient) nextView() (*protocol.Snapshot, uint64) {
 		}
 		c.views[view.Tick] = &view
 		if c.acks {
-			c.send(fmt.Sprintf(`{"kind":"ack","tick":%d}`, view.Tick))
+			c.send(fmt.Sprintf(`{"kind":"ack","tick":%d,"gen":%d}`, view.Tick, c.gen))
 		}
 		return &view, baseTick
 	}
@@ -203,7 +205,7 @@ func TestAckZeroResetsToKeyframe(t *testing.T) {
 	}
 
 	c.acks = false
-	c.send(`{"kind":"ack","tick":0}`)
+	c.send(fmt.Sprintf(`{"kind":"ack","tick":0,"gen":%d}`, c.gen))
 	deadline = time.Now().Add(testTimeout)
 	for {
 		_, bt := c.nextView()

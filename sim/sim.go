@@ -58,6 +58,20 @@ func (s *Sim) GenerateMap(spec space.MapSpec) {
 	s.W.Grid = space.GenerateRooms(spec, s.W.RNGMap)
 }
 
+// SpawnLeveled is Spawn with a level override (0 keeps the def's level):
+// growth mods applied, pools filled at the new maxima. Floor-scaling
+// spawners use this to hand out level-N packs.
+func (s *Sim) SpawnLeveled(defID string, pos space.Vec2, level int) (core.EntityID, error) {
+	id, err := s.Spawn(defID, pos)
+	if err != nil || level <= 0 {
+		return id, err
+	}
+	a := s.W.ActorByID(id)
+	a.SetLevel(level)
+	a.Life, a.Mana, a.ES = a.MaxLife(), a.MaxMana(), a.MaxES()
+	return id, nil
+}
+
 // scatterMinSpawnDist keeps scattered monsters out of the players' entry
 // room — far enough to not be hit the instant you load in.
 var scatterMinSpawnDist = fm.FromInt(10)
@@ -65,6 +79,12 @@ var scatterMinSpawnDist = fm.FromInt(10)
 // ScatterSpawn places count actors on random walkable tiles (map RNG
 // stream), preferring spots away from the player spawn point.
 func (s *Sim) ScatterSpawn(defID string, count int) error {
+	return s.ScatterSpawnLeveled(defID, count, 0)
+}
+
+// ScatterSpawnLeveled is ScatterSpawn with a level override (0 keeps the
+// def's level).
+func (s *Sim) ScatterSpawnLeveled(defID string, count, level int) error {
 	g := s.W.Grid
 	if g == nil {
 		return fmt.Errorf("sim: scatter spawn needs a generated map")
@@ -78,7 +98,7 @@ func (s *Sim) ScatterSpawn(defID string, count int) error {
 		for try := 0; try < 20 && space.Dist(pos, g.Spawn) < scatterMinSpawnDist; try++ {
 			pos = tiles[s.W.RNGMap.Uint64n(uint64(len(tiles)))]
 		}
-		if _, err := s.Spawn(defID, pos); err != nil {
+		if _, err := s.SpawnLeveled(defID, pos, level); err != nil {
 			return err
 		}
 	}

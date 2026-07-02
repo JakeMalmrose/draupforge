@@ -34,7 +34,10 @@ func AwardXP(w *core.World) {
 		if dier.Def.XPValue == 0 || killer.Team == dier.Team {
 			continue
 		}
-		killer.XP += dier.Def.XPValue
+		// Leveled monsters pay leveled XP (linear for now) so floor-scaled
+		// packs keep up with the quadratic curve. Level 1 is the identity —
+		// existing scenarios and goldens are unaffected.
+		killer.XP += dier.Def.XPValue * int64(dier.Level)
 		for killer.Level < MaxLevel && killer.XP >= XPToNext(killer.Level) {
 			killer.XP -= XPToNext(killer.Level)
 			killer.SetLevel(killer.Level + 1)
