@@ -11,50 +11,44 @@ tests, and session-log entries older than a few sessions (git history is the
 archive). If this file outgrows ~150 lines, it has stopped being a status doc
 and started being a changelog — cut it back.
 
-**Last updated: 2026-07-02** (session 40: docs true-up — this file's body now
-reflects the multiplayer lobby, identities, and CI/CD that sessions 36–39
-shipped)
+**Last updated: 2026-07-02** (session 41: world runover — runs start in the
+hideout, world seeds roll fresh each boot; STATUS pruned back toward budget)
 
 ## Where things stand
 
 The game is public and multiplayer: https://nuc.tail4b8d48.ts.net (Tailscale
-Funnel → the nuc; CI redeploys on every merge to main — see the CI/CD row).
-`cmd/server` runs a Lobby of instances. On connect you claim a name or play
-as guest: a claim mints a secret token in an HttpOnly cookie, and the token
-(never the name) resumes your character — banked to the `-identities` JSON on
-disconnect and every 30s. Guests are ephemeral. Every connection gets its own
-world and run; party = instance — the F panel lists all online named players
-(the default friends list), an accepted invite transfers you into the
-inviter's world via the floor-swap machinery, and empty instances reap after
-60s, doubling as reconnect grace back into your run. `cmd/partybot` is a fake
-friend for testing invites solo.
+Funnel → the nuc; CI redeploys on every merge to main). `cmd/server` runs a
+Lobby of instances. On connect you claim a name or play as guest: a claim
+mints a secret token in an HttpOnly cookie, and the token (never the name)
+resumes your character — banked to the `-identities` JSON on disconnect and
+every 30s. Guests are ephemeral. Every connection gets its own world and
+run; party = instance — the F panel lists all online named players, an
+accepted invite transfers you into the inviter's world via the floor-swap
+machinery, and empty instances reap after 60s, doubling as reconnect grace.
 
-The game is a game now: you descend. Each instance hosts one run at a time —
-floors are whole fresh Worlds seeded from (run seed, floor index); stairs at
-the far end of each floor take everyone a level deeper; packs grow and level
-with depth (and pay leveled XP). Death costs XP (never de-levels) and ejects
-everyone to the portal, burning one of the run's portal uses (`-portals`,
-default 3) — none left and the run is over: a new run starts on a fresh seed,
-best-floor kept as the score, the character (level/XP/gear) surviving it all.
-The portal starts at the floor-1 spawn, re-plants wherever you stand (P), and
-walking into it travels to the hideout — a small safe world, floor 0 — for
-one use; stepping back through is free. The HUD shows run · floor · portals ·
-best; stairs and portal render in-world and are click-to-use.
+The game is a game now: you descend — from home. Every run starts in the
+hideout (floor 0, a small safe world pinned to its own seed — the same home
+every session); its portal leads down to floor 1, anchoring there on first
+use. Each boot rolls a fresh world seed (logged — `-seed` pins it to
+reproduce a session), and every instance derives its dungeons from that one
+number. Floors are whole fresh Worlds seeded from (run seed, floor index);
+stairs at the far end take everyone a level deeper; packs grow and level
+with depth, a rare guardian holds the stairs every 3rd floor. Death costs XP
+(never de-levels) and ejects everyone to the portal, burning one portal use
+(`-portals`, default 3) — none left and the run is over: a new run starts
+back home on a fresh seed, best-floor kept as the score, the character
+(level/XP/gear/gems) surviving it all. The portal re-plants wherever you
+stand (P); a trip home costs one use, returning is free. The HUD shows run ·
+floor · portals · best.
 
-Player skills are gems now (session 34): a fresh exile knows only a level-1
-Fireball gem; uncut skill and support gems drop from kills carrying a
-pre-rolled draft of three choices, and cutting is deterministic — cut a new
-skill at the drop's level (1–20, from the dier's level), raise an existing
-gem to it, or socket a support (more/less damage, extra projectiles, chain,
-conversion, speed, mana). Sockets live on the gem (start 1, cap 4); the new
-jeweller orb adds one. The Q/E/R/T bar is the gem list.
-
-Under it: characters extract/inject across worlds (`sim/core/character.go` —
-item IDs re-minted, sheet rebuilt, pools carried; zone-local state dropped),
-and every transfer is a re-welcome on the same socket (welcome generation
-tags acks so stale ones die with their world). All of session 14's game
-loop still holds: click-to-move with pathing, the full item
-flow, ailments, kiting archers. Run it:
+Player skills are gems (session 34): a fresh exile knows only a level-1
+Fireball; uncut skill/support gems drop from kills carrying a pre-rolled
+draft of three choices — cut a new skill at the drop's level (1–20, from the
+dier's level), raise an existing gem to it, or socket a support. Sockets
+live on the gem (start 1, cap 4); the jeweller orb adds one. The Q/E/R/T
+bar is the gem list. Under it all: characters extract/inject across worlds
+(`sim/core/character.go`), and every transfer is a re-welcome on the same
+socket. Run it:
 
 ```sh
 go test ./...                                    # full suite, all green
@@ -69,248 +63,175 @@ All foundational machinery from DESIGN.md is real, not stubbed:
 | System | Where | State |
 |--------|-------|-------|
 | Fixed-point math (no floats in sim) | `sim/fixmath` | done, tested |
-| Geometry, projectile sweep, terrain: tile grid (clearance-eroded walkability), DDA wall raycast, deterministic A* + smoothing, rooms-and-corridors mapgen off RNGMap | `sim/space` | done, tested; `Walkable` seam is real now |
+| Space: tile grid (clearance-eroded walkability), DDA raycast, deterministic A* + smoothing, rooms-and-corridors mapgen off RNGMap | `sim/space` | done, tested |
 | Stat algebra (flat/inc/more/override + tags) | `sim/stats` | done, tested, memoized |
 | World/Actor/Hit/defs, RNG, state hashing | `sim/core` | done |
-| Damage pipeline + DoTs + regen | `sim/combat` | done, tested |
-| Statuses: ignite (DoT) + chill/shock (hit-scaled, strongest-wins) + content buffs (`BuffDef` packages, refresh-not-stack, `SkillBuff` skills via pending-buff queue) | `sim/combat/ailments.go`, `buff.go` | done, tested |
-| Persistence: `World.Save`/`LoadWorld` (versioned JSON, content by string ID, bit-exact continuation), admin `POST /api/save`; descent instances wrap the world in a run envelope (`server/runsave.go`, own version gate) — but `-load` is currently refused in lobby mode (see shortcuts) | `sim/core/save.go`, `sim/space/save.go`, `server/runsave.go` | done, tested; `-load` regressed by the lobby |
-| Actions (windup/recovery) + projectiles; skill-feel mechanics: impact explosions with linear distance falloff (`Hit.AreaScale`, events noted `<skill>:aoe`), wall bounce (`SegmentHitN` face normals), heading wiggle (combat-stream draw every `WigglePeriod` ticks), hitscan chain skills (`SkillChain`: aim-point acquisition + shared chain-hop targeting) | `sim/skills` | done, tested |
-| Loot: per-table rarity weights, weighted affixes, group caps, per-slot affix pools (`AffixDef.Families`, DB() asserts 3+3 groups per family), rolled base implicits, starved-pool event | `sim/items` | done, tested |
-| Currency: `Actor.Orbs` wallet (transmute/alch/chaos/jeweller), orbs bank straight to the killer (one loot draw per kill, rates ×2/×3 by dier rarity), `apply_orb` on bag items (transmute normal→magic, alch normal→rare, chaos rerolls rare — shared `fillAffixes`; jewellers go to gems via `add_socket`), durable (save v8, transfers), panel orb strip with apply-mode | `sim/items/loot.go`, `web/` | done, tested |
-| Gems: players cast only from cut gems (`Actor.Gems`; `ActorDef.StartingGems` seeds Fireball, monsters keep `Def.Skills`); uncut gem items drop with a 3-distinct-choice draft rolled at drop time (loot stream; per-table permilles ×2/×3 by rarity), level = dier level capped 20; verbs `cut_skill` (new gem at drop level, replace at the 4-gem cap), `level_gem` (raise-to-drop-level), `cut_support` (tag-gated, socket-addressed, swap destroys), `add_socket` (jeweller, cap 4); supports fold into the socketed skill's queries only (more/less, added flat, cast/attack speed, mana mult, +projectiles fan, chain with LoS retarget, fire/lightning→cold conversion — the pipeline's conversion stage is live, converted portions scale by both types' mods); gem level scales the skill's base roll +10%/level and mana +5%/level; cast contexts bake at use time so in-flight projectiles keep their stats; durable (save v9, transfers, hashed), gem field group + welcome tables on the wire, client gem panel/cut dialog/dynamic skill bar | `sim/core/gems.go`, `sim/items/gems.go`, `sim/combat/pipeline.go`, `content/supports.go`, `web/` | done, tested (13 gem tests), verified live in the browser |
-| Progression: XP on kill (scaled by monster level), quadratic curve, level cap 50, PerLevel growth mods under `LevelModSource`, ding heal, HUD level + XP bar | `sim/progress`, `core.Actor.SetLevel` | done, tested |
-| Flasks: `ActorDef.Flasks` (buff IDs) + `Actor.FlaskCharges`, `use_flask` command (charges-gated, applies the flask's regen-burst buff, legal mid-swing), kills feed +10 capped 60 (same reward hook as XP), durable across transfers/saves (v7), charges group on the wire (v14), HUD vials on keys 1/2 | `sim/`, `content/`, `protocol/`, `web/` | done, tested |
-| Passive forks: `PassiveDef` milestones (5/10, 3 forks each), `choose_passive` command (level-gated, one per milestone, permanent under `PassiveModSource`), durable across transfers (`Character.Passives`) and saves (v6), table in the welcome + chosen IDs on actors (protocol v13), client chooser card | `sim/core`, `content/`, `protocol/`, `web/` | done, tested |
-| Character extract/inject: portable struct (def/level/XP/pools/gear), IDs re-minted at injection, sheet rebuilt, walkable-clamped | `sim/core/character.go` | done, tested |
-| The descent: floor swap (build → extract → inject → re-welcome), run rules (portal economy, XP death penalty, run-over → new run), hideout, leveled+thickened packs, stairs/portal/run on the wire | `server/descent.go`, protocol v10 | done, unit + e2e tested, verified live in the browser |
-| Monster rarity: `ScatterSpawnPack` rolls magic (1 mod) / rare (2 distinct mods) off RNGMap; `MonsterModDef` packages under `MonsterModSource`; XP ×3/×6, drop attempts 2/3; floor-scaled chances in `buildFloor`; rarity+mod names in the actor identity group (protocol v11), client rings + nameplates | `sim/sim.go`, `content/`, `protocol/`, `web/` | done, tested (incl. Go→net.js codec parity) |
-| Equipment: 10 slots (weapon…belt), slot-addressed equip command (auto fallback), affix→sheet | `sim/items/equip.go` | done, tested |
-| Inventory: pickup/unequip/drop_item, capacity | `sim/items/equip.go` | done, tested |
-| Server: TCP + WS transports, joins/leaves, send-rate decoupling, interest culling, binary deltas + acks, pause | `server/` | done, race-tested |
-| Identity: name claim mints a 32-byte secret token (HttpOnly cookie); the token, never the name, resumes the character — banked on disconnect + 30s debounced flush to the `-identities` JSON; one session per name; guests skip it all; actor→name on welcome/roster frames | `server/identity.go` | done, tested |
-| Lobby: many instances per process, party = instance (every connection starts in its own world/run, derived seed); invite/accept/decline/leave transfer clients via the floor-swap machinery; F-panel friends list = all online named players; empty instances reap after 60s = reconnect grace; TCP debug conns get solo worlds | `server/lobby.go`, `cmd/partybot` | done, race-tested (10 identity/lobby tests), verified live |
-| Hosting + CI/CD: public at https://nuc.tail4b8d48.ts.net (Tailscale Funnel → nuc, systemd `draupforge`, `-addr "" -admin ""` so only HTTP/WS is exposed); every push to main builds `cmd/server` on a self-hosted runner, swaps the binary (`playserver.prev` kept for rollback), syncs `web/`+`scripts/`, restarts, health-checks — `identities.json` is never touched | `.github/workflows/deploy.yml` | done, verified end-to-end |
-| Admin dashboard: observe (tick health, counts, bandwidth, events, world hash, run/floor/portals line) + poke (pause/resume, spawn, kick), dev-cheat panel with buttons (`/api/gem` force-cuts a gem, `/api/god` toggles DamageTaken-zero, `/api/orbs` grants currency; actor field defaults to the first client, per-client "cheat" prefill) — cheats are zone-local sheet/wallet pokes; the lobby serves an instance index, each dashboard under `/i/{id}/` | `server/admin.go`, `server/lobby.go` | done, tested; NO AUTH — localhost/tailnet only (the public deploy runs `-admin ""`) |
-| Web client: canvas, input, terrain render (walls/floor), drag-drop inventory grid (icons, tooltips), delta decoding, tick-timeline interpolation, fade-in/out, cast/impact VFX + ailment rings, floating damage numbers (crit/self emphasis), hit flashes, death pops (rarity-scaled), PoE2-style HUD (life/mana globes, clickable skill bar with mana-gating, `SKILL_BAR` as the single keybind source), WASD + click movement, minimap, procedural WebAudio stingers (M mutes), join screen (claim name / play as guest), F party panel + invite toast, ws/wss by page protocol | `web/` | working, no build step |
-| AI: behavior registry — `melee_chaser`, `ranged_kiter` (LoS-gated shooting, retreat band), `boss_brute` (stateless two-skill selection by range); territorial aggro: LoS/hearing acquisition, leash to `Actor.Home`, return-home (SaveVersion 4) | `sim/ai` | real, tested |
+| Damage pipeline (incl. live conversion stage) + DoTs + regen | `sim/combat` | done, tested |
+| Statuses: ignite/chill/shock ailments + content buffs (refresh-not-stack, pending-buff queue) | `sim/combat` | done, tested |
+| Persistence: `World.Save`/`LoadWorld` (versioned JSON, bit-exact), admin `POST /api/save`, descent run envelope (v2) — `-load` refused in lobby mode (see shortcuts) | `sim/core/save.go`, `server/runsave.go` | done, tested; `-load` regressed |
+| Actions (windup/recovery) + projectiles; skill feel: splash w/ falloff, wall bounce, heading wiggle, hitscan chains | `sim/skills` | done, tested |
+| Loot: rarity weights, weighted affixes, group caps, per-slot pools (depth asserted at DB()), rolled implicits | `sim/items` | done, tested |
+| Currency: orb wallet (transmute/alch/chaos/jeweller) banked straight to the killer; `apply_orb` crafts bag items | `sim/items`, `web/` | done, tested |
+| Gems: cast only from cut gems; uncut drops carry a draft of 3 at the dier's level (cap 20); supports fold into the socketed skill's queries only (more/less, added flat, speed, mana, fans, chain, conversion); cast contexts bake at use; save v9 | `sim/core/gems.go`, `sim/items/gems.go`, `content/supports.go`, `web/` | done, 13 tests, verified live |
+| Progression: leveled XP on kill, quadratic curve, cap 50, PerLevel mods, ding heal | `sim/progress` | done, tested |
+| Flasks: charge-gated regen-burst sips (keys 1/2), kills feed charges, durable (save v7) | `sim/`, `content/`, `web/` | done, tested |
+| Passive forks: milestone choices at 5/10, permanent, durable (save v6), client chooser | `sim/core`, `content/`, `web/` | done, tested |
+| Character extract/inject: durables only, item IDs re-minted, sheet rebuilt | `sim/core/character.go` | done, tested |
+| The descent: hideout start (`Config.StartFloor`, 0 = home; pinned hideout seed), floor swaps, portal economy, XP death penalty, run-over → new run at home, leveled+thickened packs, stairs guardian every 3rd floor | `server/descent.go` | done, unit + e2e tested, verified live |
+| Monster rarity: magic/rare rolls with mod packages, XP ×3/×6, extra drops, floor-scaled chances, rings + nameplates | `sim/sim.go`, `content/`, `web/` | done, tested |
+| Equipment + inventory: 10 slots, slot-addressed equip, pickup/unequip/drop, capacity | `sim/items/equip.go` | done, tested |
+| Server: TCP + WS transports, send-rate decoupling, interest culling, binary deltas + acks, pause | `server/` | done, race-tested |
+| Identity: name claim mints a 32-byte cookie token; the token resumes the character (banked on disconnect + 30s flush); one session per name; guests skip it all | `server/identity.go` | done, tested |
+| Lobby: many instances per process, party = instance, invite/leave transfers via floor-swap machinery, 60s empty reap = reconnect grace | `server/lobby.go`, `cmd/partybot` | done, race-tested, verified live |
+| Hosting + CI/CD: public via Tailscale Funnel (`-addr "" -admin ""`); every push to main builds, swaps (prev kept), restarts, health-checks; `identities.json` never touched | `.github/workflows/deploy.yml` | done, verified e2e |
+| Admin dashboard: observe (tick health, counts, events, hash, run line) + poke (pause, spawn, kick, save) + dev cheats (god/gem/orbs); lobby index at `/i/{id}/` | `server/admin.go` | done, tested; NO AUTH — public deploy disables it |
+| Web client: canvas render, drag-drop inventory, delta decoding + tick-timeline interpolation, VFX/damage numbers/audio stingers, PoE2 HUD + gem bar, WASD + click, minimap, join screen, party panel | `web/` | working, no build step |
+| AI: behavior registry (`melee_chaser`, `ranged_kiter`, `boss_brute`); territorial aggro: LoS/hearing, leash to `Actor.Home`, return-home | `sim/ai` | real, tested |
 | Phase order + command validation | `sim/sim.go` | done — this IS the determinism contract |
-| Wire types: versioned welcome (currently v18), JSON snapshots, binary delta view codec | `protocol/` | done, tested |
-| Content tables | `content/` | 11 skills (6 cuttable: fireball, frost_nova, spark, adrenaline, arc, bone_arrow — arc_bolt went monster-only), 10 support gems (`content/supports.go`), 7 actors, 32 affixes (tiered groups, per-slot pools), 9 bases (rolled implicits), 6 drop tables (each with gem permilles), 4 monster rarity mods, 4 buffs |
-| Debug client | `cmd/headless` | done |
-| Determinism + golden replay tests | `sim/sim_test.go` | done |
+| Wire types: versioned welcome (v18), JSON snapshots, binary delta codec | `protocol/` | done, tested |
+| Content tables | `content/` | 11 skills (6 cuttable), 10 supports, 7 actors, 32 affixes, 9 bases, 6 drop tables, 4 monster mods, 4 buffs |
+| Debug client + determinism/golden replay tests | `cmd/headless`, `sim/sim_test.go` | done |
 
 ## Invariants the code currently honors (don't break casually)
 
-- No floats, no wall-clock, no unseeded randomness inside `sim/`.
+- No floats, no wall-clock, no unseeded randomness inside `sim/`. Randomness
+  enters the stack exactly once: `Config.Seed == 0` rolls from OS entropy at
+  the host edge (logged); below that, everything is deterministic in the seed.
 - Sim logic never iterates a Go map (random order). Maps are lookup-only.
 - All RNG flows through the world's four named streams (combat/loot/ai/map);
-  consumption order is part of replay compatibility.
+  consumption order is part of replay compatibility. Conditional consumption
+  (shock rolls only on lightning; chill and buffs consume none) is pinned by
+  `TestAilmentRNGConsumption`-style tests — every new proc needs one.
 - Data types live in `sim/core`; leaf packages hold logic and import core;
   only root `sim` knows the phase order. `protocol/` imports nothing.
 - Per-damage-type stat queries REPLACE the damage-type tag in the context
-  (see `damageTypeTags` in `sim/combat/pipeline.go`). Session 1 shipped and
-  fixed a bug here — added-fire was leaking into other types' rolls.
-- Statuses grant their sheet modifiers under `Status.ModSource()`: ailments
-  use `StatusKind.ModSource()` (high bit set, bit 62 clear), buffs use
-  `BuffDef.ModSource()` (top two bits set + FNV of the buff ID — stable
-  across content reordering and saves; content.DB() panics on collision),
-  and per-level growth lives under `core.LevelModSource` (bit 62 alone).
-  All three spaces are disjoint from item-ID sources. `TickStatuses` removes
-  them at expiry. Chill consumes no combat RNG, shock rolls only on
-  lightning damage, buffs consume none — `TestAilmentRNGConsumption` pins
-  the stream alignment so old fire-only replays stay stable.
-- Saves are durable state: any new world state ships its save-format
-  support (and a `SaveVersion` bump on shape changes) AND `World.Hash`
-  coverage in the same commit — the hash is already a curated subset
-  (Action path/aim internals are saved but unhashed); don't let it thin
-  further. Save only at tick boundaries; `World.Save` refuses pending
-  hits/buffs.
-- Golden replays: any behavior change fails `TestGoldenReplay` (open plane,
-  `golden_slice.txt`) and/or `TestGoldenDungeon` (generated map + pathing +
-  ranged AI, `golden_dungeon.txt`). If intentional, re-record both:
-  `DRAUPFORGE_UPDATE_GOLDEN=1 go test ./sim/` and commit the testdata.
+  (`damageTypeTags` in `sim/combat/pipeline.go`) — added-fire must never
+  leak into other types' rolls (session 1's bug).
+- Sheet-mod source spaces are disjoint: item IDs, ailments (high bit),
+  buffs (top two bits + FNV of buff ID; DB() panics on collision), per-level
+  growth (bit 62), passives (bits 63+60), monster mods (bits 63+61).
+- Saves are durable state: any new world state ships save support (+
+  `SaveVersion` bump on shape changes) AND `World.Hash` coverage in the same
+  commit. Save only at tick boundaries; `World.Save` refuses pending state.
+- Golden replays: behavior changes fail `TestGoldenReplay` and/or
+  `TestGoldenDungeon`. If intentional, re-record both
+  (`DRAUPFORGE_UPDATE_GOLDEN=1 go test ./sim/`) and commit the testdata.
 - Terrain (`World.Grid`) is immutable once set, installed before any spawn.
-  Nil grid = the v1 open plane, bit-exact with pre-terrain behavior — the
-  old golden depends on it. One shared clearance radius (0.65 > fattest
-  actor); paths are computed at command time and followed blind (static
-  terrain makes that safe). `FindPath` uses per-grid scratch buffers —
-  single-goroutine, like everything else. Mapgen consumes only RNGMap.
+  Nil grid = the v1 open plane, bit-exact with pre-terrain behavior. One
+  shared clearance radius; paths compute at command time and are followed
+  blind. Mapgen consumes only RNGMap.
 - `protocol/binary.go` and `web/net.js` are a hand-maintained codec pair.
-  Any wire change updates both AND bumps `protocol.Version` — a stale client
-  fails loudly at the welcome instead of misreading frames.
+  Any wire change updates both AND bumps `protocol.Version` — stale clients
+  fail loudly at the welcome.
 - A tick-0 view is never stored as a delta baseline: `baseTick 0` is the
-  wire's keyframe sentinel and ack 0 is the client reset signal, and a
-  freshly swapped world really is at tick 0 (`server.frameFor`;
-  `TestDescentOverTheWire` caught the collision).
+  keyframe sentinel, ack 0 the client reset, and a freshly swapped world
+  really is at tick 0.
 - Any welcome fully resets the client and the server's per-client encoder;
-  welcome `gen` increments per re-welcome and acks must echo it. On a floor
-  swap the actor-ID/gen/pending-queue cutover is one mutex section —
-  commands tagged with old-world IDs must never drive whichever actor wears
-  that ID in the new world.
+  welcome `gen` increments per re-welcome and acks must echo it. On a swap
+  the actor-ID/gen/pending-queue cutover is one mutex section.
 - Characters transfer only durables (def/level/XP/pools/bag/gear/gems);
-  position, action, buffs, DoTs — and `Home`, which re-anchors at the
-  injection point — deliberately die with the zone. Life ≤ 0 at injection
-  means "arrive refilled" — the death-respawn convention. A character with
-  no gems (legacy saves) is re-granted its def's starting gems.
-- Support modifiers never touch the actor's sheet: they fold into the
-  socketed skill's stat queries at use/resolve time (`GemCtx`), and cast
-  contexts bake at the command gate — an in-flight projectile keeps the
-  stats it was fired with whatever happens to the gem. The uncut draft is
-  rolled at drop time (exactly three loot-stream draws); cutting itself
-  consumes no RNG. `content.Supports` and `ContentDB.Cuttable` are ordered
-  tables — reordering is replay-relevant, same rule as affixes.
+  position, action, buffs, DoTs, `Home` die with the zone. Life ≤ 0 at
+  injection = "arrive refilled". No gems (legacy save) = re-grant starters.
+- Support modifiers never touch the actor's sheet — they fold into the
+  socketed skill's queries (`GemCtx`); cast contexts bake at the command
+  gate. The uncut draft is rolled at drop time (three loot draws); cutting
+  consumes no RNG. `content.Supports`/`Cuttable` are ordered tables —
+  reordering is replay-relevant, same rule as affixes.
 - Lock ordering above the sim: `lobby.mu` → `instance.mu` → (never both
   with) `client.mu`, and `lobby.mu` → `IdentityStore.mu`. The lobby never
-  touches a world — it moves clients between join queues and lets each tick
-  goroutine do the world work. Never call the identity store while holding
-  an instance mutex.
-- The token, never the name, is the auth: knowing a name steals nothing.
-  One session per name (a duplicate gets an error frame); guests get no
-  cookie and no store entry.
+  touches a world. Never call the identity store holding an instance mutex.
+- The token, never the name, is the auth. One session per name; guests get
+  no cookie and no store entry.
 
-Structural risks live in `RISKS.md` — read it before building anything load-bearing (top entry: the action model is still one-thing-at-a-time — no channelling/stun/interrupt).
+Structural risks live in `RISKS.md` — read it before building anything
+load-bearing (top entry: the action model is one-thing-at-a-time).
 
 ## Known shortcuts (deliberate, fine for now)
 
-- Conversion stage in the pipeline is identity — the slot in the order is
-  reserved, no skill converts yet.
-- Leech, block, stun, ES recharge: absent.
-- Chill doesn't slow an action already in flight — windup/recovery tick
-  counts bind at use time, like cast speed. Movement slows immediately.
-- Client cast VFX key off windup→done action transitions between views;
-  a windup shorter than the send interval (~3 ticks) would slip through
-  unrendered. No current skill is that fast.
-- Damage numbers and death pops anchor at the event-tick position and
-  don't follow a moving target — invisible at current speeds.
+- Leech, block, stun, ES recharge: absent. Chill doesn't slow an action
+  already in flight (tick counts bind at use time); movement slows now.
 - Corpses compact away at tick end — fine until on-corpse mechanics matter.
-- Inventory is a flat ID-addressed bag — no stacking. Bag *arrangement* is
-  client-side presentation state (`bagLayout` in client.js): rearranging
-  cells sends nothing, and the layout dies with the page (no localStorage).
-- Item icons are hand-drawn inline SVGs keyed by base id; unknown bases
-  fall back to a diamond. The client's `BASE_SLOTS` map mirrors the
-  server's slot families by hand — new base items must update both.
-- Named characters persist (identity store); guests are ephemeral by
-  design — disconnect deletes the actor and its items. The admin port has
-  no auth (public deploy disables it); a slow client can still stall its
-  instance's tick for up to 1s (no per-client send queues) — now a real
-  concern, since strangers can reach the public URL.
-- `-load` is refused in lobby mode ("run saves predate parties"): the admin
-  `/api/save` still writes run envelopes, but nothing can load them until
-  the lobby learns to adopt a saved instance. This regressed session 31's
+- Inventory is a flat ID-addressed bag, no stacking; bag arrangement is
+  client-side presentation state and dies with the page.
+- Client hand-mirrors: item-icon SVGs + `BASE_SLOTS` by base id, `SKILL_META`
+  per cuttable skill — new content updates them or eats the fallback.
+- Named characters persist (identity store); guests are ephemeral by design.
+  The admin port has no auth (public deploy disables it); a slow client can
+  stall its instance's tick up to 1s (no per-client send queues) — real now
+  that strangers can reach the public URL.
+- `-load` is refused in lobby mode ("run saves predate parties"): `/api/save`
+  still writes envelopes (v2) nothing can load. Regressed session 31's
   feature when the lobby shipped — on the list.
-- Claiming a new name while an identity cookie is set orphans the old
-  identity (no rename or list-my-characters yet). `identities.json` is one
-  plaintext JSON blob, tokens included — a character store, not an account
-  system.
-- No client prediction — input feels its latency. Prediction is the thing
-  that would justify compiling sim/ to wasm (DESIGN.md §13's optional layer).
-- Projectiles are excluded from the entity fade-in/out (too short-lived to
-  read as anything but mush); they still pop at interest-range edges.
-- WS endpoint accepts any origin (LAN-dev convenience — and now the public
-  Funnel deploy inherits it); static files come from -web dir at runtime,
-  not embedded.
-- Live server play is not replay-deterministic (network timing decides
-  command arrival ticks); determinism holds within a tick via stable command
-  sort. A replay log (seed + per-tick commands) would restore full replays —
-  cheap to add when wanted.
-- Actor collision is soft separation between monsters only (players
-  neither push nor get pushed — body-blocking is a deliberate
-  non-feature). Pairwise O(n²) per tick; spatial grid when density hurts.
-- Aggro is LoS-gated with a hearing fallback (half aggro radius, through
-  walls) — a monster that loses you at range walks home rather than
-  haunting a corner. No aggro memory: break LoS beyond hearing range and
-  a chaser forgets you instantly.
-- AI re-issues its chase target every tick; the half-tile repath throttle
-  in `CmdMove` keeps that cheap. A swarm in a maze could still make A* the
-  hot path — measure before optimizing.
+- Claiming a new name under an existing cookie orphans the old identity (no
+  rename/list). `identities.json` is one plaintext blob, tokens included.
+- No client prediction — input feels its latency. Prediction is what would
+  justify compiling sim/ to wasm (DESIGN §13's optional layer).
+- WS accepts any origin (the public Funnel deploy inherits it); static files
+  come from -web at runtime. Live play is not replay-deterministic (network
+  timing decides arrival ticks); a replay log would fix that — cheap when
+  wanted.
+- Collision is soft separation between monsters only (players never push or
+  get pushed); pairwise O(n²). Aggro is LoS + hearing with no memory; AI
+  re-issues its chase target every tick (repath throttle keeps it cheap);
+  kiter retreat picks from 5 fixed directions — a cornered archer fights.
 - Terrain travels as JSON rows in the welcome (~2KB at 48×48) — fine until
-  maps get big or revealable (fog of war would change this).
-- Kiter retreat picks from 5 fixed directions, no flee pathfinding — a
-  cornered archer stands and fights.
-- Affix tiers are shallow (one "greater" tier on a few groups) and pools
-  don't scale with item/monster level yet — depth for later.
-- Spawn-camp pressure is fixed twice over: territorial aggro (session
-  16) stops packs converging on the portal room, and death arrivals get
-  2.5s of portal grace (session 20) — a portal planted inside a
-  territory no longer means an instant re-kill.
-- The run is per-instance, designed single-player-first: any player's death
-  ejects *everyone* to the portal, and portal/stairs travel moves the whole
-  instance (co-op parties live and die together). One eject consumes one
-  portal use however many died that tick.
-- Numbers all open for tuning (Jake): death costs 1/5 of the level's XP
-  requirement; packs gain +1 monster and +1 level per floor; monster XP
-  scales linearly with level; hideout trips cost 1 use, returns free;
-  rarity chances (magic 10% +2%/floor cap 30%, rare 2% +1%/floor cap 12%),
-  XP multipliers (×3/×6), and drop attempts (2/3) per rarity; portal
-  grace lasts 2.5s; flasks bank 60 charges, sips cost 30, kills pay 10;
-  gem drop permilles per table (trash ~18–38 skill / 12–27 support, boss
-  450/300, ×2/×3 by rarity — session 35 raised all of these 50%), jeweller
-  orb 40‰, gem damage +10%/level and mana +5%/level, support numbers in
-  `content/supports.go`; projectile ranges are TTL-derived (fireball ~14u,
-  arrows/bolts ~16–17u, spark 1.5s of bouncing), fireball splash 2u,
-  spark wiggle every 12 ticks, arc 12u reach / 2 base chains.
-- Uncut skill gems drop at the dier's level, so `level_gem` only matters
-  once floors (leveled packs) outpace your gems — floor 1 drops are all
-  level 1. Deliberate: depth is how gems grow.
-- Support display metadata (glyph colors, which skills aim at the cursor)
-  is the client-side `SKILL_META` map — new cuttable skills should update
-  it or accept the neutral default (aimed, gray).
+  fog of war. Affix tiers are shallow and pools don't scale with item level.
+- The run is per-instance, single-player-first: any death ejects everyone,
+  travel moves the whole instance (parties live and die together); one eject
+  consumes one portal use however many died that tick.
+- Uncut gems drop at the dier's level, so `level_gem` only matters once
+  floors outpace your gems — deliberate: depth is how gems grow.
 - Cast-on-death portal still deliberately unshipped — it must carry an
   opportunity cost (now expressible: a gem socket), never free.
+- Numbers all open for tuning (Jake): death costs 1/5 of the level's XP
+  requirement; packs +1 monster and +1 level per floor; rarity chances
+  (magic 10% +2%/floor cap 30%, rare 2% +1%/floor cap 12%), XP ×3/×6, drop
+  attempts 2/3 by rarity; portal grace 2.5s; flasks 60 cap / 30 sip / 10 per
+  kill; gem permilles per table (boss 450/300‰, ×2/×3 by rarity), jeweller
+  40‰, gem +10% dmg and +5% mana per level, support numbers in
+  `content/supports.go`; projectile ranges TTL-derived (fireball ~14u,
+  arrows ~16–17u, spark 1.5s bouncing, splash 2u, arc 12u reach / 2 chains);
+  hideout is 16×12.
 
 ## Feature plan
 
 The descent shipped (session 15); the character store + sessions shipped
-(sessions 37–38 — DESIGN.md §14 is fully real). The queue now: a boss
-with telegraphed multi-stage attacks at floor milestones (forces
-deliberate action-model growth, RISKS.md #1 — design the state machine
-first); run saves under the lobby (un-regress `-load`); then server
-hardening (replay log, per-client send queues, rate limiting) — strangers
-*can* connect now, so this graduates from "someday" to "when players show
-up". ROADMAP.md phase 4's remainder (town hub, stash, uniques) is the
-fun-first counterweight.
+(37–38 — DESIGN §14 is fully real). The queue: a boss with telegraphed
+multi-stage attacks at floor milestones (forces deliberate action-model
+growth, RISKS.md #1 — design the state machine first); run saves under the
+lobby (un-regress `-load`); then server hardening (replay log, per-client
+send queues, rate limiting) — strangers *can* connect now. ROADMAP phase 4's
+remainder (town hub, stash, uniques) is the fun-first counterweight.
 
 ## Session log
 
-- **2026-07-02 (40)** — Docs true-up. STATUS.md's body (prose, systems
-  table, invariants, shortcuts, feature plan) caught up with sessions
-  36–39, which had only logged themselves; README/DESIGN §14/RISKS/
-  ROADMAP/multiplayer.md/SHOWCASE aligned with main. No code.
-- **2026-07-02 (39)** — CI/CD (parallel branch, merged after 38). Every
-  push to main auto-deploys the nuc: self-hosted runner `nuc-draupforge`
-  builds `cmd/server`, swaps the binary (old kept as `playserver.prev`),
-  syncs `web/` + `scripts/`, restarts systemd, health-checks :8080.
-  `identities.json` never touched. Verified end-to-end, then the live
-  build restored byte-for-byte. Consequence: never hand-deploy — merging
-  to main IS deploying.
-- **2026-07-02 (38)** — Parties + friends (multiplayer.md phase 2).
-  `server/lobby.go`: cmd/server now runs a Lobby of instances — party =
-  instance, every connection gets a solo world (own derived seed),
-  invites transfer you into the inviter's world with the floor-swap
-  machinery (release → adopt → re-welcome), leave_party moves you out.
-  "Friends list" = all online named players (F panel, invite buttons,
-  toast). Empty instances reap after 60s — which doubles as reconnect
-  grace back into your old run. Client inbound state moved to a per-client
-  mutex so clients can cross instances. `cmd/partybot`: fake friend that
-  auto-accepts invites. Merge note: this branch (identity v16, parties
-  v17) collided with main's gems v16 — the unified wire is v18. Shortcuts:
-  `-load` unsupported in lobby mode (run saves predate parties); TCP debug
-  conns get solo worlds; admin dashboard lists instances, each under
-  `/i/{id}/`.
-- **2026-07-02 (37)** — Identity: named players + guests (multiplayer.md
-  phase 1). `server/identity.go`: name claim mints a 32-byte
-  secret token in an HttpOnly cookie; the token (never the name) resumes
-  the character — banked on disconnect + every 30s, `-identities` JSON on
-  disk, one session per name (dup gets an error frame and the join screen).
-  Guests skip it all and stay ephemeral. Welcomes/roster frames carry
-  actor→name for nameplates; join screen in the client. Shortcut: a claim
-  under an existing cookie with a new name orphans the old identity (no
-  rename/list yet).
-- **2026-07-02 (36)** — Public hosting. `web/client.js` picks ws/wss by
-  page protocol (was hardcoded ws://, which HTTPS blocks). Deployed to
-  the nuc (Ubuntu, `~/draupforge`, systemd unit `draupforge`, `-addr ""
-  -admin ""` so only HTTP/WS is exposed) behind Tailscale Funnel at
-  https://nuc.tail4b8d48.ts.net. `multiplayer.md` added: plan for named
-  identities (secret-cookie auth), guests, friends, per-party instances.
+- **2026-07-02 (41)** — World runover. Runs start in the hideout: fresh
+  instances and post-run-over restarts wake at floor 0 — the same home
+  every session (`hideoutSeed`-pinned) — with the portal leading to
+  floor 1 (anchor lands on the floor's spawn at first use;
+  `Config.StartFloor` lets tests/dev start directly on a floor). World
+  seeds roll from OS entropy when 0 (the new `-seed` default), logged
+  for reproduction; the lobby rolls once, instances derive. Run envelope
+  v2 (portal-placed flag). All tests pin seeds now. Verified over the
+  TCP wire: two boots → different seeds and different floor-1 dungeons,
+  `-seed 42` twice → identical ones, hideout identical across all,
+  hideout→floor-1 hop free. Also: pruned this file back toward budget,
+  killed the stale "conversion is identity" shortcut, fixed stale
+  comments (admin.go header, cmd/server doc, orphan-reclaim).
+- **2026-07-02 (40)** — Docs true-up. STATUS.md's body caught up with
+  sessions 36–39 (which had only logged themselves); README/DESIGN §14/
+  RISKS/ROADMAP/multiplayer.md/SHOWCASE aligned with main. No code.
+- **2026-07-02 (39)** — CI/CD. Every push to main auto-deploys the nuc
+  (self-hosted runner: build, swap with `playserver.prev` rollback, sync
+  `web/`+`scripts/`, restart, health-check; `identities.json` untouched).
+  Merging to main IS deploying — never deploy by hand.
+- **2026-07-02 (38)** — Parties + friends. `server/lobby.go`: a Lobby of
+  instances — party = instance, invites transfer via the floor-swap
+  machinery, leave moves you out; F panel lists online named players;
+  60s empty-instance reap doubles as reconnect grace. `cmd/partybot`
+  auto-accepts invites. Gems (v16) + parties (v17) merged as wire v18.
+- **2026-07-02 (37)** — Identity. Name claim mints a secret HttpOnly
+  cookie token; the token resumes the character (`-identities` JSON,
+  banked on disconnect + 30s). Guests stay ephemeral. One session per
+  name. Join screen in the client.
 - (older sessions pruned — git history is the archive)

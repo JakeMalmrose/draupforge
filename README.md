@@ -39,8 +39,10 @@ go test ./...                                          # full suite incl. golden
 go run ./cmd/headless -script scripts/slice.json       # watch the vertical slice fight
 go run ./cmd/headless -script scripts/slice.json -hash # per-tick state hashes
 
-go run ./cmd/server -scenario scripts/arena.json       # host a lobby
-open http://localhost:8080                             # play it in the browser
+go run ./cmd/server -scenario scripts/arena.json       # host a lobby (rolls a fresh
+                                                       # world seed; -seed pins one)
+open http://localhost:8080                             # play it — you wake in your
+                                                       # hideout; the portal descends
 open http://localhost:9090                             # admin dashboard (no auth — keep it private)
 go run ./cmd/partybot -name Botty                      # a fake friend that accepts invites (F panel)
 echo '{"kind":"move","x":5000,"y":0}' | nc localhost 7777   # or be a brave TCP client
