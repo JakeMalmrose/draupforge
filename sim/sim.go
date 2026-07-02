@@ -191,6 +191,7 @@ func (s *Sim) Step(cmds []core.Command) {
 	applyCommands(w, cmds)         // player/network intent
 	applyCommands(w, ai.Decide(w)) // monster intent, same validation gate
 	skills.AdvanceActions(w)       // movement + windup/recovery; effects queue hits/buffs
+	skills.Separate(w)             // soft monster de-overlap; no RNG, pure positions
 	skills.UpdateProjectiles(w)    // flight + collision; impacts queue hits
 	combat.ResolveBuffs(w)         // buff applications land before hits resolve
 	combat.ResolveHits(w)          // the damage pipeline, in queue order
