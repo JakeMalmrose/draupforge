@@ -1122,10 +1122,50 @@ for (const s of SKILL_BAR) {
   skillBarEl.appendChild(btn);
 }
 
+// WASD held-key movement, PoE2-style. The held set drives a short move
+// command every WASD_MS toward the combined direction; releasing the last
+// key sends stop. Click-to-move still works — whichever input spoke last
+// wins, because both are just move commands to the server.
+const wasdHeld = new Set();
+const WASD_DIRS = { w: [0, -1], a: [-1, 0], s: [0, 1], d: [1, 0] };
+const WASD_MS = 100;
+const WASD_REACH = 4; // units ahead per command — smooth without overshoot
+
+setInterval(() => {
+  if (!wasdHeld.size) return;
+  const self = me();
+  if (!self) return;
+  let dx = 0;
+  let dy = 0;
+  for (const k of wasdHeld) {
+    dx += WASD_DIRS[k][0];
+    dy += WASD_DIRS[k][1];
+  }
+  if (!dx && !dy) return;
+  const len = Math.hypot(dx, dy);
+  send({
+    kind: "move",
+    x: self.pos.x + Math.round((dx / len) * WASD_REACH * 1000),
+    y: self.pos.y + Math.round((dy / len) * WASD_REACH * 1000),
+  });
+}, WASD_MS);
+
+window.addEventListener("keyup", (e) => {
+  const key = e.key.toLowerCase();
+  if (key in WASD_DIRS && wasdHeld.delete(key) && !wasdHeld.size) {
+    send({ kind: "stop" });
+  }
+});
+window.addEventListener("blur", () => wasdHeld.clear());
+
 window.addEventListener("keydown", (e) => {
   if (e.repeat) return;
   audioUnlock();
   const key = e.key.toLowerCase();
+  if (key in WASD_DIRS) {
+    wasdHeld.add(key);
+    return;
+  }
   if (key === "m") {
     audioMuted = !audioMuted;
     localStorage.setItem("df-muted", audioMuted ? "1" : "0");
