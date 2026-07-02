@@ -11,8 +11,8 @@ tests, and session-log entries older than a few sessions (git history is the
 archive). If this file outgrows ~150 lines, it has stopped being a status doc
 and started being a changelog — cut it back.
 
-**Last updated: 2026-07-01** (session 29: equip-compare tooltips —
-hovering a bag item shows what it would replace)
+**Last updated: 2026-07-02** (session 30: audio — procedural WebAudio
+stingers for hits/crits/deaths/level-ups/orbs/flasks/travel, M mutes)
 
 ## Where things stand
 
@@ -208,6 +208,14 @@ fun-first counterweight to all of that.
 
 ## Session log
 
+- **2026-07-02 (30)** — Audio (ROADMAP's stinger line, client-only).
+  A tiny WebAudio synth — every cue is an enveloped oscillator, zero
+  asset files: hit thuds (harder when it's you), crit accents, death
+  pops (doubled for rares), a level-up arpeggio, orb chimes, drop
+  shimmers, flask gulps, travel sweeps. Per-kind throttles keep a
+  nova from machine-gunning; master gain 0.15; M toggles mute
+  (persisted in localStorage); the context unlocks on first
+  click/keypress per browser autoplay rules.
 - **2026-07-01 (29)** — Equip-compare tooltips (client-only). Hovering
   a bag item appends "— equipped (slot) —" blocks for whatever its
   legal slots currently hold (both rings, for rings), PoE-style — the

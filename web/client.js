@@ -203,6 +203,7 @@ function onView(view) {
     view.actors.get(id) || (newest && newest.view.actors.get(id)) || null;
   for (const ev of view.events) {
     logEvent(ev);
+    sfxForEvent(ev);
     if (ev.kind === "hit") {
       const v = IMPACT_VFX[ev.note];
       const target = findEnt(ev.other);
@@ -730,6 +731,99 @@ function drawMinimap(s) {
   if (self) mmDot(self.pos, "#efe9dc", 2.5);
 }
 
+// -------------------------------------------------------------- audio
+//
+// Procedural stingers — a tiny WebAudio synth, no asset files. Every cue
+// is an oscillator envelope; kinds are throttled so a nova hitting six
+// zombies reads as one crunch, not a machine gun. M mutes (persisted).
+
+let audioCtx = null;
+let audioMuted = localStorage.getItem("df-muted") === "1";
+const sfxLast = new Map(); // kind -> last play time (ms)
+
+function audioUnlock() {
+  if (!audioCtx) {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return;
+    audioCtx = new AC();
+  }
+  if (audioCtx.state === "suspended") audioCtx.resume();
+}
+
+// blip: one enveloped oscillator. freq can be [start, end] for a sweep.
+function blip(freq, dur, type, gain, delay = 0) {
+  if (!audioCtx || audioMuted) return;
+  const t0 = audioCtx.currentTime + delay;
+  const osc = audioCtx.createOscillator();
+  const env = audioCtx.createGain();
+  osc.type = type;
+  const [f0, f1] = Array.isArray(freq) ? freq : [freq, freq];
+  osc.frequency.setValueAtTime(f0, t0);
+  if (f1 !== f0) osc.frequency.exponentialRampToValueAtTime(Math.max(1, f1), t0 + dur);
+  env.gain.setValueAtTime(0, t0);
+  env.gain.linearRampToValueAtTime(gain * 0.15, t0 + 0.005); // master 0.15
+  env.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+  osc.connect(env).connect(audioCtx.destination);
+  osc.start(t0);
+  osc.stop(t0 + dur + 0.05);
+}
+
+// sfx: named cues with per-kind throttles.
+const SFX = {
+  hit: { min: 90, play: () => blip([180, 70], 0.08, "square", 0.5) },
+  hit_me: { min: 120, play: () => blip([120, 45], 0.12, "square", 0.9) },
+  crit: { min: 120, play: () => { blip([500, 900], 0.1, "sawtooth", 0.6); blip([180, 70], 0.08, "square", 0.5); } },
+  death: { min: 100, play: () => blip([260, 40], 0.22, "sawtooth", 0.7) },
+  death_rare: { min: 100, play: () => { blip([320, 50], 0.3, "sawtooth", 0.9); blip([160, 30], 0.35, "square", 0.7, 0.08); } },
+  level_up: { min: 500, play: () => [440, 554, 659, 880].forEach((f, i) => blip(f, 0.14, "triangle", 0.8, i * 0.07)) },
+  orb: { min: 200, play: () => { blip(1180, 0.06, "triangle", 0.7); blip(1760, 0.1, "triangle", 0.6, 0.05); } },
+  drop_good: { min: 250, play: () => blip([880, 1320], 0.12, "triangle", 0.5) },
+  flask: { min: 250, play: () => { blip([220, 140], 0.07, "sine", 0.9); blip([180, 120], 0.07, "sine", 0.8, 0.08); } },
+  travel: { min: 400, play: () => blip([200, 700], 0.35, "sine", 0.6) },
+};
+
+function sfx(kind) {
+  const def = SFX[kind];
+  if (!def || !audioCtx || audioMuted) return;
+  const now = performance.now();
+  if (now - (sfxLast.get(kind) || 0) < def.min) return;
+  sfxLast.set(kind, now);
+  def.play();
+}
+
+// Event-driven cues; called from the view handler's event loop.
+function sfxForEvent(ev) {
+  switch (ev.kind) {
+    case "hit":
+      if (ev.other === myId) sfx("hit_me");
+      else if (ev.crit) sfx("crit");
+      else sfx("hit");
+      break;
+    case "death": {
+      const dier = snap && snap.actors.get(ev.actor);
+      sfx(dier && dier.rarity ? "death_rare" : "death");
+      break;
+    }
+    case "level_up":
+      if (ev.actor === myId) sfx("level_up");
+      break;
+    case "orb":
+      if (ev.actor === myId) sfx("orb");
+      break;
+    case "drop":
+      sfx("drop_good");
+      break;
+    case "buff":
+      if (ev.other === myId && ev.note && ev.note.endsWith("_flask")) sfx("flask");
+      break;
+    case "descend":
+    case "portal":
+    case "death_eject":
+      sfx("travel");
+      break;
+  }
+}
+
 // ----------------------------------------------------------- client VFX
 //
 // Ephemeral client-side-only effects: cast flashes and impact bursts.
@@ -948,6 +1042,7 @@ function spawnDeathPop(pos, st, dier) {
 canvas.addEventListener("mousemove", (e) => { mouse.x = e.offsetX; mouse.y = e.offsetY; });
 
 canvas.addEventListener("mousedown", (e) => {
+  audioUnlock();
   if (e.button !== 0 || !snap) return;
   const w = screenToWorldUnits(e.offsetX, e.offsetY);
   const clicked = (p, r) => p && Math.hypot(toUnits(p.x) - w.x, toUnits(p.y) - w.y) < r;
@@ -1029,7 +1124,14 @@ for (const s of SKILL_BAR) {
 
 window.addEventListener("keydown", (e) => {
   if (e.repeat) return;
+  audioUnlock();
   const key = e.key.toLowerCase();
+  if (key === "m") {
+    audioMuted = !audioMuted;
+    localStorage.setItem("df-muted", audioMuted ? "1" : "0");
+    logLine(audioMuted ? "sound muted (M to unmute)" : "sound on");
+    return;
+  }
   const slot = SKILL_BAR.find((s) => s.key === key);
   if (slot) {
     castSlot(slot);
@@ -1509,8 +1611,14 @@ function logEvent(ev) {
       break;
   }
   if (!text) return;
+  logLine(text, `ev-${ev.kind}`);
+}
+
+// logLine appends one line to the event log (client-side notices use it
+// too — mute toggles and the like).
+function logLine(text, cls) {
   const div = document.createElement("div");
-  div.className = `ev-${ev.kind}`;
+  if (cls) div.className = cls;
   div.textContent = text;
   logEl.appendChild(div);
   while (logEl.children.length > LOG_LINES) logEl.removeChild(logEl.firstChild);
