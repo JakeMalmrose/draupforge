@@ -11,8 +11,8 @@ tests, and session-log entries older than a few sessions (git history is the
 archive). If this file outgrows ~150 lines, it has stopped being a status doc
 and started being a changelog — cut it back.
 
-**Last updated: 2026-07-02** (session 32: monster separation — packs
-stop collapsing into one blob)
+**Last updated: 2026-07-02** (session 33: WASD movement — PoE2-style
+held-key steering alongside click-to-move)
 
 ## Where things stand
 
@@ -207,6 +207,12 @@ fun-first counterweight to all of that.
 
 ## Session log
 
+- **2026-07-02 (33)** — WASD movement (client-only, the PoE2 GUI
+  signature). A held-key set sends a short move command every 100ms
+  toward the combined direction (~4 units ahead — the repath is cheap
+  at that range); releasing the last key sends stop, window blur
+  clears the set. Click-to-move coexists: both are just move commands,
+  last input wins. Verified live: held S+D walks the spawn corridor.
 - **2026-07-02 (32)** — Monster separation. New `skills.Separate` phase
   right after movement: overlapping monster pairs (closer than 80% of
   summed radii) ease apart at ≤0.06 u/tick each, wall-guarded, pure
