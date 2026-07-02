@@ -1006,6 +1006,42 @@ const inventoryEl = document.getElementById("inventory");
 const invCountEl = document.getElementById("inv-count");
 const tooltipEl = document.getElementById("tooltip");
 
+// Crafting currency: names/colors by OrbKind order. Clicking an orb arms
+// apply mode; the next bag-item click sends apply_orb. The server
+// validates rarity rules; the strip just previews intent.
+const ORBS = [
+  { id: "transmutation", name: "Transmutation", hint: "normal → magic", color: "#7a9bf0" },
+  { id: "alchemy", name: "Alchemy", hint: "normal → rare", color: "#f0d060" },
+  { id: "chaos", name: "Chaos", hint: "reroll a rare", color: "#d97b4a" },
+];
+let armedOrb = -1;
+
+const orbStripEl = document.getElementById("orb-strip");
+ORBS.forEach((o, i) => {
+  const btn = document.createElement("button");
+  btn.className = "orb";
+  btn.id = `orb-${i}`;
+  btn.title = `${o.name} Orb — ${o.hint}`;
+  btn.innerHTML = `<span class="orb-dot" style="background:${o.color}"></span><span id="orb-count-${i}">0</span>`;
+  btn.onclick = () => {
+    armedOrb = armedOrb === i ? -1 : i;
+    renderOrbStrip(me());
+  };
+  orbStripEl.appendChild(btn);
+});
+
+function renderOrbStrip(self) {
+  const orbs = (self && self.orbs) || [];
+  ORBS.forEach((o, i) => {
+    const btn = document.getElementById(`orb-${i}`);
+    const n = orbs[i] || 0;
+    document.getElementById(`orb-count-${i}`).textContent = n;
+    btn.classList.toggle("armed", armedOrb === i);
+    btn.classList.toggle("drained", n === 0);
+  });
+  panel.classList.toggle("orb-armed", armedOrb >= 0);
+}
+
 const EQUIP_SLOTS = [
   "weapon", "offhand", "helmet", "body", "gloves",
   "boots", "amulet", "ring1", "ring2", "belt",
@@ -1268,8 +1304,9 @@ let panelKey = "";
 function renderPanel(self, force) {
   const key = !self ? "dead" : JSON.stringify([
     (self.equipment || []).map((e) => e.item.id),
-    (self.inventory || []).map((i) => i.id),
+    (self.inventory || []).map((i) => [i.id, i.rarity, (i.affixes || []).length]),
     self.inv_size,
+    self.orbs || [],
   ]);
   if (!force && key === panelKey) return;
   panelKey = key;
@@ -1292,6 +1329,7 @@ function renderPanel(self, force) {
     equipmentEl.appendChild(div);
   }
 
+  renderOrbStrip(self);
   const inv = self.inventory || [];
   const cap = self.inv_size || inv.length;
   invCountEl.textContent = `(${inv.length}/${cap})`;
@@ -1299,7 +1337,16 @@ function renderPanel(self, force) {
   for (let i = 0; i < cap; i++) {
     const div = slotDiv();
     bagCellZone(div, i);
-    if (cells[i]) fillSlot(div, cells[i], "inv", legalEquipSlots(cells[i].base).join("/"));
+    if (cells[i]) {
+      fillSlot(div, cells[i], "inv", legalEquipSlots(cells[i].base).join("/"));
+      const itemID = cells[i].id;
+      div.addEventListener("click", () => {
+        if (armedOrb < 0) return;
+        send({ kind: "apply_orb", orb: ORBS[armedOrb].id, target: itemID });
+        armedOrb = -1;
+        renderOrbStrip(me());
+      });
+    }
     inventoryEl.appendChild(div);
   }
 }
@@ -1345,6 +1392,15 @@ function logEvent(ev) {
     case "unequip":
       text = `${nameOf(ev.actor)} unequipped ${ev.note.replace("_", " ")}`;
       break;
+    case "orb": {
+      if (ev.note.includes(":")) {
+        const [kind, base] = ev.note.split(":");
+        text = `${nameOf(ev.actor)} used a ${kind} orb on ${base.replace("_", " ")}`;
+      } else {
+        text = `${nameOf(ev.actor)} found a ${ev.note} orb (${Math.round(ev.amount / 1000)})`;
+      }
+      break;
+    }
     case "level_up":
       text = `${nameOf(ev.actor)} is now level ${Math.round(ev.amount / 1000)}!`;
       break;

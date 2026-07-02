@@ -11,8 +11,8 @@ tests, and session-log entries older than a few sessions (git history is the
 archive). If this file outgrows ~150 lines, it has stopped being a status doc
 and started being a changelog — cut it back.
 
-**Last updated: 2026-07-01** (session 26: the floor guardian — a rare
-Bone Colossus parks on the stairs every 3rd floor)
+**Last updated: 2026-07-01** (session 27: currency crafting-lite —
+transmute/alch/chaos orb wallet; SaveVersion 8, protocol v15)
 
 ## Where things stand
 
@@ -55,6 +55,7 @@ All foundational machinery from DESIGN.md is real, not stubbed:
 | Persistence: `World.Save`/`LoadWorld` (versioned JSON, content by string ID, bit-exact continuation), admin `POST /api/save`, `cmd/server -load` | `sim/core/save.go`, `sim/space/save.go` | done, tested |
 | Actions (windup/recovery) + projectiles | `sim/skills` | done |
 | Loot: per-table rarity weights, weighted affixes, group caps, per-slot affix pools (`AffixDef.Families`, DB() asserts 3+3 groups per family), rolled base implicits, starved-pool event | `sim/items` | done, tested |
+| Currency: `Actor.Orbs` wallet (transmute/alch/chaos), orbs bank straight to the killer (one loot draw per kill, rates ×2/×3 by dier rarity), `apply_orb` on bag items (transmute normal→magic, alch normal→rare, chaos rerolls rare — shared `fillAffixes`), durable (save v8, transfers), wire v15, panel orb strip with apply-mode | `sim/items/loot.go`, `web/` | done, tested |
 | Progression: XP on kill (scaled by monster level), quadratic curve, level cap 50, PerLevel growth mods under `LevelModSource`, ding heal, HUD level + XP bar | `sim/progress`, `core.Actor.SetLevel` | done, tested |
 | Flasks: `ActorDef.Flasks` (buff IDs) + `Actor.FlaskCharges`, `use_flask` command (charges-gated, applies the flask's regen-burst buff, legal mid-swing), kills feed +10 capped 60 (same reward hook as XP), durable across transfers/saves (v7), charges group on the wire (v14), HUD vials on keys 1/2 | `sim/`, `content/`, `protocol/`, `web/` | done, tested |
 | Passive forks: `PassiveDef` milestones (5/10, 3 forks each), `choose_passive` command (level-gated, one per milestone, permanent under `PassiveModSource`), durable across transfers (`Character.Passives`) and saves (v6), table in the welcome + chosen IDs on actors (protocol v13), client chooser card | `sim/core`, `content/`, `protocol/`, `web/` | done, tested |
@@ -207,6 +208,20 @@ fun-first counterweight to all of that.
 
 ## Session log
 
+- **2026-07-01 (27)** — Currency crafting-lite (loot gets a use beyond
+  equip-or-ignore). Three PoE1 orbs in an `Actor.Orbs` wallet:
+  transmutation (normal→magic), alchemy (normal→rare), chaos (reroll a
+  rare) — all through the shared `fillAffixes` (extracted from
+  RollItem), so per-slot pools and group caps apply to crafts too.
+  Orbs bank straight to the killer on kills (own spin: no ground
+  pickup friction) — one loot-stream draw per eligible kill, rates
+  90/30/15‰ scaled ×2/×3 by dier rarity; slice golden re-recorded
+  (dungeon trace has no kills, stood). apply_orb is a bag-item verb
+  (equipped items excluded — their mods live on the sheet). Wallet is
+  durable: Character.Orbs, SaveVersion 8, conditional hash. Wire v15:
+  wallet field group + orb command. Client: panel currency strip —
+  click an orb to arm it, click a bag item to craft; orb finds and
+  crafts narrate in the log.
 - **2026-07-01 (26)** — The floor guardian. `bone_colossus`: a slow
   1.1-radius heavyweight with two heavily telegraphed attacks —
   `colossus_slam` (1.2s windup, 3.5-radius nova) up close,

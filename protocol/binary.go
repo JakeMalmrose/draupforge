@@ -43,7 +43,8 @@ const (
 	actorAilments
 	actorProgress
 	actorPassives
-	actorFlasks // level, xp, xp_next
+	actorFlasks
+	actorOrbs // level, xp, xp_next
 )
 
 // Projectile field-mask bits.
@@ -226,6 +227,12 @@ func encodeActors(w *bwriter, base, view []ActorSnap) {
 				w.sv(ch)
 			}
 		}
+		if c.mask&actorOrbs != 0 {
+			w.uv(uint64(len(a.Orbs)))
+			for _, n := range a.Orbs {
+				w.sv(n)
+			}
+		}
 	}
 }
 
@@ -233,7 +240,7 @@ func actorMask(b, a *ActorSnap) uint64 {
 	if b == nil {
 		return actorIdentity | actorPos | actorLife | actorMaxLife | actorMana |
 			actorMaxMana | actorES | actorAction | actorEquipment | actorInventory |
-			actorAilments | actorProgress | actorPassives | actorFlasks
+			actorAilments | actorProgress | actorPassives | actorFlasks | actorOrbs
 	}
 	var mask uint64
 	if b.Def != a.Def || b.Team != a.Team || b.Radius != a.Radius || b.InvSize != a.InvSize ||
@@ -278,6 +285,9 @@ func actorMask(b, a *ActorSnap) uint64 {
 	}
 	if !reflect.DeepEqual(b.Flasks, a.Flasks) {
 		mask |= actorFlasks
+	}
+	if !reflect.DeepEqual(b.Orbs, a.Orbs) {
+		mask |= actorOrbs
 	}
 	return mask
 }
@@ -356,6 +366,11 @@ func decodeActors(r *breader, base []ActorSnap) []ActorSnap {
 				a.Flasks = append(a.Flasks, r.sv())
 			}
 		}
+		if mask&actorOrbs != 0 {
+			for m := r.uv(); m > 0 && r.err == nil; m-- {
+				a.Orbs = append(a.Orbs, r.sv())
+			}
+		}
 		changed[id] = actorDelta{a, mask}
 		order = append(order, id)
 	}
@@ -432,6 +447,9 @@ func mergeActor(b ActorSnap, d actorDelta) ActorSnap {
 	}
 	if d.mask&actorFlasks != 0 {
 		a.Flasks = n.Flasks
+	}
+	if d.mask&actorOrbs != 0 {
+		a.Orbs = n.Orbs
 	}
 	return a
 }
