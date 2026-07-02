@@ -55,6 +55,11 @@ func main() {
 		if err != nil {
 			fatal(err)
 		}
+		for _, gem := range sp.Gems {
+			if err := s.GrantGem(id, gem, 1); err != nil {
+				fatal(err)
+			}
+		}
 		fmt.Printf("spawned %s as entity %d (spawn #%d)\n", sp.Def, id, i+1)
 	}
 	for _, sc := range script.Scatter {

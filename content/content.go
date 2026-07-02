@@ -68,6 +68,35 @@ func DB() *core.ContentDB {
 		}
 		seen[m.ID] = true
 	}
+	db.Supports = supportDefs()
+	seenSupport := map[string]bool{}
+	for _, s := range db.Supports {
+		if s.ID == "" || s.Name == "" || s.ManaMult <= 0 {
+			panic("content: support " + s.ID + " is malformed")
+		}
+		if seenSupport[s.ID] {
+			panic("content: duplicate support " + s.ID)
+		}
+		seenSupport[s.ID] = true
+	}
+	// The draft pool for uncut skill gems, in skill-table order (replay-
+	// relevant like the affix table). Both pools must cover a full draft.
+	for _, sk := range skillDefs() {
+		if sk.Cuttable {
+			db.Cuttable = append(db.Cuttable, db.Skills[sk.ID])
+		}
+	}
+	if len(db.Cuttable) < core.GemDraftSize || len(db.Supports) < core.GemDraftSize {
+		panic("content: gem draft pools too shallow")
+	}
+	for _, a := range db.Actors {
+		for _, id := range a.StartingGems {
+			sk := db.Skills[id]
+			if sk == nil || !sk.Cuttable {
+				panic("content: starting gem " + id + " on " + a.ID + " is not a cuttable skill")
+			}
+		}
+	}
 	db.Passives = passiveDefs()
 	seenPassive := map[string]bool{}
 	milestoneForks := map[int]int{}
@@ -230,6 +259,7 @@ func skillDefs() []*core.SkillDef {
 	fireball := &core.SkillDef{
 		ID:            "fireball",
 		Name:          "Fireball",
+		Cuttable:      true,
 		Kind:          core.SkillProjectile,
 		Tags:          stats.T(stats.TagSpell, stats.TagProjectile, stats.TagFire),
 		Effectiveness: fm.One,
@@ -262,6 +292,7 @@ func skillDefs() []*core.SkillDef {
 	frostNova := &core.SkillDef{
 		ID:            "frost_nova",
 		Name:          "Frost Nova",
+		Cuttable:      true,
 		Kind:          core.SkillNova,
 		Tags:          stats.T(stats.TagSpell, stats.TagCold),
 		Effectiveness: fm.FromMilli(800), // AoE pays an added-damage tax
@@ -277,6 +308,7 @@ func skillDefs() []*core.SkillDef {
 	spark := &core.SkillDef{
 		ID:            "spark",
 		Name:          "Spark",
+		Cuttable:      true,
 		Kind:          core.SkillProjectile,
 		Tags:          stats.T(stats.TagSpell, stats.TagProjectile, stats.TagLightning),
 		Effectiveness: fm.One,
@@ -297,6 +329,7 @@ func skillDefs() []*core.SkillDef {
 	boneArrow := &core.SkillDef{
 		ID:            "bone_arrow",
 		Name:          "Bone Arrow",
+		Cuttable:      true, // the player-legal physical attack option
 		Kind:          core.SkillProjectile,
 		Tags:          stats.T(stats.TagAttack, stats.TagProjectile, stats.TagPhysical),
 		Effectiveness: fm.One,
@@ -327,6 +360,7 @@ func skillDefs() []*core.SkillDef {
 	arcBolt := &core.SkillDef{
 		ID:            "arc_bolt",
 		Name:          "Arc Bolt",
+		Cuttable:      true, // harder-hitting spark; monsters share it
 		Kind:          core.SkillProjectile,
 		Tags:          stats.T(stats.TagSpell, stats.TagProjectile, stats.TagLightning),
 		Effectiveness: fm.One,
@@ -375,6 +409,7 @@ func skillDefs() []*core.SkillDef {
 	adrenaline := &core.SkillDef{
 		ID:            "adrenaline",
 		Name:          "Adrenaline",
+		Cuttable:      true,
 		Kind:          core.SkillBuff,
 		Tags:          stats.T(stats.TagSpell),
 		ManaCost:      fm.FromInt(15),
@@ -417,7 +452,9 @@ func actorDefs() []*core.ActorDef {
 			stats.Armour:     fm.FromInt(20),
 			stats.CritChance: fm.FromMilli(50), // 5%
 		}),
-		Skills:        []string{"fireball", "frost_nova", "spark", "adrenaline"},
+		// Gems-only: no innate skills. A fresh exile knows Fireball as a
+		// level-1 cut gem; everything else comes from uncut drops.
+		StartingGems:  []string{"fireball"},
 		Flasks:        []string{"life_flask", "mana_flask"},
 		InventorySize: 20,
 		Level:         1,
@@ -853,9 +890,11 @@ func lootTableDefs() []*core.LootTableDef {
 		{
 			// Frontline trash: drops a bit under half the time, mostly plain
 			// gear with the occasional magic piece.
-			ID:            "zombie_drops",
-			DropChance:    fm.FromMilli(450),
-			RarityWeights: [3]uint32{60, 32, 8},
+			ID:                 "zombie_drops",
+			DropChance:         fm.FromMilli(450),
+			RarityWeights:      [3]uint32{60, 32, 8},
+			SkillGemPermille:   18,
+			SupportGemPermille: 10,
 			Bases: []string{
 				"rusty_sword", "wooden_shield", "leather_cap", "leather_vest",
 				"leather_gloves", "leather_boots", "leather_belt",
@@ -864,9 +903,11 @@ func lootTableDefs() []*core.LootTableDef {
 		{
 			// Squishier but better-connected: rarer drops, jewelry-leaning,
 			// noticeably better rarity odds.
-			ID:            "archer_drops",
-			DropChance:    fm.FromMilli(400),
-			RarityWeights: [3]uint32{45, 40, 15},
+			ID:                 "archer_drops",
+			DropChance:         fm.FromMilli(400),
+			RarityWeights:      [3]uint32{45, 40, 15},
+			SkillGemPermille:   22,
+			SupportGemPermille: 14,
 			Bases: []string{
 				"rusty_sword", "bone_amulet", "iron_ring", "leather_cap",
 				"leather_gloves", "leather_boots",
@@ -875,9 +916,11 @@ func lootTableDefs() []*core.LootTableDef {
 		{
 			// Test/tuning target keeps the old always-drops behavior and the
 			// full base list, so loot work stays easy to exercise.
-			ID:            "dummy_drops",
-			DropChance:    fm.One,
-			RarityWeights: [3]uint32{50, 35, 15},
+			ID:                 "dummy_drops",
+			DropChance:         fm.One,
+			RarityWeights:      [3]uint32{50, 35, 15},
+			SkillGemPermille:   300, // test target: gem flows stay easy to exercise
+			SupportGemPermille: 300,
 			Bases: []string{
 				"rusty_sword", "wooden_shield", "leather_cap", "leather_vest",
 				"leather_gloves", "leather_boots", "bone_amulet", "iron_ring",
@@ -887,9 +930,11 @@ func lootTableDefs() []*core.LootTableDef {
 		{
 			// Swarm trash: drops rarely — a pack of ghouls shouldn't carpet
 			// the floor — but leans quick gear (boots, gloves, blades).
-			ID:            "ghoul_drops",
-			DropChance:    fm.FromMilli(250),
-			RarityWeights: [3]uint32{65, 30, 5},
+			ID:                 "ghoul_drops",
+			DropChance:         fm.FromMilli(250),
+			RarityWeights:      [3]uint32{65, 30, 5},
+			SkillGemPermille:   12,
+			SupportGemPermille: 8,
 			Bases: []string{
 				"rusty_sword", "leather_boots", "leather_gloves", "leather_belt",
 			},
@@ -897,9 +942,13 @@ func lootTableDefs() []*core.LootTableDef {
 		{
 			// The guardian's hoard: always drops, rare-heavy, full base list —
 			// and the rare monster hooks add two more attempts on top.
-			ID:            "boss_drops",
-			DropChance:    fm.One,
-			RarityWeights: [3]uint32{10, 45, 45},
+			// Guardians are the gem faucet: spawned rare (×3), so a kill is
+			// near-certain to pay an uncut skill gem and likely a support.
+			ID:                 "boss_drops",
+			DropChance:         fm.One,
+			RarityWeights:      [3]uint32{10, 45, 45},
+			SkillGemPermille:   300,
+			SupportGemPermille: 200,
 			Bases: []string{
 				"rusty_sword", "wooden_shield", "leather_cap", "leather_vest",
 				"leather_gloves", "leather_boots", "bone_amulet", "iron_ring",
@@ -909,9 +958,11 @@ func lootTableDefs() []*core.LootTableDef {
 		{
 			// Caster elite: stingy but jewelry-leaning with real rarity odds —
 			// the mage is the pack member worth focusing for loot too.
-			ID:            "mage_drops",
-			DropChance:    fm.FromMilli(350),
-			RarityWeights: [3]uint32{35, 45, 20},
+			ID:                 "mage_drops",
+			DropChance:         fm.FromMilli(350),
+			RarityWeights:      [3]uint32{35, 45, 20},
+			SkillGemPermille:   25,
+			SupportGemPermille: 18,
 			Bases: []string{
 				"bone_amulet", "iron_ring", "leather_cap", "wooden_shield",
 			},

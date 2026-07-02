@@ -1,6 +1,6 @@
 {
   "spawns": [
-    { "def": "player", "x": 0, "y": 0 },
+    { "def": "player", "x": 0, "y": 0, "gems": ["frost_nova"] },
     { "def": "training_dummy", "x": 8000, "y": 0 },
     { "def": "zombie", "x": 0, "y": 12000 }
   ],

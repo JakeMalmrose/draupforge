@@ -14,6 +14,39 @@ import (
 // shuffled slightly during windup doesn't whiff the swing.
 var meleeGrace = fm.FromMilli(500)
 
+// Multi-projectile fans spread symmetrically around the aim direction in
+// fanStep increments. The cos/sin table is hardcoded fixed-point (12° per
+// step — fixmath has no trig, and a fan needs none); its depth caps a fan
+// at maxFanProjectiles.
+var (
+	fanCos = [4]fm.Fixed{fm.One, fm.FromMilli(978), fm.FromMilli(914), fm.FromMilli(809)}
+	fanSin = [4]fm.Fixed{0, fm.FromMilli(208), fm.FromMilli(407), fm.FromMilli(588)}
+)
+
+const maxFanProjectiles = 7 // LMP + GMP together
+
+// chainRange is how far a chaining projectile can jump from its impact.
+var chainRange = fm.FromInt(7)
+
+// rotate turns v by step fan increments (negative = clockwise).
+func rotate(v space.Vec2, step int) space.Vec2 {
+	if step == 0 {
+		return v
+	}
+	neg := step < 0
+	if neg {
+		step = -step
+	}
+	c, s := fanCos[step], fanSin[step]
+	if neg {
+		s = -s
+	}
+	return space.V(
+		fm.Mul(v.X, c)-fm.Mul(v.Y, s),
+		fm.Mul(v.X, s)+fm.Mul(v.Y, c),
+	)
+}
+
 // AdvanceActions steps every living actor's current action by one tick,
 // in actor slice order.
 func AdvanceActions(w *core.World) {
@@ -90,7 +123,15 @@ func fire(w *core.World, a *core.Actor) {
 			dir = space.V(fm.One, 0) // aiming at your own feet fires +X
 		}
 		vel := dir.Scale(fm.Div(sk.ProjSpeed, fm.FromInt(core.TicksPerSecond)))
-		w.SpawnProjectile(a, sk, a.Pos, vel)
+		n := 1 + a.Action.Gem.ExtraProjectiles()
+		if n > maxFanProjectiles {
+			n = maxFanProjectiles
+		}
+		// Left-to-right fan centered on the aim; n==1 keeps the exact
+		// pre-gem math (rotate(v, 0) is identity).
+		for i := 0; i < n; i++ {
+			w.SpawnProjectileGem(a, sk, a.Pos, rotate(vel, i-(n-1)/2), a.Action.Gem)
+		}
 	case core.SkillMelee:
 		tgt := w.ActorByID(a.Action.TargetID)
 		if tgt == nil || tgt.Dead {
@@ -105,6 +146,7 @@ func fire(w *core.World, a *core.Actor) {
 			Defender: tgt.ID,
 			Skill:    sk,
 			Tags:     sk.Tags.With(stats.TagHit),
+			Gem:      a.Action.Gem,
 		})
 	case core.SkillBuff:
 		if def := w.Content.Buffs[sk.SelfBuff]; def != nil {
@@ -125,6 +167,7 @@ func fire(w *core.World, a *core.Actor) {
 				Defender: tgt.ID,
 				Skill:    sk,
 				Tags:     sk.Tags.With(stats.TagHit),
+				Gem:      a.Action.Gem,
 			})
 		}
 	}
@@ -154,7 +197,7 @@ func UpdateProjectiles(w *core.World) {
 		var bestT fm.Fixed
 		var bestPt space.Vec2
 		for _, a := range w.Actors {
-			if a.Dead || a.Team == p.Team {
+			if a.Dead || a.Team == p.Team || alreadyHit(p, a.ID) {
 				continue
 			}
 			pt, t, ok := space.SegCircleHit(p.Pos, next, a.Pos, a.Def.Radius+p.Skill.ProjRadius)
@@ -173,13 +216,28 @@ func UpdateProjectiles(w *core.World) {
 		}
 		if best != nil {
 			p.Pos = bestPt
-			p.Dead = true
 			w.QueueHit(core.Hit{
 				Attacker: p.Source,
 				Defender: best.ID,
 				Skill:    p.Skill,
 				Tags:     p.Skill.Tags.With(stats.TagHit),
+				Gem:      p.Gem,
 			})
+			// Chain: redirect at the impact point toward the nearest fresh
+			// enemy in range and line of sight; no candidate ends the flight.
+			if p.ChainsLeft > 0 {
+				p.HitIDs = append(p.HitIDs, best.ID)
+				if tgt := chainTarget(w, p); tgt != nil {
+					dir := tgt.Pos.Sub(p.Pos).Normalize()
+					if dir != (space.Vec2{}) {
+						p.ChainsLeft--
+						p.Vel = dir.Scale(fm.Div(p.Skill.ProjSpeed, fm.FromInt(core.TicksPerSecond)))
+						p.TicksLeft = p.Skill.ProjTTL
+						continue
+					}
+				}
+			}
+			p.Dead = true
 			continue
 		}
 
@@ -190,4 +248,41 @@ func UpdateProjectiles(w *core.World) {
 		}
 		p.TicksLeft--
 	}
+}
+
+// alreadyHit reports whether a chaining projectile has struck this actor
+// before. Non-chain projectiles carry no history — zero cost.
+func alreadyHit(p *core.Projectile, id core.EntityID) bool {
+	for _, h := range p.HitIDs {
+		if h == id {
+			return true
+		}
+	}
+	return false
+}
+
+// chainTarget picks the nearest living enemy within chainRange of the
+// projectile's impact point that it hasn't struck, requiring line of sight
+// on grid worlds. Slice order + strict < keeps ties deterministic.
+func chainTarget(w *core.World, p *core.Projectile) *core.Actor {
+	var best *core.Actor
+	var bestD fm.Fixed
+	for _, a := range w.Actors {
+		if a.Dead || a.Team == p.Team || a.Team == core.TeamNone || alreadyHit(p, a.ID) {
+			continue
+		}
+		d := space.Dist(p.Pos, a.Pos)
+		if d > chainRange {
+			continue
+		}
+		if w.Grid != nil {
+			if _, blocked := w.Grid.SegmentHit(p.Pos, a.Pos); blocked {
+				continue
+			}
+		}
+		if best == nil || d < bestD {
+			best, bestD = a, d
+		}
+	}
+	return best
 }

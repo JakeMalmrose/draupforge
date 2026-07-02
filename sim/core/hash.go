@@ -23,6 +23,15 @@ func (s *hasher) i64(v int64) { s.u64(uint64(v)) }
 
 func (s *hasher) item(item *Item) {
 	s.u64(uint64(item.ID))
+	if item.Gem != nil {
+		// Uncut gems: kind rides the pseudo-base name, then level + draft.
+		s.str(item.Name())
+		s.u64(uint64(item.Gem.Level))
+		for _, c := range item.Gem.Choices {
+			s.str(c)
+		}
+		return
+	}
 	s.str(item.Base.ID)
 	s.u64(uint64(item.Rarity))
 	s.i64(item.Implicit.Milli())
@@ -96,6 +105,24 @@ func (w *World) Hash() uint64 {
 				break
 			}
 		}
+		// Cut gems: conditional like passives — monsters (gem-less) keep
+		// their old hash stream.
+		if len(a.Gems) > 0 {
+			s.u64(uint64(len(a.Gems)))
+			for i := range a.Gems {
+				g := &a.Gems[i]
+				s.str(g.Skill.ID)
+				s.u64(uint64(g.Level))
+				s.u64(uint64(g.Sockets))
+				for _, sup := range g.Supports {
+					if sup == nil {
+						s.u64(0)
+					} else {
+						s.str(sup.ID)
+					}
+				}
+			}
+		}
 		s.u64(uint64(a.Action.Kind))
 		s.u64(uint64(a.Action.Phase))
 		s.u64(uint64(a.Action.TicksLeft))
@@ -133,6 +160,20 @@ func (w *World) Hash() uint64 {
 		s.i64(p.Pos.X.Milli())
 		s.i64(p.Pos.Y.Milli())
 		s.u64(uint64(p.TicksLeft))
+		// Gem context and chain state: conditional, so monster projectiles
+		// keep their pre-gem hash stream.
+		if p.Gem.Level > 0 || len(p.Gem.Supports) > 0 || p.ChainsLeft > 0 || len(p.HitIDs) > 0 {
+			s.u64(uint64(p.Gem.Level))
+			s.u64(uint64(len(p.Gem.Supports)))
+			for _, sup := range p.Gem.Supports {
+				s.str(sup.ID)
+			}
+			s.u64(uint64(p.ChainsLeft))
+			s.u64(uint64(len(p.HitIDs)))
+			for _, id := range p.HitIDs {
+				s.u64(uint64(id))
+			}
+		}
 	}
 
 	for _, d := range w.Drops {

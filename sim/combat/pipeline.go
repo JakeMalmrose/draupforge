@@ -43,11 +43,9 @@ func resolve(w *core.World, h *core.Hit) {
 		return
 	}
 
-	// Stage: base roll + flat added (scaled by effectiveness) + inc/more.
+	// Stage: base roll + added + conversion + inc/more (the order DESIGN.md
+	// locked; conversion is live now — support gems are its first source).
 	rollDamage(w, att, h, tags)
-
-	// Stage: conversion. Identity for now; the slot in the order is the
-	// decision that matters (base → added → converted, mods apply after).
 
 	// Stage: crit. One roll for the whole hit, multiplier on every type.
 	rollCrit(w, att, h, tags)
@@ -84,19 +82,80 @@ var damageTypeTags = stats.T(stats.TagPhysical, stats.TagFire, stats.TagCold, st
 
 func rollDamage(w *core.World, att *core.Actor, h *core.Hit, tags stats.TagSet) {
 	sk := h.Skill
+	scale := core.GemDamageScale(h.Gem.Level)
+
+	// Base roll + added flat (scaled by effectiveness), per type in enum
+	// order — RNG consumption order is the replay contract. The gem level
+	// scales only the skill's own roll; added damage is the supports'/
+	// gear's own contribution.
+	var base [core.DamageTypeCount]fm.Fixed
 	for dt := core.DamageType(0); dt < core.DamageTypeCount; dt++ {
-		dtags := tags.Without(damageTypeTags).With(dt.Tag())
-		p := att.Sheet.Layers(stats.Damage, dtags)
+		p := damageParts(att, h, tags, dt.Tag())
 		var rolled fm.Fixed
 		if sk.BaseMax[dt] > 0 {
-			rolled = w.RNGCombat.Range(sk.BaseMin[dt], sk.BaseMax[dt])
+			rolled = fm.Mul(w.RNGCombat.Range(sk.BaseMin[dt], sk.BaseMax[dt]), scale)
 		}
-		base := rolled + fm.Mul(p.Flat, sk.Effectiveness)
-		if base <= 0 {
-			continue
-		}
-		h.Damage[dt] = fm.Mul(base, p.Multiplier())
+		base[dt] = rolled + fm.Mul(p.Flat, sk.Effectiveness)
 	}
+
+	// Conversion: fractions of the pre-multiplier totals move between
+	// types (base → added → converted); a source's outgoing fractions cap
+	// at 100%, in support-then-definition order.
+	native := base
+	var converted [core.DamageTypeCount][core.DamageTypeCount]fm.Fixed
+	var outFrac [core.DamageTypeCount]fm.Fixed
+	for _, s := range h.Gem.Supports {
+		for _, cv := range s.Conversions {
+			if base[cv.From] <= 0 {
+				continue
+			}
+			frac := cv.Fraction
+			if room := fm.One - outFrac[cv.From]; frac > room {
+				frac = room
+			}
+			if frac <= 0 {
+				continue
+			}
+			outFrac[cv.From] += frac
+			moved := fm.Mul(base[cv.From], frac)
+			native[cv.From] -= moved
+			converted[cv.To][cv.From] += moved
+		}
+	}
+
+	// Inc/more per portion. A converted portion is scaled by modifiers of
+	// both its source and destination types — its query context carries
+	// both type tags, and tag subsetting does the rest.
+	for dt := core.DamageType(0); dt < core.DamageTypeCount; dt++ {
+		var total fm.Fixed
+		if native[dt] > 0 {
+			p := damageParts(att, h, tags, dt.Tag())
+			total += fm.Mul(native[dt], p.Multiplier())
+		}
+		for src := core.DamageType(0); src < core.DamageTypeCount; src++ {
+			amt := converted[dt][src]
+			if amt <= 0 {
+				continue
+			}
+			p := damageParts(att, h, tags, dt.Tag(), src.Tag())
+			total += fm.Mul(amt, p.Multiplier())
+		}
+		if total > 0 {
+			h.Damage[dt] = total
+		}
+	}
+}
+
+// damageParts is one damage query: the hit's tags with the damage-type tags
+// replaced by the given ones, evaluated on the attacker's sheet with the
+// cast's support modifiers folded in.
+func damageParts(att *core.Actor, h *core.Hit, tags stats.TagSet, typeTags ...stats.Tag) stats.Parts {
+	dtags := tags.Without(damageTypeTags)
+	for _, t := range typeTags {
+		dtags = dtags.With(t)
+	}
+	p := att.Sheet.Layers(stats.Damage, dtags)
+	return h.Gem.FoldSupportMods(p, stats.Damage, dtags)
 }
 
 func rollCrit(w *core.World, att *core.Actor, h *core.Hit, tags stats.TagSet) {

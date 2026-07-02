@@ -228,9 +228,12 @@ type Scatter struct {
 }
 
 // ScriptSpawn places an actor at startup. Entity IDs are assigned in spawn
-// order starting at 1, which is how Commands reference them.
+// order starting at 1, which is how Commands reference them. Gems cuts
+// extra level-1 skill gems onto the spawned actor (players start with only
+// their def's starting gems; scenarios that exercise more skills say so).
 type ScriptSpawn struct {
-	Def string `json:"def"`
-	X   int64  `json:"x"` // milli-units
-	Y   int64  `json:"y"`
+	Def  string   `json:"def"`
+	X    int64    `json:"x"` // milli-units
+	Y    int64    `json:"y"`
+	Gems []string `json:"gems,omitempty"`
 }

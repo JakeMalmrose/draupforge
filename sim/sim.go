@@ -52,6 +52,25 @@ func (s *Sim) Spawn(defID string, pos space.Vec2) (core.EntityID, error) {
 	return s.W.SpawnActor(def, pos).ID, nil
 }
 
+// GrantGem cuts a skill gem directly onto an actor (level clamped to
+// [1, MaxGemLevel]) — the scenario/test path around the drop-and-cut loop.
+// Rejected for unknown skills or skills the actor already has cut.
+func (s *Sim) GrantGem(actor core.EntityID, skillID string, level int) error {
+	a := s.W.ActorByID(actor)
+	if a == nil {
+		return fmt.Errorf("sim: unknown actor %d", actor)
+	}
+	sk := s.W.Content.Skills[skillID]
+	if sk == nil {
+		return fmt.Errorf("sim: unknown skill %q", skillID)
+	}
+	if a.GemForSkill(skillID) != nil {
+		return fmt.Errorf("sim: actor already has %q cut", skillID)
+	}
+	a.GrantGem(sk, level)
+	return nil
+}
+
 // GenerateMap rolls terrain from the world's map RNG stream and installs
 // it. Call before any spawns; terrain is immutable afterwards.
 func (s *Sim) GenerateMap(spec space.MapSpec) {
@@ -277,6 +296,21 @@ func applyCommands(w *core.World, cmds []core.Command) {
 			}
 			items.ApplyOrb(w, a, c.Orb, c.TargetID)
 
+		case core.CmdCutSkill, core.CmdLevelGem, core.CmdCutSupport, core.CmdAddSocket:
+			if a.Action.Kind == core.ActionSkill {
+				continue // gem work is bench work, not battle work
+			}
+			switch c.Kind {
+			case core.CmdCutSkill:
+				items.CutSkill(w, a, c.TargetID, c.Choice, c.Replace, c.GemIndex)
+			case core.CmdLevelGem:
+				items.LevelGem(w, a, c.TargetID, c.GemIndex)
+			case core.CmdCutSupport:
+				items.CutSupport(w, a, c.TargetID, c.Choice, c.GemIndex, c.Socket)
+			case core.CmdAddSocket:
+				items.AddSocket(w, a, c.GemIndex)
+			}
+
 		case core.CmdChoosePassive:
 			// Not an action — legal even mid-swing. Level-gated, one pick
 			// per milestone, permanent.
@@ -292,14 +326,24 @@ func applyCommands(w *core.World, cmds []core.Command) {
 				continue
 			}
 			sk := w.Content.Skills[c.Skill]
-			if sk == nil || !actorKnows(a, c.Skill) {
+			if sk == nil {
 				continue
 			}
-			if a.Mana < sk.ManaCost {
+			// Cut gems first (the player path — gem level and supports come
+			// along); Def.Skills is the monster path.
+			var ctx core.GemCtx
+			cost := sk.ManaCost
+			if gem := a.GemForSkill(c.Skill); gem != nil {
+				ctx = gem.Ctx()
+				cost = gem.ManaCost()
+			} else if !actorKnows(a, c.Skill) {
 				continue
 			}
-			speed := a.Sheet.Eval(sk.SpeedStat, sk.Tags)
-			a.Mana -= sk.ManaCost
+			if a.Mana < cost {
+				continue
+			}
+			speed := speedWithSupports(a, sk, ctx)
+			a.Mana -= cost
 			a.Action = core.Action{
 				Kind:          core.ActionSkill,
 				Skill:         sk,
@@ -308,6 +352,7 @@ func applyCommands(w *core.World, cmds []core.Command) {
 				Phase:         core.PhaseWindup,
 				TicksLeft:     scaleTicks(sk.WindupTicks, speed),
 				RecoveryTicks: scaleTicks(sk.RecoveryTicks, speed),
+				Gem:           ctx,
 			}
 		}
 	}
@@ -320,6 +365,18 @@ func actorKnows(a *core.Actor, skillID string) bool {
 		}
 	}
 	return false
+}
+
+// speedWithSupports evaluates the skill's speed stat with the cast's
+// support modifiers folded in — the same algebra as Sheet.Eval, so a
+// gem-less cast computes exactly what Eval would.
+func speedWithSupports(a *core.Actor, sk *core.SkillDef, ctx core.GemCtx) fm.Fixed {
+	p := a.Sheet.Layers(sk.SpeedStat, sk.Tags)
+	p = ctx.FoldSupportMods(p, sk.SpeedStat, sk.Tags)
+	if p.HasOverride {
+		return p.Override
+	}
+	return fm.Mul(a.Sheet.Base(sk.SpeedStat)+p.Flat, p.Multiplier())
 }
 
 // scaleTicks divides a base tick count by a speed multiplier. Anything an
