@@ -193,6 +193,13 @@ func (in *Instance) adminMux() *http.ServeMux {
 			if err != nil {
 				return nil, err
 			}
+			if in.run > 0 {
+				// Descent instances save the run envelope so -load resumes
+				// mid-run; plain arenas keep the bare world format.
+				if data, err = in.encodeRunSave(data); err != nil {
+					return nil, err
+				}
+			}
 			return saveBlob{data: data, tick: in.sim.W.Tick}, nil
 		})
 		if err != nil {
