@@ -2,8 +2,10 @@
   "map": { "width": 48, "height": 48, "rooms": 9 },
   "spawns": [],
   "scatter": [
-    { "def": "zombie", "count": 7 },
-    { "def": "skeleton_archer", "count": 5 },
+    { "def": "zombie", "count": 6 },
+    { "def": "skeleton_archer", "count": 4 },
+    { "def": "ghoul", "count": 4 },
+    { "def": "skeleton_mage", "count": 2 },
     { "def": "training_dummy", "count": 1 }
   ],
   "commands": []
