@@ -50,6 +50,8 @@ type Character struct {
 	Passives []string `json:"passives,omitempty"`
 	// FlaskCharges carries the flask bank across zones, like pools.
 	FlaskCharges []int32 `json:"flask_charges,omitempty"`
+	// Orbs carries the crafting wallet, OrbKind order.
+	Orbs []int32 `json:"orbs,omitempty"`
 }
 
 // ExtractCharacter reduces an actor to its character state — the reverse of
@@ -76,6 +78,12 @@ func ExtractCharacter(a *Actor) Character {
 		ch.Passives = append(ch.Passives, p.ID)
 	}
 	ch.FlaskCharges = a.FlaskCharges
+	for _, n := range a.Orbs {
+		if n != 0 {
+			ch.Orbs = a.Orbs[:]
+			break
+		}
+	}
 	return ch
 }
 
@@ -157,6 +165,10 @@ func InjectCharacter(w *World, ch Character, pos space.Vec2) (*Actor, error) {
 		if i < len(ch.FlaskCharges) {
 			a.FlaskCharges[i] = min(max(ch.FlaskCharges[i], 0), FlaskMaxCharges)
 		}
+	}
+
+	if len(ch.Orbs) <= int(OrbCount) {
+		copy(a.Orbs[:], ch.Orbs)
 	}
 
 	// Pools: carry, clamped to the rebuilt maxima. Life <= 0 means a

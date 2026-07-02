@@ -22,7 +22,7 @@ import (
 // SaveVersion gates restores: a format change bumps it, and old files fail
 // loudly instead of misloading. Saves are durable state — unlike replays,
 // they must never depend on re-execution of the code that wrote them.
-const SaveVersion = 7 // v7: flask charges (v6: actor passives)
+const SaveVersion = 8 // v8: orb wallet (v7: flask charges)
 
 type saveFile struct {
 	Version     int              `json:"version"`
@@ -101,6 +101,7 @@ type actorSave struct {
 	MonMods   []string     `json:"mon_mods,omitempty"`  // MonsterModDef IDs
 	Passives  []string     `json:"passives,omitempty"` // PassiveDef IDs
 	Flasks    []int32      `json:"flasks,omitempty"`   // charges per flask slot
+	Orbs      []int32      `json:"orbs,omitempty"`     // wallet, OrbKind order
 	Base      []fm.Fixed   `json:"base"` // sheet base values, StatID order
 	Mods      []modSave    `json:"mods,omitempty"`
 	Action    actionSave   `json:"action"`
@@ -201,6 +202,12 @@ func encodeActor(a *Actor) actorSave {
 		as.Passives = append(as.Passives, ps.ID)
 	}
 	as.Flasks = a.FlaskCharges
+	for _, n := range a.Orbs {
+		if n != 0 {
+			as.Orbs = a.Orbs[:]
+			break
+		}
+	}
 	for st := stats.StatID(0); st < stats.StatCount; st++ {
 		as.Base[st] = a.Sheet.Base(st)
 	}
@@ -382,6 +389,10 @@ func decodeActor(db *ContentDB, affixes map[string]*AffixDef, as actorSave) (*Ac
 		a.Passives = append(a.Passives, pd)
 	}
 	a.FlaskCharges = as.Flasks
+	if len(as.Orbs) > int(OrbCount) {
+		return nil, fmt.Errorf("core: actor %d has %d orb kinds, this build knows %d", as.ID, len(as.Orbs), OrbCount)
+	}
+	copy(a.Orbs[:], as.Orbs)
 	for _, ds := range as.DoTs {
 		a.DoTs = append(a.DoTs, DoT{
 			Type: DamageType(ds.Type), PerTick: ds.PerTick, TicksLeft: ds.TicksLeft, Source: EntityID(ds.Source),

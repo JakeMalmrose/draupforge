@@ -311,3 +311,21 @@ body {
   font-size: 10px; color: #b8a44a; text-shadow: 0 1px 2px #000;
 }
 .flask.drained { opacity: 0.45; filter: grayscale(0.6); }
+
+/* Currency strip in the panel; an armed orb highlights bag cells. */
+#orb-strip { display: flex; gap: 6px; margin-bottom: 4px; }
+.orb {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 4px 8px;
+  background: #14141c;
+  border: 1px solid #2a2a33;
+  border-radius: 3px;
+  color: #cfc9bf; font: inherit; font-size: 12px;
+  cursor: pointer;
+}
+.orb:hover { border-color: #b8a44a; }
+.orb.armed { border-color: #b8a44a; background: #221f14; }
+.orb.drained { opacity: 0.45; }
+.orb-dot { width: 10px; height: 10px; border-radius: 50%; box-shadow: 0 0 6px currentColor; }
+#panel.orb-armed .inv-grid .slot.filled { border-color: #b8a44a66; cursor: cell; }
+#log .ev-orb { color: #d97b4a; }

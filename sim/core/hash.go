@@ -86,6 +86,16 @@ func (w *World) Hash() uint64 {
 				s.i64(int64(ch))
 			}
 		}
+		// Orb wallet: conditional like passives — empty wallets keep their
+		// pre-currency hash stream.
+		for _, n := range a.Orbs {
+			if n != 0 {
+				for _, v := range a.Orbs {
+					s.i64(int64(v))
+				}
+				break
+			}
+		}
 		s.u64(uint64(a.Action.Kind))
 		s.u64(uint64(a.Action.Phase))
 		s.u64(uint64(a.Action.TicksLeft))

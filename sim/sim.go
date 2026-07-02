@@ -270,6 +270,12 @@ func applyCommands(w *core.World, cmds []core.Command) {
 			a.FlaskCharges[i] -= core.FlaskUseCost
 			combat.ApplyBuff(w, a, buff, a.ID)
 
+		case core.CmdApplyOrb:
+			if a.Action.Kind == core.ActionSkill {
+				continue // no crafting mid-swing, same as the other item verbs
+			}
+			items.ApplyOrb(w, a, c.Orb, c.TargetID)
+
 		case core.CmdChoosePassive:
 			// Not an action — legal even mid-swing. Level-gated, one pick
 			// per milestone, permanent.

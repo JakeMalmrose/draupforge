@@ -30,6 +30,9 @@ const (
 	// CmdUseFlask drinks the flask in slot TargetID (an index into
 	// Def.Flasks): costs charges, applies the flask's buff.
 	CmdUseFlask
+	// CmdApplyOrb spends one Orb (kind in the Orb field) on the inventory
+	// item named by TargetID, rerolling or upgrading its rarity.
+	CmdApplyOrb
 )
 
 // Command is the only way anything outside the sim affects it. The sim
@@ -49,6 +52,8 @@ type Command struct {
 	HasSlot bool
 	// Passive is the PassiveDef ID for CmdChoosePassive.
 	Passive string
+	// Orb is the currency kind for CmdApplyOrb.
+	Orb OrbKind
 }
 
 type EventKind uint8
@@ -72,6 +77,9 @@ const (
 	EvLevelUp
 	// EvPassive fires when an actor takes a milestone passive; Note = ID.
 	EvPassive
+	// EvOrb: Actor banked a dropped orb (Note = kind, Amount = new count),
+	// or crafted with one (Other = the item, Note = "kind:item_base").
+	EvOrb
 )
 
 func (k EventKind) String() string {
@@ -102,6 +110,8 @@ func (k EventKind) String() string {
 		return "level_up"
 	case EvPassive:
 		return "passive"
+	case EvOrb:
+		return "orb"
 	default:
 		return "unequip"
 	}

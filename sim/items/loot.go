@@ -32,6 +32,10 @@ func RollLoot(w *core.World) {
 		if table == nil {
 			continue
 		}
+		// Currency first: one orb draw per kill with a live enemy killer.
+		if killer := w.ActorByID(ev.Other); killer != nil && !killer.Dead && killer.Team != a.Team {
+			rollOrb(w, killer, a.Rarity)
+		}
 		// Rarity pays in drop attempts — magic 2, rare 3 — each gated by
 		// the table's chance independently. Consumption is keyed off the
 		// dier's rarity (world state, hashed), so replays stay aligned;
@@ -66,6 +70,15 @@ func RollItem(w *core.World, table *core.LootTableDef) core.Item {
 		item.Implicit = w.RNGLoot.Range(imp.Min, imp.Max)
 	}
 
+	fillAffixes(w, &item)
+	return item
+}
+
+// fillAffixes rolls an item's affix block for its rarity — count draw,
+// then weighted picks (loot stream). Any existing affixes are replaced:
+// the chaos-orb reroll and the drop path share this.
+func fillAffixes(w *core.World, item *core.Item) {
+	item.Affixes = nil
 	var want int
 	kindCap := 0
 	switch item.Rarity {
@@ -76,7 +89,7 @@ func RollItem(w *core.World, table *core.LootTableDef) core.Item {
 		want = 4 + int(w.RNGLoot.Uint64n(3)) // 4–6
 		kindCap = rareAffixCap
 	default:
-		return item
+		return
 	}
 
 	usedGroups := make(map[string]bool)
@@ -101,7 +114,79 @@ func RollItem(w *core.World, table *core.LootTableDef) core.Item {
 			Value: w.RNGLoot.Range(af.Min, af.Max),
 		})
 	}
-	return item
+}
+
+// Orb drop rates per kill, per mille, scaled by the dier's rarity (x2
+// magic, x3 rare — matching the drop-attempt ladder). One combined draw
+// decides which orb, if any. Open for tuning.
+var orbPermille = [core.OrbCount]uint64{90, 30, 15} // transmutation, alchemy, chaos
+
+// rollOrb banks a currency drop straight to the killer — no ground
+// entity; picking up shards of currency is friction, not fun. Consumes
+// exactly one loot draw per eligible kill.
+func rollOrb(w *core.World, killer *core.Actor, rarity core.Rarity) {
+	mult := uint64(1)
+	switch rarity {
+	case core.RarityMagic:
+		mult = 2
+	case core.RarityRare:
+		mult = 3
+	}
+	roll := w.RNGLoot.Uint64n(1000)
+	for o := core.OrbKind(0); o < core.OrbCount; o++ {
+		band := orbPermille[o] * mult
+		if roll < band {
+			killer.Orbs[o]++
+			w.Emit(core.Event{
+				Kind: core.EvOrb, Actor: killer.ID,
+				Amount: fm.FromInt(int64(killer.Orbs[o])), Note: o.String(),
+			})
+			return
+		}
+		roll -= band
+	}
+}
+
+// ApplyOrb spends one orb from the actor's wallet on an inventory item:
+// transmutation upgrades normal to magic, alchemy normal to rare, chaos
+// rerolls a rare. Equipped items can't be crafted (their mods live on the
+// sheet); reports whether anything happened.
+func ApplyOrb(w *core.World, a *core.Actor, orb core.OrbKind, itemID core.EntityID) bool {
+	if orb >= core.OrbCount || a.Orbs[orb] <= 0 {
+		return false
+	}
+	var item *core.Item
+	for i := range a.Inventory {
+		if a.Inventory[i].ID == itemID {
+			item = &a.Inventory[i]
+		}
+	}
+	if item == nil {
+		return false
+	}
+	switch orb {
+	case core.OrbTransmutation:
+		if item.Rarity != core.RarityNormal {
+			return false
+		}
+		item.Rarity = core.RarityMagic
+	case core.OrbAlchemy:
+		if item.Rarity != core.RarityNormal {
+			return false
+		}
+		item.Rarity = core.RarityRare
+	case core.OrbChaos:
+		if item.Rarity != core.RarityRare {
+			return false
+		}
+	}
+	a.Orbs[orb]--
+	fillAffixes(w, item)
+	w.Emit(core.Event{
+		Kind: core.EvOrb, Actor: a.ID, Other: item.ID,
+		Note: orb.String() + ":" + item.Base.ID,
+	})
+	return true
 }
 
 // rollRarity draws normal/magic/rare from the table's weights. An all-zero

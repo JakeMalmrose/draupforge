@@ -99,6 +99,10 @@ func (s *Sim) BuildSnapshotFor(viewer core.EntityID, radius fm.Fixed, events []p
 		for _, ch := range a.FlaskCharges {
 			flasks = append(flasks, int64(ch))
 		}
+		var orbs []int64
+		for _, n := range a.Orbs {
+			orbs = append(orbs, int64(n))
+		}
 		var equipment []protocol.EquippedSnap
 		for slot := core.EquipSlot(0); slot < core.EquipSlotCount; slot++ {
 			if item := a.Equipment[slot]; item != nil {
@@ -130,6 +134,7 @@ func (s *Sim) BuildSnapshotFor(viewer core.EntityID, radius fm.Fixed, events []p
 			Mods:      modNames,
 			Passives:  passives,
 			Flasks:    flasks,
+			Orbs:      orbs,
 			Level:     a.Level,
 			XP:        a.XP,
 			XPNext:    xpNext(a.Level),
@@ -262,6 +267,13 @@ func DecodeCommand(c protocol.Command) (core.Command, error) {
 		out.Passive = c.Passive
 	case "use_flask":
 		out.Kind = core.CmdUseFlask
+	case "apply_orb":
+		orb, ok := core.ParseOrbKind(c.Orb)
+		if !ok {
+			return core.Command{}, fmt.Errorf("protocol: unknown orb %q", c.Orb)
+		}
+		out.Kind = core.CmdApplyOrb
+		out.Orb = orb
 	default:
 		return core.Command{}, fmt.Errorf("protocol: unknown command kind %q", c.Kind)
 	}

@@ -157,6 +157,11 @@ type Actor struct {
 	// Def.Flasks). Spent on use, gained on kills, durable across zones.
 	FlaskCharges []int32
 
+	// Orbs is the crafting-currency wallet, indexed by OrbKind. Orbs bank
+	// straight to the killer on drop (no ground entity), durable like
+	// flask charges.
+	Orbs [OrbCount]int32
+
 	// Dead actors are tombstoned during the tick and compacted at tick end,
 	// so slice indices stay stable while a tick is in flight.
 	Dead bool
@@ -295,6 +300,36 @@ type Projectile struct {
 	Vel       space.Vec2 // per tick
 	TicksLeft uint32
 	Dead      bool
+}
+
+// OrbKind is a crafting currency: each rerolls or upgrades item rarity.
+type OrbKind uint8
+
+const (
+	OrbTransmutation OrbKind = iota // normal -> magic
+	OrbAlchemy                      // normal -> rare
+	OrbChaos                        // reroll a rare's affixes
+
+	OrbCount
+)
+
+var orbNames = [OrbCount]string{"transmutation", "alchemy", "chaos"}
+
+func (o OrbKind) String() string {
+	if o < OrbCount {
+		return orbNames[o]
+	}
+	return "unknown"
+}
+
+// ParseOrbKind maps a wire orb name back to the enum.
+func ParseOrbKind(name string) (OrbKind, bool) {
+	for o := OrbKind(0); o < OrbCount; o++ {
+		if orbNames[o] == name {
+			return o, true
+		}
+	}
+	return OrbCount, false
 }
 
 type Rarity uint8

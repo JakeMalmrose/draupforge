@@ -9,7 +9,7 @@
 
 "use strict";
 
-const PROTOCOL_VERSION = 14;
+const PROTOCOL_VERSION = 15;
 
 const FRAME_VIEW = 1;
 
@@ -27,6 +27,7 @@ const ACTOR_AILMENTS = 1 << 10; // bitmask: 1 ignited, 2 chilled, 4 shocked
 const ACTOR_PROGRESS = 1 << 11; // level, xp, xp_next
 const ACTOR_PASSIVES = 1 << 12; // taken milestone-passive IDs
 const ACTOR_FLASKS = 1 << 13; // charges per flask slot
+const ACTOR_ORBS = 1 << 14; // crafting-currency wallet
 
 const PROJ_IDENTITY = 1 << 0; // skill, radius
 const PROJ_POS = 1 << 1;
@@ -164,6 +165,10 @@ function decodeViewFrame(buf, baseFor) {
     if (mask & ACTOR_FLASKS) {
       a.flasks = [];
       for (let m = r.uv(); m > 0; m--) a.flasks.push(r.sv());
+    }
+    if (mask & ACTOR_ORBS) {
+      a.orbs = [];
+      for (let m = r.uv(); m > 0; m--) a.orbs.push(r.sv());
     }
     view.actors.set(id, a);
   }
