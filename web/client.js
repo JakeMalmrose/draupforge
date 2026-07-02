@@ -18,6 +18,11 @@ const VIEW_HISTORY = 32;   // kept as delta baselines; matches the server cap
 let ws = null;
 let myId = 0;
 let gen = 0;                // welcome generation; acks echo it
+let myName = "";            // our identity name ("" = guest)
+let roster = new Map();     // actor id → identity name, server-maintained
+let guestMode = false;      // the join screen chose "play as guest"
+let fatalError = false;     // server refused us; keep that overlay on close
+let social = null;          // latest social snap: {party, online, invite}
 let snap = null;            // newest reconstructed view (HUD, log, input)
 let seenSelf = false;       // distinguishes "not spawned yet" from "died"
 let pendingPickup = 0;      // drop entity we're walking toward
@@ -61,7 +66,12 @@ const ctx = canvas.getContext("2d");
 // ------------------------------------------------------------- network
 
 function connect() {
-  ws = new WebSocket(`ws://${location.host}/ws${location.search}`);
+  fatalError = false; // a fresh attempt gets fresh disconnect reporting
+  const wsProto = location.protocol === "https:" ? "wss" : "ws";
+  const params = new URLSearchParams(location.search);
+  if (guestMode) params.set("guest", "1");
+  const qs = params.toString();
+  ws = new WebSocket(`${wsProto}://${location.host}/ws${qs ? "?" + qs : ""}`);
   ws.binaryType = "arraybuffer";
   ws.onmessage = (e) => {
     if (typeof e.data === "string") {
@@ -86,6 +96,17 @@ function connect() {
       } else if (msg.type === "pause") {
         if (msg.paused) showOverlay("PAUSED");
         else hideOverlay();
+      } else if (msg.type === "roster") {
+        applyRoster(msg.roster);
+      } else if (msg.type === "social") {
+        social = msg.social || null;
+        renderSocial();
+      } else if (msg.type === "error") {
+        // Refused (duplicate session, say). Back to the join screen, which
+        // offers the ways forward: another name, or guest mode.
+        fatalError = true;
+        document.getElementById("join").classList.remove("hidden");
+        document.getElementById("join-error").textContent = msg.error || "refused";
       } else if (msg.type === "snapshot") {
         onView(jsonToView(msg.snapshot)); // ?format=json debug wire
       }
@@ -107,7 +128,15 @@ function connect() {
     send({ kind: "ack", tick: view.tick, gen });
     onView(view);
   };
-  ws.onclose = () => showOverlay("DISCONNECTED");
+  ws.onclose = () => {
+    if (!fatalError) showOverlay("DISCONNECTED");
+  };
+}
+
+// applyRoster swaps in the actor→name map for named players. JSON object
+// keys arrive as strings; view actor ids are numbers.
+function applyRoster(obj) {
+  roster = new Map(Object.entries(obj || {}).map(([id, n]) => [Number(id), n]));
 }
 
 // resetWorld applies a welcome. Every welcome is a whole new world on the
@@ -115,6 +144,8 @@ function connect() {
 // world-derived state resets: views, interpolation, fades, names, layouts.
 function resetWorld(msg) {
   myId = msg.actor;
+  myName = msg.name || "";
+  applyRoster(msg.roster);
   gen = msg.gen || 0;
   worldMap = msg.map || null;
   buildMinimapBase();
@@ -186,7 +217,7 @@ function onView(view) {
   }
 
   for (const a of view.actors.values()) {
-    let name = a.def === "player" ? `player ${a.id}` : a.def.replace("_", " ");
+    let name = a.def === "player" ? roster.get(a.id) || `player ${a.id}` : a.def.replace("_", " ");
     if (a.mods && a.mods.length) name = `${a.mods.join(" ")} ${name}`;
     names.set(a.id, name);
   }
@@ -621,7 +652,8 @@ function drawActor(a, pos) {
   ctx.fillStyle = a.team === 1 ? "#3da14b" : "#a32626";
   ctx.fillRect(p.x - w / 2, p.y - r - 11, w * Math.max(0, frac), 5);
 
-  ctx.fillStyle = rarityColor || "#8d8678";
+  // Named players read brighter than the anonymous rabble.
+  ctx.fillStyle = rarityColor || (roster.has(a.id) ? "#dcd6c8" : "#8d8678");
   ctx.font = "11px Georgia";
   ctx.textAlign = "center";
   ctx.fillText(names.get(a.id) || a.def, p.x, p.y - r - 16);
@@ -1311,6 +1343,7 @@ setInterval(() => {
 }, WASD_MS);
 
 window.addEventListener("keyup", (e) => {
+  if (joinOpen()) return;
   const key = e.key.toLowerCase();
   if (key in WASD_DIRS && wasdHeld.delete(key) && !wasdHeld.size) {
     send({ kind: "stop" });
@@ -1319,6 +1352,7 @@ window.addEventListener("keyup", (e) => {
 window.addEventListener("blur", () => wasdHeld.clear());
 
 window.addEventListener("keydown", (e) => {
+  if (joinOpen()) return; // typing a name is not gameplay input
   if (e.repeat) return;
   audioUnlock();
   const key = e.key.toLowerCase();
@@ -1349,6 +1383,10 @@ window.addEventListener("keydown", (e) => {
     case "i":
       panel.classList.toggle("hidden");
       if (!panel.classList.contains("hidden")) renderPanel(me(), true);
+      break;
+    case "f":
+      document.getElementById("social").classList.toggle("hidden");
+      renderSocial();
       break;
   }
 });
@@ -2153,5 +2191,127 @@ function hideOverlay() {
   document.getElementById("overlay").classList.add("hidden");
 }
 
-connect();
+// -------------------------------------------------------------- social
+//
+// The F panel: your party, and every named player online (the default
+// friends list — invitable unless already partied with you). Social frames
+// arrive only for named players; guests see a nudge to claim a name.
+
+function renderSocial() {
+  const panel = document.getElementById("social");
+  const partyEl = document.getElementById("party-list");
+  const onlineEl = document.getElementById("online-list");
+  const leaveBtn = document.getElementById("leave-party");
+  partyEl.textContent = "";
+  onlineEl.textContent = "";
+  if (!social) {
+    partyEl.textContent = myName ? "just you" : "guests can't party — claim a name";
+    onlineEl.textContent = "…";
+    leaveBtn.classList.add("hidden");
+  } else {
+    const party = social.party || [];
+    if (party.length <= 1) partyEl.textContent = "just you";
+    else {
+      for (const n of party) {
+        const row = document.createElement("div");
+        row.className = "social-row";
+        row.textContent = n === myName ? `${n} (you)` : n;
+        partyEl.appendChild(row);
+      }
+    }
+    leaveBtn.classList.toggle("hidden", party.length <= 1);
+    const online = social.online || [];
+    if (!online.length) onlineEl.textContent = "nobody else is on";
+    for (const n of online) {
+      const row = document.createElement("div");
+      row.className = "social-row";
+      const label = document.createElement("span");
+      label.textContent = n;
+      row.appendChild(label);
+      if (!party.includes(n)) {
+        const btn = document.createElement("button");
+        btn.textContent = "invite";
+        btn.onclick = () => send({ kind: "invite", name: n });
+        row.appendChild(btn);
+      }
+      onlineEl.appendChild(row);
+    }
+  }
+  // The invite toast lives outside the panel — it must interrupt.
+  const toast = document.getElementById("invite-toast");
+  if (social && social.invite) {
+    document.getElementById("invite-text").textContent =
+      `${social.invite} invites you to their party`;
+    toast.classList.remove("hidden");
+  } else {
+    toast.classList.add("hidden");
+  }
+}
+
+function sendAccept() {
+  send({ kind: "accept_invite" });
+}
+function sendDecline() {
+  send({ kind: "decline_invite" });
+}
+function sendLeaveParty() {
+  send({ kind: "leave_party" });
+}
+
+// ---------------------------------------------------------------- join
+
+function joinOpen() {
+  return !document.getElementById("join").classList.contains("hidden");
+}
+
+// claimName registers the typed name: the server answers with an HttpOnly
+// token cookie that authenticates every later visit — no password, and the
+// name itself grants nothing.
+async function claimName() {
+  const err = document.getElementById("join-error");
+  const name = document.getElementById("join-name").value.trim();
+  if (!name) {
+    err.textContent = "pick a name first";
+    return;
+  }
+  try {
+    const r = await fetch("/api/claim", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }),
+    });
+    const body = await r.json();
+    if (!r.ok) {
+      err.textContent = body.error || "that didn't work";
+      return;
+    }
+    document.getElementById("join").classList.add("hidden");
+    connect();
+  } catch {
+    err.textContent = "server unreachable";
+  }
+}
+
+function playGuest() {
+  guestMode = true;
+  document.getElementById("join").classList.add("hidden");
+  connect();
+}
+
+// boot: a remembered identity goes straight in; everyone else picks a name
+// or plays as a guest.
+async function boot() {
+  let name = "";
+  try {
+    name = (await (await fetch("/api/whoami")).json()).name || "";
+  } catch {} // unreachable server: fall through, connect() will say so
+  if (name) {
+    connect();
+    return;
+  }
+  document.getElementById("join").classList.remove("hidden");
+  document.getElementById("join-name").focus();
+}
+
+boot();
 render();

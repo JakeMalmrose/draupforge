@@ -331,16 +331,19 @@ func (in *Instance) swapWorld(s *sim.Sim, floor int, at space.Vec2) {
 			ids[i], _ = s.Spawn(in.cfg.PlayerDef, pos) // no character yet: fresh spawn
 		}
 	}
-	// One atomic cutover: actor IDs, welcome generations, ack state, and the
-	// pending queue flip together. Commands readLoop tagged with old-world
-	// IDs are either in the queue we drop here or arrive after and get the
-	// new IDs — nothing ever drives whichever actor wears an old ID now.
-	in.mu.Lock()
+	// Cut every client over: actor IDs, welcome generations, ack state, and
+	// the pending queue flip before any new command lands. Commands readLoop
+	// tagged with old-world IDs are either in the queue we drop here or
+	// arrive after and get the new IDs — nothing ever drives whichever
+	// actor wears an old ID now.
 	for i, c := range in.clients {
+		c.mu.Lock()
 		c.actor = ids[i]
 		c.gen++
 		c.ack, c.ackDirty = 0, false
+		c.mu.Unlock()
 	}
+	in.mu.Lock()
 	in.pending = nil
 	in.mu.Unlock()
 	for _, c := range in.clients {

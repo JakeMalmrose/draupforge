@@ -8,7 +8,10 @@ package protocol
 // it on any change a deployed client could misread — renamed/removed JSON
 // fields (omitempty makes those fail silently) or any binary frame layout
 // change. Clients hard-fail on mismatch instead of limping.
-const Version = 16 // v16: gems — actor gem group, uncut gem items, gem verbs, welcome tables (v15: currency)
+// v18 unifies two parallel branches that both claimed v16 (gems on main,
+// identity on the multiplayer branch; parties took v17) — jumping past all
+// of them so no deployed client can match a wrong meaning.
+const Version = 18 // v18: gems + identity + parties (v15: currency)
 
 // Command is the wire form of player intent. Kind is one of "move",
 // "use_skill", "stop", the item verbs "pickup", "equip", "unequip",
@@ -35,6 +38,10 @@ type Command struct {
 	Passive string `json:"passive,omitempty"`
 	// Orb names the currency kind for "apply_orb".
 	Orb string `json:"orb,omitempty"`
+	// Name is the invitee's display name for the host-layer "invite" verb
+	// (the social verbs "accept_invite", "decline_invite" and "leave_party"
+	// carry nothing).
+	Name string `json:"name,omitempty"`
 	// Gem-verb addressing ("cut_skill", "level_gem", "cut_support",
 	// "add_socket"): Choice indexes the uncut gem's draft, Gem the actor's
 	// cut gems, Socket the gem's sockets; Replace arms cut_skill's
@@ -237,7 +244,7 @@ type PassiveSnap struct {
 // that join while paused); "run" announces run-state changes that don't
 // come with a new world (portal planted).
 type ServerMsg struct {
-	Type      string    `json:"type"` // "welcome" | "snapshot" | "pause" | "run"
+	Type      string    `json:"type"` // "welcome" | "snapshot" | "pause" | "run" | "roster" | "error"
 	V         int       `json:"v,omitempty"`
 	Gen       int       `json:"gen,omitempty"`
 	Actor     uint64    `json:"actor,omitempty"`
@@ -254,6 +261,27 @@ type ServerMsg struct {
 	// only: every support gem, and every skill an uncut gem can offer.
 	Supports  []SupportSnap `json:"supports,omitempty"`
 	CutSkills []SkillSnap   `json:"cut_skills,omitempty"`
+	// Name is the receiving client's own identity name ("" = guest);
+	// welcome only. Roster maps live actor IDs to identity names — on every
+	// welcome, and re-broadcast as "roster" when membership changes.
+	Name   string            `json:"name,omitempty"`
+	Roster map[uint64]string `json:"roster,omitempty"`
+	// Error rides a terminal "error" frame: the connection is refused (a
+	// duplicate session, say) and closes after this message.
+	Error string `json:"error,omitempty"`
+	// Social rides "social" frames — pushed to named players whenever the
+	// online list, their party, or their pending invite changes.
+	Social *SocialSnap `json:"social,omitempty"`
+}
+
+// SocialSnap is one named player's view of the social layer. Party is the
+// named members of their world (guests are invisible here); Online is every
+// other named player connected right now — the default-visible friends
+// list; Invite names who wants them ("" = nobody).
+type SocialSnap struct {
+	Party  []string `json:"party"`
+	Online []string `json:"online"`
+	Invite string   `json:"invite,omitempty"`
 }
 
 // Script is the headless runner's input: a scenario plus scheduled commands.

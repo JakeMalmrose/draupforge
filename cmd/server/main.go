@@ -28,12 +28,13 @@ func main() {
 	sendEvery := flag.Int("sendevery", 3, "send a view every N sim ticks (3 = 10Hz at the 30Hz sim)")
 	interest := flag.Int64("interest", 60, "interest radius in world units for WS clients (0 = whole world)")
 	portals := flag.Int("portals", 3, "portal uses per descent run (deaths and hideout trips consume them)")
+	identities := flag.String("identities", "identities.json", "named-player store; \"\" keeps identities in memory only")
 	flag.Parse()
 
 	cfg := server.Config{
 		Addr: *addr, HTTPAddr: *httpAddr, AdminAddr: *adminAddr, StaticDir: *webDir,
 		Seed: *seed, SendEvery: *sendEvery, InterestRadius: *interest * 1000,
-		Portals: *portals,
+		Portals: *portals, IdentityPath: *identities,
 	}
 	if *load != "" {
 		raw, err := os.ReadFile(*load)
@@ -56,12 +57,12 @@ func main() {
 		cfg.Scatter = script.Scatter
 	}
 
-	in, err := server.New(content.DB(), cfg)
+	lb, err := server.NewLobby(content.DB(), cfg)
 	if err != nil {
 		fatal(err)
 	}
 	go func() {
-		fmt.Println("tcp listening on", in.Addr())
+		fmt.Println("tcp listening on", lb.Addr())
 		if *httpAddr != "" {
 			fmt.Printf("web client on http://localhost%s\n", *httpAddr)
 		}
@@ -69,7 +70,7 @@ func main() {
 			fmt.Printf("admin dashboard on http://localhost%s\n", *adminAddr)
 		}
 	}()
-	if err := in.ListenAndServe(context.Background()); err != nil {
+	if err := lb.ListenAndServe(context.Background()); err != nil {
 		fatal(err)
 	}
 }

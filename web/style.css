@@ -433,3 +433,87 @@ body {
 .socket-pick:hover:not(:disabled) { border-color: #4ad1c8; }
 .socket-pick:disabled { cursor: default; }
 #log .ev-gem { color: #4ad1c8; }
+
+/* Join screen: name claim or guest, shown before the socket opens. */
+#join {
+  position: fixed; inset: 0;
+  background: rgba(10, 0, 0, 0.88);
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  gap: 14px;
+}
+#join-title { font-size: 48px; letter-spacing: 8px; color: #cfc9bf; margin-bottom: 10px; }
+#join input {
+  font: inherit; font-size: 18px; text-align: center;
+  background: #1a1a22; color: #cfc9bf;
+  border: 1px solid #3a3a45; border-radius: 3px;
+  padding: 8px 16px; width: 240px; outline: none;
+}
+#join input:focus { border-color: #6a6455; }
+#join button {
+  font: inherit; font-size: 16px;
+  background: #1a1a22; color: #cfc9bf;
+  border: 1px solid #3a3a45; border-radius: 3px;
+  padding: 8px 24px; cursor: pointer; width: 274px;
+}
+#join button:hover { border-color: #6a6455; }
+#join button.ghost { background: none; border-color: transparent; color: #55504a; }
+#join button.ghost:hover { color: #8d8678; }
+#join-error { font-size: 13px; color: #a32626; min-height: 16px; }
+
+/* Social panel (F): party + the online directory. */
+#social {
+  position: fixed;
+  left: 16px; top: 160px;
+  width: 230px; max-height: 60vh;
+  overflow-y: auto;
+  background: rgba(16, 16, 22, 0.95);
+  border: 1px solid #3a3a45;
+  border-radius: 4px;
+  padding: 12px;
+  user-select: none;
+  -webkit-user-select: none;
+}
+#social h2 { font-size: 13px; color: #8d8678; text-transform: uppercase; letter-spacing: 1px; margin: 8px 0 6px; }
+#social .hint { font-size: 11px; color: #55504a; margin-top: 10px; }
+#social, #party-list, #online-list { font-size: 13px; color: #cfc9bf; }
+.social-row {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 2px 0;
+}
+.social-row button {
+  font: inherit; font-size: 11px;
+  background: #1a1a22; color: #cfc9bf;
+  border: 1px solid #3a3a45; border-radius: 3px;
+  padding: 1px 8px; cursor: pointer;
+}
+.social-row button:hover { border-color: #6a6455; }
+#leave-party {
+  font: inherit; font-size: 11px;
+  background: #1a1a22; color: #cfc9bf;
+  border: 1px solid #3a3a45; border-radius: 3px;
+  padding: 2px 10px; cursor: pointer; margin-top: 4px;
+}
+#leave-party:hover { border-color: #a32626; }
+
+/* Invite toast: bottom center, above the HUD, impossible to miss. */
+#invite-toast {
+  position: fixed;
+  bottom: 150px; left: 50%;
+  transform: translateX(-50%);
+  background: #14141dee;
+  border: 1px solid #6a6455;
+  border-radius: 6px;
+  padding: 10px 16px;
+  display: flex; gap: 10px; align-items: center;
+  font-size: 14px; color: #cfc9bf;
+  z-index: 6;
+}
+#invite-toast button {
+  font: inherit; font-size: 13px;
+  background: #1a1a22; color: #cfc9bf;
+  border: 1px solid #3a3a45; border-radius: 3px;
+  padding: 3px 14px; cursor: pointer;
+}
+#invite-toast button:hover { border-color: #3d6fd1; }
+#invite-toast button.ghost { background: none; border-color: transparent; color: #55504a; }

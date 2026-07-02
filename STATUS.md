@@ -11,9 +11,9 @@ tests, and session-log entries older than a few sessions (git history is the
 archive). If this file outgrows ~150 lines, it has stopped being a status doc
 and started being a changelog — cut it back.
 
-**Last updated: 2026-07-02** (session 35: skill feel — arc replaces arc_bolt
-as the lightning gem, fireball explodes, spark bounces, finite projectile
-ranges, +50% gem drops)
+**Last updated: 2026-07-02** (session 38: multiplayer — lobby of per-party
+instances, friends/invites, on top of session 37's named identities; merged
+with the parallel gems/skill-feel stream, unified wire v18)
 
 ## Where things stand
 
@@ -237,6 +237,35 @@ fun-first counterweight to all of that.
 
 ## Session log
 
+- **2026-07-02 (38)** — Parties + friends (multiplayer.md phase 2).
+  `server/lobby.go`: cmd/server now runs a Lobby of instances — party =
+  instance, every connection gets a solo world (own derived seed),
+  invites transfer you into the inviter's world with the floor-swap
+  machinery (release → adopt → re-welcome), leave_party moves you out.
+  "Friends list" = all online named players (F panel, invite buttons,
+  toast). Empty instances reap after 60s — which doubles as reconnect
+  grace back into your old run. Client inbound state moved to a per-client
+  mutex so clients can cross instances. `cmd/partybot`: fake friend that
+  auto-accepts invites. Merge note: this branch (identity v16, parties
+  v17) collided with main's gems v16 — the unified wire is v18. Shortcuts:
+  `-load` unsupported in lobby mode (run saves predate parties); TCP debug
+  conns get solo worlds; admin dashboard lists instances, each under
+  `/i/{id}/`.
+- **2026-07-02 (37)** — Identity: named players + guests (multiplayer.md
+  phase 1). `server/identity.go`: name claim mints a 32-byte
+  secret token in an HttpOnly cookie; the token (never the name) resumes
+  the character — banked on disconnect + every 30s, `-identities` JSON on
+  disk, one session per name (dup gets an error frame and the join screen).
+  Guests skip it all and stay ephemeral. Welcomes/roster frames carry
+  actor→name for nameplates; join screen in the client. Shortcut: a claim
+  under an existing cookie with a new name orphans the old identity (no
+  rename/list yet).
+- **2026-07-02 (36)** — Public hosting. `web/client.js` picks ws/wss by
+  page protocol (was hardcoded ws://, which HTTPS blocks). Deployed to
+  the nuc (Ubuntu, `~/draupforge`, systemd unit `draupforge`, `-addr ""
+  -admin ""` so only HTTP/WS is exposed) behind Tailscale Funnel at
+  https://nuc.tail4b8d48.ts.net. `multiplayer.md` added: plan for named
+  identities (secret-cookie auth), guests, friends, per-party instances.
 - **2026-07-02 (35)** — Skill feel (Jake: "not just blue fireball").
   Arc: new cuttable `SkillChain` hitscan — strikes the enemy nearest
   the cursor (12u reach, LoS), chains to 2 more (supports add), one
