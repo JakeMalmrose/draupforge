@@ -217,6 +217,38 @@ func skillDefs() []*core.SkillDef {
 	boneArrow.BaseMin[core.Physical] = fm.FromInt(5)
 	boneArrow.BaseMax[core.Physical] = fm.FromInt(9)
 
+	claws := &core.SkillDef{
+		ID:            "ghoul_claws",
+		Name:          "Ghoul Claws",
+		Kind:          core.SkillMelee,
+		Tags:          stats.T(stats.TagAttack, stats.TagMelee, stats.TagPhysical),
+		Effectiveness: fm.One,
+		WindupTicks:   9, // 0.3s — fast, shallow cuts
+		RecoveryTicks: 6,
+		SpeedStat:     stats.AttackSpeed,
+		Range:         fm.FromMilli(1500),
+	}
+	claws.BaseMin[core.Physical] = fm.FromInt(3)
+	claws.BaseMax[core.Physical] = fm.FromInt(6)
+
+	arcBolt := &core.SkillDef{
+		ID:            "arc_bolt",
+		Name:          "Arc Bolt",
+		Kind:          core.SkillProjectile,
+		Tags:          stats.T(stats.TagSpell, stats.TagProjectile, stats.TagLightning),
+		Effectiveness: fm.One,
+		WindupTicks:   18, // 0.6s channelled crackle — dodgeable, unlike its shock
+		RecoveryTicks: 9,
+		SpeedStat:     stats.CastSpeed,
+		ProjSpeed:     fm.FromInt(18),
+		ProjTTL:       50,
+		ProjRadius:    fm.FromMilli(350),
+		ShockChance:   fm.FromMilli(350),
+	}
+	// Same wild-roll lightning identity as spark, hitting harder on average.
+	arcBolt.BaseMin[core.Lightning] = fm.FromInt(4)
+	arcBolt.BaseMax[core.Lightning] = fm.FromInt(22)
+
 	adrenaline := &core.SkillDef{
 		ID:            "adrenaline",
 		Name:          "Adrenaline",
@@ -229,7 +261,7 @@ func skillDefs() []*core.SkillDef {
 		SelfBuff:      "adrenaline",
 	}
 
-	return []*core.SkillDef{fireball, slam, frostNova, spark, boneArrow, adrenaline}
+	return []*core.SkillDef{fireball, slam, frostNova, spark, boneArrow, adrenaline, claws, arcBolt}
 }
 
 func baseStats(pairs map[stats.StatID]fm.Fixed) [stats.StatCount]fm.Fixed {
@@ -338,7 +370,60 @@ func actorDefs() []*core.ActorDef {
 		XPValue:   10,
 	}
 
-	return []*core.ActorDef{player, zombie, archer, dummy}
+	// Fast, fragile, and hungry: outruns a walking player, dies to a stiff
+	// breeze. Exists to force target priority — ignore it and it's on you.
+	ghoul := &core.ActorDef{
+		ID:     "ghoul",
+		Name:   "Grave Ghoul",
+		Team:   core.TeamMonsters,
+		Radius: fm.FromMilli(450),
+		BaseStats: baseStats(map[stats.StatID]fm.Fixed{
+			stats.Life:       fm.FromInt(25),
+			stats.MoveSpeed:  fm.FromMilli(5500),
+			stats.Accuracy:   fm.FromInt(75),
+			stats.CritChance: fm.FromMilli(80),
+		}),
+		Skills:      []string{"ghoul_claws"},
+		AI:          "melee_chaser",
+		AggroRadius: fm.FromInt(14),
+		LeashRadius: fm.FromInt(18),
+		LootTable:   "ghoul_drops",
+		Level:       1,
+		XPValue:     15,
+		PerLevel: []core.BuffMod{
+			{Stat: stats.Life, Layer: stats.LayerFlat, Value: fm.FromInt(4)},
+			{Stat: stats.Damage, Layer: stats.LayerIncreased, Value: fm.FromMilli(50)},
+		},
+	}
+
+	// Caster backline: slower and tougher than the archer, and its bolts
+	// shock — standing still near one gets expensive fast.
+	mage := &core.ActorDef{
+		ID:     "skeleton_mage",
+		Name:   "Skeleton Mage",
+		Team:   core.TeamMonsters,
+		Radius: fm.FromMilli(500),
+		BaseStats: baseStats(map[stats.StatID]fm.Fixed{
+			stats.Life:       fm.FromInt(45),
+			stats.MoveSpeed:  fm.FromMilli(3500),
+			stats.Accuracy:   fm.FromInt(85),
+			stats.CritChance: fm.FromMilli(60),
+		}),
+		Skills:         []string{"arc_bolt"},
+		AI:             "ranged_kiter",
+		AggroRadius:    fm.FromInt(16),
+		LeashRadius:    fm.FromInt(22),
+		PreferredRange: fm.FromInt(10),
+		LootTable:      "mage_drops",
+		Level:          1,
+		XPValue:        35,
+		PerLevel: []core.BuffMod{
+			{Stat: stats.Life, Layer: stats.LayerFlat, Value: fm.FromInt(6)},
+			{Stat: stats.Damage, Layer: stats.LayerIncreased, Value: fm.FromMilli(45)},
+		},
+	}
+
+	return []*core.ActorDef{player, zombie, archer, dummy, ghoul, mage}
 }
 
 // affixDefs is the global affix pool. Slice order feeds the weighted roll —
@@ -645,6 +730,26 @@ func lootTableDefs() []*core.LootTableDef {
 				"rusty_sword", "wooden_shield", "leather_cap", "leather_vest",
 				"leather_gloves", "leather_boots", "bone_amulet", "iron_ring",
 				"leather_belt",
+			},
+		},
+		{
+			// Swarm trash: drops rarely — a pack of ghouls shouldn't carpet
+			// the floor — but leans quick gear (boots, gloves, blades).
+			ID:            "ghoul_drops",
+			DropChance:    fm.FromMilli(250),
+			RarityWeights: [3]uint32{65, 30, 5},
+			Bases: []string{
+				"rusty_sword", "leather_boots", "leather_gloves", "leather_belt",
+			},
+		},
+		{
+			// Caster elite: stingy but jewelry-leaning with real rarity odds —
+			// the mage is the pack member worth focusing for loot too.
+			ID:            "mage_drops",
+			DropChance:    fm.FromMilli(350),
+			RarityWeights: [3]uint32{35, 45, 20},
+			Bases: []string{
+				"bone_amulet", "iron_ring", "leather_cap", "wooden_shield",
 			},
 		},
 	}

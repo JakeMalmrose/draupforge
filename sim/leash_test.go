@@ -110,3 +110,40 @@ func TestLeashIgnoresOutOfTerritoryEnemy(t *testing.T) {
 		t.Errorf("zombie walking to %v, want home %v", z.Action.MoveTarget, z.Home)
 	}
 }
+
+// TestNewArchetypesFight: the ghoul closes and claws, the mage stands off
+// and throws arc bolts — both riding the existing behavior registry.
+func TestNewArchetypesFight(t *testing.T) {
+	s := simWithGrid(openHall(), 41)
+	mustSpawn(t, s, "player", 9500, 5500)
+	ghoul := mustSpawn(t, s, "ghoul", 4500, 5500)
+
+	hitPlayer := false
+	for i := 0; i < 150 && !hitPlayer; i++ {
+		s.Step(nil)
+		for _, ev := range s.W.LastEvents {
+			if ev.Kind == core.EvHit && ev.Actor == ghoul {
+				hitPlayer = true
+			}
+		}
+	}
+	if !hitPlayer {
+		t.Error("ghoul never clawed a player 5 tiles away in 5 seconds")
+	}
+
+	s2 := simWithGrid(openHall(), 42)
+	mustSpawn(t, s2, "player", 12500, 5500)
+	mage := mustSpawn(t, s2, "skeleton_mage", 4500, 5500)
+	sawBolt := false
+	for i := 0; i < 90 && !sawBolt; i++ {
+		s2.Step(nil)
+		for _, p := range s2.W.Projectiles {
+			if p.Source == mage && p.Skill.ID == "arc_bolt" {
+				sawBolt = true
+			}
+		}
+	}
+	if !sawBolt {
+		t.Error("mage with clear line of sight never cast arc_bolt in 3 seconds")
+	}
+}

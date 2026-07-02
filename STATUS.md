@@ -11,8 +11,8 @@ tests, and session-log entries older than a few sessions (git history is the
 archive). If this file outgrows ~150 lines, it has stopped being a status doc
 and started being a changelog — cut it back.
 
-**Last updated: 2026-07-01** (session 20: eject grace — 2.5s of damage
-immunity on death arrivals, riding the buff machinery)
+**Last updated: 2026-07-01** (session 21: two new archetypes — grave
+ghoul and skeleton mage; arena/descent packs got more textured)
 
 ## Where things stand
 
@@ -67,7 +67,7 @@ All foundational machinery from DESIGN.md is real, not stubbed:
 | AI: behavior registry — `melee_chaser`, `ranged_kiter` (LoS-gated shooting, retreat band); territorial aggro: LoS/hearing acquisition, leash to `Actor.Home`, return-home (SaveVersion 4) | `sim/ai` | real, tested |
 | Phase order + command validation | `sim/sim.go` | done — this IS the determinism contract |
 | Wire types: versioned welcome, JSON snapshots, binary delta view codec | `protocol/` | done, tested |
-| Content tables | `content/` | fireball, frost_nova (AoE), spark, zombie_slam, bone_arrow, 4 actors (player/zombie/archer/dummy), 32 affixes (tiered groups), 9 bases (one per slot family, each with a rolled implicit), 3 drop tables (zombie/archer/dummy) |
+| Content tables | `content/` | 8 skills (fireball, frost_nova, spark, zombie_slam, bone_arrow, adrenaline, ghoul_claws, arc_bolt), 6 actors (player/zombie/archer/dummy/ghoul/mage), 32 affixes (tiered groups, per-slot pools), 9 bases (one per slot family, each with a rolled implicit), 5 drop tables, 4 monster rarity mods, 2 buffs |
 | Debug client | `cmd/headless` | done |
 | Determinism + golden replay tests | `sim/sim_test.go` | done |
 
@@ -205,6 +205,15 @@ fun-first counterweight to all of that.
 
 ## Session log
 
+- **2026-07-01 (21)** — Two new archetypes (ROADMAP phase 2 pack
+  variety), pure content + existing machinery. Grave ghoul: fast
+  (5.5 u/s — outruns a bootless player), fragile, quick shallow claws;
+  exists to force target priority. Skeleton mage: tanky caster backline,
+  arc_bolt (0.6s windup lightning bolt, 35% shock, spark's wild-roll
+  identity but harder-hitting). Own drop tables (ghouls drop rarely and
+  lean quick gear; mages lean jewelry with real rarity odds). Client:
+  per-def body colors (DEF_COLORS), arc_bolt/claws projectile + impact
+  palettes. arena.json packs now mix 5 archetypes. Goldens untouched.
 - **2026-07-01 (20)** — Eject grace. `portal_grace` BuffDef (DamageTaken
   overridden to 0 for 2.5s — zeroed hits also starve ailments, whose
   magnitudes scale off dealt damage); the host grants it to every client

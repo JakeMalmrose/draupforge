@@ -535,7 +535,8 @@ function drawActor(a, pos) {
 
   ctx.beginPath();
   ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
-  ctx.fillStyle = a.team === 1 ? (isMe ? "#3d6fd1" : "#2a4fa3") : "#7a2424";
+  ctx.fillStyle =
+    a.team === 1 ? (isMe ? "#3d6fd1" : "#2a4fa3") : DEF_COLORS[a.def] || "#7a2424";
   ctx.fill();
   ctx.lineWidth = rarityColor ? 2.5 : 2;
   ctx.strokeStyle = rarityColor || (isMe ? "#cfc9bf" : "#00000066");
@@ -591,6 +592,14 @@ function drawActor(a, pos) {
 // PoE-flavored rarity colors: magic blue, rare yellow.
 const RARITY_COLORS = { magic: "#7a9bf0", rare: "#f0d060" };
 
+// Monster body colors by def, so archetypes read at a glance; anything
+// unlisted falls back to the generic monster red.
+const DEF_COLORS = {
+  ghoul: "#5f7a2e",
+  skeleton_mage: "#5a4a8e",
+  skeleton_archer: "#6e6a58",
+};
+
 const AILMENT_RINGS = [
   [1, "#e67e22cc"], // ignited
   [2, "#7fd4ffcc"], // chilled
@@ -602,6 +611,7 @@ const PROJ_COLORS = {
   fireball: ["#ffd27d", "#d35400"],
   spark: ["#ffffff", "#5fa8f5"],
   bone_arrow: ["#f2ead8", "#8d8678"],
+  arc_bolt: ["#e8e0ff", "#8f6ff0"],
 };
 
 function drawProjectile(p, pos) {
@@ -734,6 +744,8 @@ const IMPACT_VFX = {
   frost_nova: { core: "#e8fbff", glow: "#7fd4ff", r: 0.6 },
   zombie_slam: { core: "#ffe8d0", glow: "#a32626", r: 0.7 },
   bone_arrow: { core: "#f2ead8", glow: "#8d8678", r: 0.6 },
+  ghoul_claws: { core: "#ffe8d0", glow: "#5f7a2e", r: 0.5 },
+  arc_bolt: { core: "#e8e0ff", glow: "#8f6ff0", r: 0.8 },
 };
 
 // Impact burst at whoever got hit: a six-ray starburst in the skill's
