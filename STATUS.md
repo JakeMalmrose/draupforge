@@ -11,8 +11,9 @@ tests, and session-log entries older than a few sessions (git history is the
 archive). If this file outgrows ~150 lines, it has stopped being a status doc
 and started being a changelog — cut it back.
 
-**Last updated: 2026-07-01** (session 23: passive forks — milestone
-choices at levels 5/10, the first build-identity lever; protocol v13)
+**Last updated: 2026-07-01** (session 24: PoE2-style HUD — life/mana
+globes, clickable skill bar with mana gating, per Jake's direction:
+PoE2 GUI, PoE1 mechanics)
 
 ## Where things stand
 
@@ -64,7 +65,7 @@ All foundational machinery from DESIGN.md is real, not stubbed:
 | Inventory: pickup/unequip/drop_item, capacity | `sim/items/equip.go` | done, tested |
 | Server: TCP + WS transports, joins/leaves, send-rate decoupling, interest culling, binary deltas + acks, pause | `server/` | done, race-tested |
 | Admin dashboard: observe (tick health, counts, bandwidth, events, world hash) + poke (pause/resume, spawn, kick), own port, embedded HTML | `server/admin.go` | done, tested; NO AUTH — localhost/tailnet only |
-| Web client: canvas, input, terrain render (walls/floor), drag-drop inventory grid (icons, tooltips), delta decoding, tick-timeline interpolation, fade-in/out, cast/impact VFX + ailment rings, floating damage numbers (crit/self emphasis), hit flashes, death pops (rarity-scaled) | `web/` | working, no build step |
+| Web client: canvas, input, terrain render (walls/floor), drag-drop inventory grid (icons, tooltips), delta decoding, tick-timeline interpolation, fade-in/out, cast/impact VFX + ailment rings, floating damage numbers (crit/self emphasis), hit flashes, death pops (rarity-scaled), PoE2-style HUD (life/mana globes, clickable skill bar with mana-gating, `SKILL_BAR` as the single keybind source) | `web/` | working, no build step |
 | AI: behavior registry — `melee_chaser`, `ranged_kiter` (LoS-gated shooting, retreat band); territorial aggro: LoS/hearing acquisition, leash to `Actor.Home`, return-home (SaveVersion 4) | `sim/ai` | real, tested |
 | Phase order + command validation | `sim/sim.go` | done — this IS the determinism contract |
 | Wire types: versioned welcome, JSON snapshots, binary delta view codec | `protocol/` | done, tested |
@@ -206,6 +207,16 @@ fun-first counterweight to all of that.
 
 ## Session log
 
+- **2026-07-01 (24)** — PoE2-style HUD (client-only; the first slice of
+  Jake's "PoE2 GUI, PoE1 mechanics" direction). Life/mana globes with
+  rising-liquid fills and glassy highlights flank a clickable skill bar
+  (Q/E/R/T slots: colored glyphs, names, key badges, cast flash,
+  drained-graying when mana runs short — costs mirrored client-side
+  like BASE_SLOTS); thin XP strip between. SKILL_BAR is now the single
+  source for skill keybinds (keydown and clicks share castSlot).
+  Renamed the bar's class to .skill-slot after catching a collision
+  with the inventory grid's .slot. Verified live: globes drain/refill,
+  slots gray at low mana, inventory panel unharmed.
 - **2026-07-01 (23)** — Passive forks (ROADMAP phase 3's
   "ascendancy-lite"). `PassiveDef` (6 defs: milestones 5 and 10, three
   forks each — tank/precision/caster at 5, damage/mobility/spellcaster
