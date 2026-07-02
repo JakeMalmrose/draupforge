@@ -147,3 +147,31 @@ func TestNewArchetypesFight(t *testing.T) {
 		t.Error("mage with clear line of sight never cast arc_bolt in 3 seconds")
 	}
 }
+
+// TestBossBrutePicksByRange: the colossus slams up close, throws bones at
+// range — the stateless two-skill selection that makes it read as a boss.
+func TestBossBrutePicksByRange(t *testing.T) {
+	s := simWithGrid(openHall(), 71)
+	mustSpawn(t, s, "player", 7500, 5500)
+	boss := mustSpawn(t, s, "bone_colossus", 20500, 5500)
+	b := s.W.ActorByID(boss)
+	b.Home = space.V(fm.FromMilli(20500), fm.FromMilli(5500))
+
+	// 13 tiles out, LoS, inside territory-of-home? Player at 7.5 is 13 from
+	// home — inside aggro 18 but outside leash 14... move it in range.
+	s.W.Actors[0].Pos = space.V(fm.FromMilli(11500), fm.FromMilli(5500))
+	s.Step(nil)
+	if b.Action.Kind != core.ActionSkill || b.Action.Skill.ID != "bone_volley" {
+		t.Fatalf("boss at range: action %v skill %v, want bone_volley windup", b.Action.Kind, b.Action.Skill)
+	}
+
+	// Fresh sim: player in slam reach.
+	s2 := simWithGrid(openHall(), 72)
+	mustSpawn(t, s2, "player", 22500, 5500)
+	boss2 := mustSpawn(t, s2, "bone_colossus", 20500, 5500)
+	s2.Step(nil)
+	b2 := s2.W.ActorByID(boss2)
+	if b2.Action.Kind != core.ActionSkill || b2.Action.Skill.ID != "colossus_slam" {
+		t.Fatalf("boss in reach: action %v skill %v, want colossus_slam windup", b2.Action.Kind, b2.Action.Skill)
+	}
+}

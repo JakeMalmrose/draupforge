@@ -342,6 +342,36 @@ func skillDefs() []*core.SkillDef {
 	arcBolt.BaseMin[core.Lightning] = fm.FromInt(4)
 	arcBolt.BaseMax[core.Lightning] = fm.FromInt(22)
 
+	colossusSlam := &core.SkillDef{
+		ID:            "colossus_slam",
+		Name:          "Colossus Slam",
+		Kind:          core.SkillNova,
+		Tags:          stats.T(stats.TagAttack, stats.TagMelee, stats.TagPhysical),
+		Effectiveness: fm.One,
+		WindupTicks:   36, // 1.2s telegraph — the whole fight is "move now"
+		RecoveryTicks: 24,
+		SpeedStat:     stats.AttackSpeed,
+		AoERadius:     fm.FromMilli(3500),
+	}
+	colossusSlam.BaseMin[core.Physical] = fm.FromInt(25)
+	colossusSlam.BaseMax[core.Physical] = fm.FromInt(35)
+
+	boneVolley := &core.SkillDef{
+		ID:            "bone_volley",
+		Name:          "Bone Volley",
+		Kind:          core.SkillProjectile,
+		Tags:          stats.T(stats.TagAttack, stats.TagProjectile, stats.TagPhysical),
+		Effectiveness: fm.One,
+		WindupTicks:   24, // 0.8s draw
+		RecoveryTicks: 12,
+		SpeedStat:     stats.AttackSpeed,
+		ProjSpeed:     fm.FromInt(14),
+		ProjTTL:       70,
+		ProjRadius:    fm.FromMilli(550), // a fat bone — harder to sidestep than an arrow
+	}
+	boneVolley.BaseMin[core.Physical] = fm.FromInt(12)
+	boneVolley.BaseMax[core.Physical] = fm.FromInt(18)
+
 	adrenaline := &core.SkillDef{
 		ID:            "adrenaline",
 		Name:          "Adrenaline",
@@ -354,7 +384,7 @@ func skillDefs() []*core.SkillDef {
 		SelfBuff:      "adrenaline",
 	}
 
-	return []*core.SkillDef{fireball, slam, frostNova, spark, boneArrow, adrenaline, claws, arcBolt}
+	return []*core.SkillDef{fireball, slam, frostNova, spark, boneArrow, adrenaline, claws, arcBolt, colossusSlam, boneVolley}
 }
 
 func baseStats(pairs map[stats.StatID]fm.Fixed) [stats.StatCount]fm.Fixed {
@@ -517,7 +547,35 @@ func actorDefs() []*core.ActorDef {
 		},
 	}
 
-	return []*core.ActorDef{player, zombie, archer, dummy, ghoul, mage}
+	// The floor guardian: a slow heavyweight parked on the stairs every
+	// few floors. Both attacks are heavily telegraphed — the fight is about
+	// moving, not stat-checking. Always spawned rare (SpawnRareLeveled).
+	colossus := &core.ActorDef{
+		ID:     "bone_colossus",
+		Name:   "Bone Colossus",
+		Team:   core.TeamMonsters,
+		Radius: fm.FromMilli(1100),
+		BaseStats: baseStats(map[stats.StatID]fm.Fixed{
+			stats.Life:       fm.FromInt(350),
+			stats.MoveSpeed:  fm.FromMilli(2200),
+			stats.Accuracy:   fm.FromInt(120),
+			stats.Armour:     fm.FromInt(40),
+			stats.CritChance: fm.FromMilli(50),
+		}),
+		Skills:      []string{"colossus_slam", "bone_volley"},
+		AI:          "boss_brute",
+		AggroRadius: fm.FromInt(18),
+		LeashRadius: fm.FromInt(14), // a guardian guards; it won't chase across the floor
+		LootTable:   "boss_drops",
+		Level:       1,
+		XPValue:     300,
+		PerLevel: []core.BuffMod{
+			{Stat: stats.Life, Layer: stats.LayerFlat, Value: fm.FromInt(30)},
+			{Stat: stats.Damage, Layer: stats.LayerIncreased, Value: fm.FromMilli(45)},
+		},
+	}
+
+	return []*core.ActorDef{player, zombie, archer, dummy, ghoul, mage, colossus}
 }
 
 // affixDefs is the global affix pool. Slice order feeds the weighted roll —
@@ -834,6 +892,18 @@ func lootTableDefs() []*core.LootTableDef {
 			RarityWeights: [3]uint32{65, 30, 5},
 			Bases: []string{
 				"rusty_sword", "leather_boots", "leather_gloves", "leather_belt",
+			},
+		},
+		{
+			// The guardian's hoard: always drops, rare-heavy, full base list —
+			// and the rare monster hooks add two more attempts on top.
+			ID:            "boss_drops",
+			DropChance:    fm.One,
+			RarityWeights: [3]uint32{10, 45, 45},
+			Bases: []string{
+				"rusty_sword", "wooden_shield", "leather_cap", "leather_vest",
+				"leather_gloves", "leather_boots", "bone_amulet", "iron_ring",
+				"leather_belt",
 			},
 		},
 		{

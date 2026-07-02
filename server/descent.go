@@ -40,6 +40,12 @@ var (
 // clamped so a level's progress never goes negative (no de-leveling).
 const deathXPPenaltyDiv = 5
 
+// The stairs guardian: which def, and how often (every Nth floor).
+const (
+	guardianDef    = "bone_colossus"
+	guardianFloors = 3
+)
+
 // deriveSeed mixes a salt into a base seed (splitmix finalizer), so run
 // seeds derive from the config seed and floor seeds derive from the run
 // seed — whole descents are replayable floor by floor.
@@ -82,6 +88,14 @@ func (in *Instance) buildFloor(floor int) (*sim.Sim, error) {
 	for _, sc := range in.cfg.Scatter {
 		if err := s.ScatterSpawnPack(sc.Def, sc.Count+floor-1, floor, magicPm, rarePm); err != nil {
 			return nil, fmt.Errorf("server: floor %d scatter: %w", floor, err)
+		}
+	}
+	// Every guardianFloors-th floor, a rare Bone Colossus guards the
+	// stairs — the descent's first set-piece fight. It spawns two levels
+	// hot and leashes tight: fight it, or sneak the stairs at your peril.
+	if floor > 0 && floor%guardianFloors == 0 {
+		if _, err := s.SpawnRareLeveled(guardianDef, farthestWalkable(s.W.Grid), floor+2); err != nil {
+			return nil, fmt.Errorf("server: floor %d guardian: %w", floor, err)
 		}
 	}
 	return s, nil
