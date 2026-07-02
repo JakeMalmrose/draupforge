@@ -11,8 +11,8 @@ tests, and session-log entries older than a few sessions (git history is the
 archive). If this file outgrows ~150 lines, it has stopped being a status doc
 and started being a changelog — cut it back.
 
-**Last updated: 2026-07-01** (session 21: two new archetypes — grave
-ghoul and skeleton mage; arena/descent packs got more textured)
+**Last updated: 2026-07-01** (session 22: loot juice — rarity drop
+beams, landing rings, rarity-colored drop nameplates)
 
 ## Where things stand
 
@@ -205,6 +205,12 @@ fun-first counterweight to all of that.
 
 ## Session log
 
+- **2026-07-01 (22)** — Loot juice, client-only. Magic/rare drops throw
+  pulsing light shafts (rare taller than magic) so a rare kill's triple
+  drop reads across the room; every drop lands with a ground ring (tiny
+  for normal, wide + colored for magic/rare) off the EvDrop event; drop
+  nameplates take the rarity color. Verified live: staged all three
+  rarities side by side in the browser.
 - **2026-07-01 (21)** — Two new archetypes (ROADMAP phase 2 pack
   variety), pure content + existing machinery. Grave ghoul: fast
   (5.5 u/s — outruns a bootless player), fragile, quick shallow claws;
