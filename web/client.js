@@ -117,6 +117,7 @@ function resetWorld(msg) {
   myId = msg.actor;
   gen = msg.gen || 0;
   worldMap = msg.map || null;
+  buildMinimapBase();
   stairs = msg.stairs || null;
   passiveTable = msg.passives || [];
   passiveKey = "";
@@ -381,6 +382,8 @@ function render() {
     }
     ctx.globalAlpha = 1;
     for (const p of s.to.projectiles.values()) drawProjectile(p, lerpPos(s.from.projectiles, p, s.t));
+
+    drawMinimap(s);
 
     // Client VFX run on the same delayed server-timeline clock as span();
     // an effect whose moment hasn't been rendered yet (t < 0) just waits.
@@ -669,6 +672,62 @@ function drawDrop(d) {
   ctx.font = "11px Georgia";
   ctx.textAlign = "center";
   ctx.fillText(d.item.base.replace("_", " "), p.x, p.y - 12);
+}
+
+// ------------------------------------------------------------- minimap
+//
+// A radar in the corner: terrain baked once per welcome onto an offscreen
+// canvas, live dots blitted over it each frame. Entities appear only while
+// in interest range — the radar shows what you sense, stairs and the
+// portal are floor knowledge and always show.
+
+const MM_TILE = 3; // px per tile
+const mmCanvas = document.getElementById("minimap");
+const mmCtx = mmCanvas.getContext("2d");
+let mmBase = null;
+
+function buildMinimapBase() {
+  if (!worldMap) {
+    mmBase = null;
+    mmCanvas.classList.add("hidden");
+    return;
+  }
+  mmCanvas.classList.remove("hidden");
+  mmCanvas.width = worldMap.w * MM_TILE;
+  mmCanvas.height = worldMap.h * MM_TILE;
+  mmBase = document.createElement("canvas");
+  mmBase.width = mmCanvas.width;
+  mmBase.height = mmCanvas.height;
+  const b = mmBase.getContext("2d");
+  for (let y = 0; y < worldMap.h; y++) {
+    const row = worldMap.rows[y];
+    for (let x = 0; x < worldMap.w; x++) {
+      b.fillStyle = row[x] === "#" ? "#1c1c26" : "#3a3a4e";
+      b.fillRect(x * MM_TILE, y * MM_TILE, MM_TILE, MM_TILE);
+    }
+  }
+}
+
+function mmDot(pos, color, r) {
+  const t = worldMap.tile; // milli-units per tile
+  mmCtx.fillStyle = color;
+  mmCtx.beginPath();
+  mmCtx.arc((pos.x / t) * MM_TILE, (pos.y / t) * MM_TILE, r, 0, Math.PI * 2);
+  mmCtx.fill();
+}
+
+function drawMinimap(s) {
+  if (!mmBase || !worldMap) return;
+  mmCtx.drawImage(mmBase, 0, 0);
+  if (stairs) mmDot(stairs, "#f0d060", 3.5);
+  const portal = runState && runState.portal;
+  if (portal) mmDot(portal, "#7fd4ff", 3);
+  for (const a of s.to.actors.values()) {
+    if (a.id === myId) continue;
+    mmDot(a.pos, a.team === 1 ? "#4a7ad1" : RARITY_COLORS[a.rarity] || "#a33030", 2);
+  }
+  const self = s.to.actors.get(myId);
+  if (self) mmDot(self.pos, "#efe9dc", 2.5);
 }
 
 // ----------------------------------------------------------- client VFX

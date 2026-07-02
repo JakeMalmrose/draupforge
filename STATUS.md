@@ -11,8 +11,8 @@ tests, and session-log entries older than a few sessions (git history is the
 archive). If this file outgrows ~150 lines, it has stopped being a status doc
 and started being a changelog — cut it back.
 
-**Last updated: 2026-07-01** (session 27: currency crafting-lite —
-transmute/alch/chaos orb wallet; SaveVersion 8, protocol v15)
+**Last updated: 2026-07-01** (session 28: minimap — baked terrain radar
+with stairs/portal/entity dots)
 
 ## Where things stand
 
@@ -208,6 +208,12 @@ fun-first counterweight to all of that.
 
 ## Session log
 
+- **2026-07-01 (28)** — Minimap (client-only). Terrain baked once per
+  welcome onto an offscreen canvas (3px/tile), live dots each frame:
+  self white, other players blue, monsters red (rarity-colored for
+  elites), stairs gold, portal cyan. Entities only show in interest
+  range — the radar shows what you sense; stairs/portal are floor
+  knowledge and always show. Kills the wander-for-stairs problem.
 - **2026-07-01 (27)** — Currency crafting-lite (loot gets a use beyond
   equip-or-ignore). Three PoE1 orbs in an `Actor.Orbs` wallet:
   transmutation (normal→magic), alchemy (normal→rare), chaos (reroll a
