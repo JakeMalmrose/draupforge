@@ -33,9 +33,13 @@ re-records every golden.
 
 ## Smaller, recoverable (listed for honesty)
 
-- Reconnect/session identity doesn't exist: disconnect still deletes the
-  actor and its items (worlds survive restarts via save/load, players
-  don't). Needs an account/session layer on top of persistence.
+- The public server is unhardened: session identity shipped (session
+  37–38 — named characters survive disconnects; 60s empty-instance reap is
+  the reconnect grace), but the Funnel URL has no rate limiting, the WS
+  accepts any origin, a slow client can stall its instance's tick for up
+  to 1s (no per-client send queues), and `identities.json` is a plaintext
+  blob of auth tokens. Fine at friends-scale; harden before strangers
+  matter.
 - Content-as-Go-code: balance changes need recompile+redeploy. Two sharper
   edges found in audit: saves reference content by string ID, so editing a
   def retro-patches every saved world (usually what you want, occasionally
@@ -78,10 +82,10 @@ re-records every golden.
 ## Parked here (not a risk): server operations leftovers
 
 - In-process load/rollback without a restart: needs re-welcoming every
-  client (terrain and actor IDs change under them). Save via the admin
-  dashboard + restart with `cmd/server -load` is the rollback story until
-  that's worth building. (The descent-loop feature on the STATUS.md list
-  would build exactly this machinery — one mechanism, two payoffs.)
+  client (terrain and actor IDs change under them) — machinery the floor
+  swap now has, but nothing drives it for loads. Worse, the lobby refuses
+  `-load` outright (run saves predate parties), so save-and-restart isn't
+  even a rollback story right now — STATUS.md tracks the regression.
 - No auth: the admin port must stay on localhost/tailnet until an auth
   story exists. Adjustable tick rate also still missing.
 
