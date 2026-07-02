@@ -20,6 +20,17 @@ body {
   pointer-events: none;
 }
 
+/* --- minimap --- */
+#minimap {
+  position: fixed;
+  left: 16px; top: 16px;
+  border: 1px solid #3a3a45;
+  border-radius: 4px;
+  background: #0b0b10ee;
+  image-rendering: pixelated;
+  pointer-events: none;
+}
+
 /* --- HUD: life/mana globes flanking the skill bar, PoE2-style --- */
 #hud {
   position: fixed;
