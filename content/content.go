@@ -118,6 +118,18 @@ func buffDefs() []*core.BuffDef {
 				{Stat: stats.Damage, Layer: stats.LayerIncreased, Value: fm.FromMilli(200)},
 			},
 		},
+		{
+			// Arrival protection after a death eject: hits deal nothing while
+			// you reorient (DamageTaken overridden to zero also starves
+			// ailments — their magnitudes scale off dealt damage). The host
+			// grants it; no skill casts it.
+			ID:            "portal_grace",
+			Name:          "Portal Grace",
+			DurationTicks: 5 * core.TicksPerSecond / 2, // 2.5s
+			Mods: []core.BuffMod{
+				{Stat: stats.DamageTaken, Layer: stats.LayerOverride, Value: 0},
+			},
+		},
 	}
 }
 

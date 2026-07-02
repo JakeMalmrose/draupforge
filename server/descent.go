@@ -22,6 +22,7 @@ import (
 
 	"github.com/JakeMalmrose/draupforge/protocol"
 	"github.com/JakeMalmrose/draupforge/sim"
+	"github.com/JakeMalmrose/draupforge/sim/combat"
 	"github.com/JakeMalmrose/draupforge/sim/core"
 	fm "github.com/JakeMalmrose/draupforge/sim/fixmath"
 	"github.com/JakeMalmrose/draupforge/sim/progress"
@@ -196,6 +197,7 @@ func (in *Instance) handleDeaths(dead []*client) {
 			return
 		}
 		in.swapWorld(s, in.portalFloor, in.portalPos)
+		in.grantGrace()
 		in.syntheticEvent("death_eject", int64(in.portalsLeft)*1000, "")
 		return
 	}
@@ -210,7 +212,25 @@ func (in *Instance) handleDeaths(dead []*client) {
 	in.portalFloor, in.portalPos = 1, s.W.Grid.Spawn
 	in.portalsLeft = in.cfg.Portals
 	in.swapWorld(s, 1, s.W.Grid.Spawn)
+	in.grantGrace()
 	in.syntheticEvent("run_over", int64(depth)*1000, "")
+}
+
+// grantGrace shields every client actor with the portal-grace buff — death
+// arrivals only (eject, run over), never voluntary travel. Runs between
+// ticks right after a swap: ApplyBuff consumes no RNG and queues nothing,
+// and the swallowed EvBuff event doesn't matter — the synthetic run event
+// narrates the arrival and the buff ring shows on the wire regardless.
+func (in *Instance) grantGrace() {
+	def := in.db.Buffs["portal_grace"]
+	if def == nil {
+		return
+	}
+	for _, c := range in.clients {
+		if a := in.sim.W.ActorByID(c.actor); a != nil && !a.Dead {
+			combat.ApplyBuff(in.sim.W, a, def, a.ID)
+		}
+	}
 }
 
 // descend swaps the instance one floor deeper, entering at the new floor's
