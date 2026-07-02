@@ -22,7 +22,7 @@ import (
 // SaveVersion gates restores: a format change bumps it, and old files fail
 // loudly instead of misloading. Saves are durable state — unlike replays,
 // they must never depend on re-execution of the code that wrote them.
-const SaveVersion = 8 // v8: orb wallet (v7: flask charges)
+const SaveVersion = 9 // v9: gems — cut gems, uncut gem items, cast contexts (v8: orb wallet)
 
 type saveFile struct {
 	Version     int              `json:"version"`
@@ -52,10 +52,27 @@ type affixSave struct {
 
 type itemSave struct {
 	ID       uint64      `json:"id"`
-	Base     string      `json:"base"`
+	Base     string      `json:"base,omitempty"` // empty for uncut gems
 	Rarity   uint8       `json:"rarity"`
 	Implicit fm.Fixed    `json:"implicit,omitempty"`
 	Affixes  []affixSave `json:"affixes,omitempty"`
+	Gem      *uncutSave  `json:"gem,omitempty"`
+}
+
+// uncutSave is an uncut gem item's payload: kind, found-at level, and the
+// pre-rolled draft.
+type uncutSave struct {
+	Support bool     `json:"support,omitempty"`
+	Level   int      `json:"level,omitempty"`
+	Choices []string `json:"choices"`
+}
+
+// gemSave is one cut skill gem; Supports is socket-addressed, "" = empty.
+type gemSave struct {
+	Skill    string   `json:"skill"`
+	Level    int      `json:"level"`
+	Sockets  int      `json:"sockets"`
+	Supports []string `json:"supports"`
 }
 
 type actionSave struct {
@@ -69,6 +86,9 @@ type actionSave struct {
 	Phase         uint8        `json:"phase"`
 	TicksLeft     uint32       `json:"ticks_left"`
 	RecoveryTicks uint32       `json:"recovery_ticks"`
+	// The cast's baked gem context (players; zero for monsters).
+	GemLevel    int      `json:"gem_level,omitempty"`
+	GemSupports []string `json:"gem_supports,omitempty"`
 }
 
 type dotSave struct {
@@ -102,6 +122,7 @@ type actorSave struct {
 	Passives  []string     `json:"passives,omitempty"` // PassiveDef IDs
 	Flasks    []int32      `json:"flasks,omitempty"`   // charges per flask slot
 	Orbs      []int32      `json:"orbs,omitempty"`     // wallet, OrbKind order
+	Gems      []gemSave    `json:"gems,omitempty"`
 	Base      []fm.Fixed   `json:"base"` // sheet base values, StatID order
 	Mods      []modSave    `json:"mods,omitempty"`
 	Action    actionSave   `json:"action"`
@@ -119,6 +140,11 @@ type projectileSave struct {
 	Pos       space.Vec2 `json:"pos"`
 	Vel       space.Vec2 `json:"vel"`
 	TicksLeft uint32     `json:"ticks_left"`
+	// Baked gem context + chain state (players; zero for monsters).
+	GemLevel    int      `json:"gem_level,omitempty"`
+	GemSupports []string `json:"gem_supports,omitempty"`
+	ChainsLeft  int      `json:"chains_left,omitempty"`
+	HitIDs      []uint64 `json:"hit_ids,omitempty"`
 }
 
 type dropSave struct {
@@ -156,10 +182,16 @@ func (w *World) Save() ([]byte, error) {
 		if p.Dead {
 			continue
 		}
-		sf.Projectiles = append(sf.Projectiles, projectileSave{
+		ps := projectileSave{
 			ID: uint64(p.ID), Source: uint64(p.Source), Team: uint8(p.Team),
 			Skill: p.Skill.ID, Pos: p.Pos, Vel: p.Vel, TicksLeft: p.TicksLeft,
-		})
+			GemLevel: p.Gem.Level, GemSupports: supportIDs(p.Gem.Supports),
+			ChainsLeft: p.ChainsLeft,
+		}
+		for _, id := range p.HitIDs {
+			ps.HitIDs = append(ps.HitIDs, uint64(id))
+		}
+		sf.Projectiles = append(sf.Projectiles, ps)
 	}
 	for _, d := range w.Drops {
 		if d.Taken {
@@ -194,6 +226,20 @@ func encodeActor(a *Actor) actorSave {
 	}
 	if a.Action.Skill != nil {
 		as.Action.Skill = a.Action.Skill.ID
+	}
+	as.Action.GemLevel = a.Action.Gem.Level
+	as.Action.GemSupports = supportIDs(a.Action.Gem.Supports)
+	for i := range a.Gems {
+		g := &a.Gems[i]
+		gs := gemSave{Skill: g.Skill.ID, Level: g.Level, Sockets: g.Sockets}
+		for _, sup := range g.Supports {
+			if sup == nil {
+				gs.Supports = append(gs.Supports, "")
+			} else {
+				gs.Supports = append(gs.Supports, sup.ID)
+			}
+		}
+		as.Gems = append(as.Gems, gs)
 	}
 	for _, md := range a.Mods {
 		as.MonMods = append(as.MonMods, md.ID)
@@ -248,11 +294,25 @@ func encodeActor(a *Actor) actorSave {
 }
 
 func encodeItem(item Item) itemSave {
+	if item.Gem != nil {
+		return itemSave{ID: uint64(item.ID), Gem: &uncutSave{
+			Support: item.Gem.Support, Level: item.Gem.Level, Choices: item.Gem.Choices,
+		}}
+	}
 	is := itemSave{ID: uint64(item.ID), Base: item.Base.ID, Rarity: uint8(item.Rarity), Implicit: item.Implicit}
 	for _, af := range item.Affixes {
 		is.Affixes = append(is.Affixes, affixSave{ID: af.Def.ID, Value: af.Value})
 	}
 	return is
+}
+
+// supportIDs flattens a compacted support list (a GemCtx's) to IDs.
+func supportIDs(supports []*SupportDef) []string {
+	var out []string
+	for _, s := range supports {
+		out = append(out, s.ID)
+	}
+	return out
 }
 
 // LoadWorld rebuilds a world from Save's output against a content registry.
@@ -300,10 +360,19 @@ func LoadWorld(db *ContentDB, data []byte) (*World, error) {
 		if sk == nil {
 			return nil, fmt.Errorf("core: save references unknown skill %q", ps.Skill)
 		}
-		w.Projectiles = append(w.Projectiles, &Projectile{
+		ctx, err := decodeGemCtx(db, ps.GemLevel, ps.GemSupports)
+		if err != nil {
+			return nil, err
+		}
+		p := &Projectile{
 			ID: EntityID(ps.ID), Source: EntityID(ps.Source), Team: Team(ps.Team),
 			Skill: sk, Pos: ps.Pos, Vel: ps.Vel, TicksLeft: ps.TicksLeft,
-		})
+			Gem: ctx, ChainsLeft: ps.ChainsLeft,
+		}
+		for _, id := range ps.HitIDs {
+			p.HitIDs = append(p.HitIDs, EntityID(id))
+		}
+		w.Projectiles = append(w.Projectiles, p)
 	}
 	for _, ds := range sf.Drops {
 		item, err := decodeItem(db, affixes, ds.Item)
@@ -371,6 +440,30 @@ func decodeActor(db *ContentDB, affixes map[string]*AffixDef, as actorSave) (*Ac
 		}
 		a.Action.Skill = sk
 	}
+	ctx, err := decodeGemCtx(db, as.Action.GemLevel, as.Action.GemSupports)
+	if err != nil {
+		return nil, err
+	}
+	a.Action.Gem = ctx
+	for _, gs := range as.Gems {
+		sk := db.Skills[gs.Skill]
+		if sk == nil {
+			return nil, fmt.Errorf("core: save references unknown skill %q", gs.Skill)
+		}
+		g := Gem{Skill: sk, Level: gs.Level, Sockets: gs.Sockets}
+		for _, id := range gs.Supports {
+			if id == "" {
+				g.Supports = append(g.Supports, nil)
+				continue
+			}
+			sup := db.Support(id)
+			if sup == nil {
+				return nil, fmt.Errorf("core: save references unknown support %q", id)
+			}
+			g.Supports = append(g.Supports, sup)
+		}
+		a.Gems = append(a.Gems, g)
+	}
 	// The mods'/passives' stat packages are already in the saved modifier
 	// list (under their shared sources); the defs are resolved only so
 	// snapshots can name them and milestone checks can see them.
@@ -433,7 +526,35 @@ func decodeActor(db *ContentDB, affixes map[string]*AffixDef, as actorSave) (*Ac
 	return a, nil
 }
 
+// decodeGemCtx resolves a saved cast context's support IDs.
+func decodeGemCtx(db *ContentDB, level int, supports []string) (GemCtx, error) {
+	ctx := GemCtx{Level: level}
+	for _, id := range supports {
+		sup := db.Support(id)
+		if sup == nil {
+			return GemCtx{}, fmt.Errorf("core: save references unknown support %q", id)
+		}
+		ctx.Supports = append(ctx.Supports, sup)
+	}
+	return ctx, nil
+}
+
 func decodeItem(db *ContentDB, affixes map[string]*AffixDef, is itemSave) (Item, error) {
+	if is.Gem != nil {
+		item := Item{ID: EntityID(is.ID), Gem: &UncutGem{
+			Support: is.Gem.Support, Level: is.Gem.Level, Choices: is.Gem.Choices,
+		}}
+		for _, c := range is.Gem.Choices {
+			if is.Gem.Support {
+				if db.Support(c) == nil {
+					return Item{}, fmt.Errorf("core: save references unknown support %q", c)
+				}
+			} else if db.Skills[c] == nil {
+				return Item{}, fmt.Errorf("core: save references unknown skill %q", c)
+			}
+		}
+		return item, nil
+	}
 	base := db.BaseItems[is.Base]
 	if base == nil {
 		return Item{}, fmt.Errorf("core: save references unknown base item %q", is.Base)

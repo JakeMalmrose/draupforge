@@ -50,6 +50,17 @@ func mustSpawn(t *testing.T, s *sim.Sim, def string, x, y int64) core.EntityID {
 	return id
 }
 
+// grantGems cuts level-1 gems onto an actor — players know only their
+// starting gem (fireball); tests exercising other skills say so.
+func grantGems(t *testing.T, s *sim.Sim, id core.EntityID, skills ...string) {
+	t.Helper()
+	for _, sk := range skills {
+		if err := s.GrantGem(id, sk, 1); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
 // sliceState drives the reactive loot behavior tick by tick: once the
 // dummy's drop appears, the player walks to it, picks it up into the
 // inventory, then equips it from the bag — the full item flow. Reacting to
@@ -78,8 +89,10 @@ func (st *sliceState) step(s *sim.Sim, scheduled []core.Command) {
 	for _, ev := range s.W.LastEvents {
 		switch {
 		case ev.Kind == core.EvDrop && st.dropID == 0 && st.itemID == 0:
-			st.dropID = ev.Other
-			if d := s.W.DropByID(ev.Other); d != nil {
+			// Equipment only — uncut gems can drop too, and they can't
+			// be equipped.
+			if d := s.W.DropByID(ev.Other); d != nil && d.Item.Gem == nil {
+				st.dropID = ev.Other
 				st.dropPos = d.Pos
 			}
 		case ev.Kind == core.EvPickup && ev.Actor == 1:
@@ -204,6 +217,7 @@ func TestSliceOutcomes(t *testing.T) {
 func TestFrostNovaHitsAllInRange(t *testing.T) {
 	s := sim.New(content.DB(), 5)
 	player := mustSpawn(t, s, "player", 0, 0)
+	grantGems(t, s, player, "frost_nova")
 	near1 := mustSpawn(t, s, "training_dummy", 2000, 0)  // inside 4u radius
 	near2 := mustSpawn(t, s, "training_dummy", 0, -3000) // inside
 	far := mustSpawn(t, s, "training_dummy", 10000, 0)   // outside

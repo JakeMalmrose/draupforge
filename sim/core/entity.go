@@ -44,6 +44,10 @@ type Action struct {
 	Phase         ActionPhase
 	TicksLeft     uint32
 	RecoveryTicks uint32 // precomputed at use time with speed applied
+
+	// Gem is the level/support context baked at use time; zero for
+	// monsters and gem-less casts.
+	Gem GemCtx
 }
 
 // DoT is an active damage-over-time effect. DoTs are not hits — they skip
@@ -161,6 +165,11 @@ type Actor struct {
 	// straight to the killer on drop (no ground entity), durable like
 	// flask charges.
 	Orbs [OrbCount]int32
+
+	// Gems are the actor's cut skill gems, in cut order — the skill bar.
+	// Durable character state like Passives; players cast only from these,
+	// monsters keep using Def.Skills directly.
+	Gems []Gem
 
 	// Dead actors are tombstoned during the tick and compacted at tick end,
 	// so slice indices stay stable while a tick is in flight.
@@ -300,6 +309,14 @@ type Projectile struct {
 	Vel       space.Vec2 // per tick
 	TicksLeft uint32
 	Dead      bool
+
+	// Gem is the cast's baked level/support context — in-flight projectiles
+	// keep the stats they were fired with.
+	Gem GemCtx
+	// ChainsLeft is remaining chain bounces; HitIDs are actors this
+	// projectile already struck (a chain never re-hits).
+	ChainsLeft int
+	HitIDs     []EntityID
 }
 
 // OrbKind is a crafting currency: each rerolls or upgrades item rarity.
@@ -309,11 +326,12 @@ const (
 	OrbTransmutation OrbKind = iota // normal -> magic
 	OrbAlchemy                      // normal -> rare
 	OrbChaos                        // reroll a rare's affixes
+	OrbJeweller                     // add a support socket to a skill gem
 
 	OrbCount
 )
 
-var orbNames = [OrbCount]string{"transmutation", "alchemy", "chaos"}
+var orbNames = [OrbCount]string{"transmutation", "alchemy", "chaos", "jeweller"}
 
 func (o OrbKind) String() string {
 	if o < OrbCount {
@@ -360,13 +378,29 @@ type Item struct {
 	// ID is allocated at roll time from the world's entity counter and is
 	// stable for the item's whole life — it is the modifier Source used to
 	// cleanly remove the item's stats on unequip.
-	ID      EntityID
+	ID EntityID
+	// Base is nil for uncut gems (Gem set instead) — gem items have no
+	// slot, no implicit, no affixes.
 	Base    *BaseItemDef
 	Rarity  Rarity
 	Affixes []RolledAffix
 	// Implicit is the rolled value of Base.Implicit; zero (and meaningless)
 	// when the base has none.
 	Implicit fm.Fixed
+	// Gem marks an uncut gem item; nil for equipment.
+	Gem *UncutGem
+}
+
+// Name is the item's display/logging key: the base ID, or the uncut-gem
+// pseudo-base for gem items.
+func (it *Item) Name() string {
+	if it.Gem != nil {
+		if it.Gem.Support {
+			return "uncut_support_gem"
+		}
+		return "uncut_skill_gem"
+	}
+	return it.Base.ID
 }
 
 type Drop struct {
@@ -447,6 +481,14 @@ type Hit struct {
 	Attacker, Defender EntityID
 	Skill              *SkillDef
 	Tags               stats.TagSet
+	// Gem is the cast's baked level/support context (zero for monsters):
+	// level scales the base roll, supports fold into the damage queries.
+	Gem GemCtx
+
+	// AreaScale marks a splash hit (projectile explosion): the whole hit is
+	// multiplied by it — distance falloff. Zero means a direct hit at full
+	// damage, so plain Hit literals keep their old meaning.
+	AreaScale fm.Fixed
 
 	// Outcomes, populated by the pipeline.
 	Damage  [DamageTypeCount]fm.Fixed

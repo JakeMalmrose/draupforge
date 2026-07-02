@@ -121,6 +121,10 @@ function resetWorld(msg) {
   stairs = msg.stairs || null;
   passiveTable = msg.passives || [];
   passiveKey = "";
+  supportTable = msg.supports || [];
+  cutSkillTable = msg.cut_skills || [];
+  skillBarKey = "";
+  closeCutDialog();
   runState = msg.run || null;
   snap = null;
   seenSelf = false;
@@ -195,19 +199,40 @@ function onView(view) {
   } else if (seenSelf) {
     showOverlay("YOU DIED");
   }
+  syncCutDialog(self);
 
   // Position lookups fall back to the previous view: the victim of a
   // killing blow (and the dier of a death event) is already compacted out
   // of the view that carries the event.
   const findEnt = (id) =>
     view.actors.get(id) || (newest && newest.view.actors.get(id)) || null;
+  const chains = new Map(); // caster id → strike positions, event order
   for (const ev of view.events) {
     logEvent(ev);
     sfxForEvent(ev);
     if (ev.kind === "hit") {
-      const v = IMPACT_VFX[ev.note];
+      // Splash hits (projectile explosions) arrive as "<skill>:aoe" — they
+      // keep their numbers/flash but skip the impact burst; the explosion
+      // ring at the direct hit is their visual.
+      const splash = ev.note.endsWith(":aoe");
+      const note = splash ? ev.note.slice(0, -4) : ev.note;
+      const v = IMPACT_VFX[note];
       const target = findEnt(ev.other);
-      if (v && target) spawnImpact(target.pos, view.tick * tickMs, v);
+      if (v && target && !splash) spawnImpact(target.pos, view.tick * tickMs, v);
+      if (target && !splash) {
+        const ex = EXPLODE_VFX[note];
+        if (ex) spawnExplosion(target.pos, view.tick * tickMs, ex);
+        const cv = CHAIN_VFX[note];
+        if (cv) {
+          let c = chains.get(ev.actor);
+          if (!c) {
+            const caster = findEnt(ev.actor);
+            c = { v: cv, pts: caster ? [caster.pos] : [] };
+            chains.set(ev.actor, c);
+          }
+          c.pts.push(target.pos);
+        }
+      }
       if (target) {
         spawnDamageNumber(target.pos, view.tick * tickMs, ev.amount, ev.crit, ev.other === myId);
         flashes.set(ev.other, view.tick * tickMs + FLASH_MS);
@@ -223,6 +248,8 @@ function onView(view) {
       if (d) spawnDropLanding(d.pos, view.tick * tickMs, d.item.rarity);
     }
   }
+  // One bolt per caster per view: caster → victim → victim, in hit order.
+  for (const c of chains.values()) spawnChainLightning(c.pts, view.tick * tickMs, c.v);
   // Flash entries expire by clock; sweep the map so dead IDs don't pile up.
   for (const [id, until] of flashes) {
     if (until < view.tick * tickMs - 2000) flashes.delete(id);
@@ -641,16 +668,33 @@ function drawProjectile(p, pos) {
 }
 
 const DROP_RARITY_COLORS = { normal: "#cfc9bf", magic: "#8888ff", rare: "#ffff77" };
+// Uncut gems get their own drop identity: teal for skills, violet for
+// supports — a gem on the floor should read as an event, like a rare.
+const GEM_DROP_COLORS = { skill: "#4ad1c8", support: "#c67fe8" };
+
+function dropColor(item) {
+  if (item.gem) return item.gem.support ? GEM_DROP_COLORS.support : GEM_DROP_COLORS.skill;
+  return DROP_RARITY_COLORS[item.rarity] || DROP_RARITY_COLORS.normal;
+}
+
+function dropLabel(item) {
+  if (item.gem) {
+    return item.gem.support ? "uncut support gem" : `uncut skill gem (${item.gem.level})`;
+  }
+  return prettify(item.base);
+}
 
 function drawDrop(d) {
   const p = worldToScreen(d.pos.x, d.pos.y);
-  const color = DROP_RARITY_COLORS[d.item.rarity] || DROP_RARITY_COLORS.normal;
+  const color = dropColor(d.item);
+  const shafted = d.item.gem || d.item.rarity === "magic" || d.item.rarity === "rare";
 
-  // Magic/rare drops throw a pulsing light shaft, readable across a room —
-  // a rare monster's triple drop should look like an event on the floor.
-  if (d.item.rarity === "magic" || d.item.rarity === "rare") {
+  // Magic/rare/gem drops throw a pulsing light shaft, readable across a
+  // room — a rare monster's triple drop should look like an event on the
+  // floor, and an uncut gem is one.
+  if (shafted) {
     const pulse = 0.55 + 0.25 * Math.sin(renderClock / 280 + d.id);
-    const h = d.item.rarity === "rare" ? 52 : 38;
+    const h = d.item.rarity === "rare" || d.item.gem ? 52 : 38;
     const grad = ctx.createLinearGradient(p.x, p.y, p.x, p.y - h);
     grad.addColorStop(0, color + "cc");
     grad.addColorStop(1, color + "00");
@@ -669,10 +713,10 @@ function drawDrop(d) {
   ctx.strokeStyle = "#000000aa";
   ctx.strokeRect(-6, -6, 12, 12);
   ctx.restore();
-  ctx.fillStyle = d.item.rarity === "normal" ? "#b8a44a" : color;
+  ctx.fillStyle = !d.item.gem && d.item.rarity === "normal" ? "#b8a44a" : color;
   ctx.font = "11px Georgia";
   ctx.textAlign = "center";
-  ctx.fillText(d.item.base.replace("_", " "), p.x, p.y - 12);
+  ctx.fillText(dropLabel(d.item), p.x, p.y - 12);
 }
 
 // ------------------------------------------------------------- minimap
@@ -808,6 +852,7 @@ function sfxForEvent(ev) {
       if (ev.actor === myId) sfx("level_up");
       break;
     case "orb":
+    case "gem":
       if (ev.actor === myId) sfx("orb");
       break;
     case "drop":
@@ -927,9 +972,84 @@ const IMPACT_VFX = {
   bone_arrow: { core: "#f2ead8", glow: "#8d8678", r: 0.6 },
   ghoul_claws: { core: "#ffe8d0", glow: "#5f7a2e", r: 0.5 },
   arc_bolt: { core: "#e8e0ff", glow: "#8f6ff0", r: 0.8 },
+  arc: { core: "#ffffff", glow: "#8f6ff0", r: 0.8 },
   bone_volley: { core: "#f2ead8", glow: "#6e5f48", r: 0.9 },
   colossus_slam: { core: "#ffe8d0", glow: "#a89c82", r: 1.2 },
 };
+
+// Skills whose projectile impacts detonate: radius mirrors the server's
+// ExplodeRadius (display-only, like FLASK_MAX).
+const EXPLODE_VFX = {
+  fireball: { color: "#ff9a3d", inner: "#ffd27d", radius: 2 },
+};
+
+// Chain (hitscan) skills: hit events with these notes get a jagged bolt
+// drawn caster → victim → victim instead of a flying projectile.
+const CHAIN_VFX = {
+  arc: { core: "#ffffff", glow: "#8f6ff0" },
+};
+
+// Explosion at a projectile impact: a fire flash expanding to the skill's
+// real splash radius — the visual is also the falloff telegraph.
+function spawnExplosion(pos, st, v) {
+  spawnEffect(st, 320, (t) => {
+    const p = worldToScreen(pos.x, pos.y);
+    const r = (0.4 + (v.radius - 0.4) * easeOut(t)) * SCALE;
+    ctx.globalAlpha = (1 - t) * 0.85;
+    ctx.fillStyle = v.color;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = 1 - t;
+    ctx.strokeStyle = v.inner;
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.fillStyle = v.inner;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, Math.max(1, r * 0.35 * (1 - t)), 0, Math.PI * 2);
+    ctx.fill();
+  });
+}
+
+// Chain lightning: one jagged polyline through the strike positions,
+// shaped once per bolt (in world units, so it stays pinned under camera
+// movement) and redrawn fading with a white core over a colored glow.
+function spawnChainLightning(points, st, v) {
+  if (points.length < 2) return;
+  const path = [];
+  for (let i = 0; i < points.length - 1; i++) {
+    const ax = toUnits(points[i].x), ay = toUnits(points[i].y);
+    const bx = toUnits(points[i + 1].x), by = toUnits(points[i + 1].y);
+    const segs = Math.max(2, Math.round(Math.hypot(bx - ax, by - ay) / 0.7));
+    // Perpendicular jitter at each interior vertex makes the jag.
+    const nx = -(by - ay), ny = bx - ax;
+    const nl = Math.hypot(nx, ny) || 1;
+    for (let s = 0; s <= segs; s++) {
+      if (i > 0 && s === 0) continue; // shared vertex with the last segment
+      const f = s / segs;
+      const j = s === 0 || s === segs ? 0 : (Math.random() - 0.5) * 0.55;
+      path.push({ x: ax + (bx - ax) * f + (nx / nl) * j, y: ay + (by - ay) * f + (ny / nl) * j });
+    }
+  }
+  spawnEffect(st, 260, (t) => {
+    ctx.globalAlpha = (1 - t) * (0.7 + 0.3 * Math.random()); // crackle
+    ctx.lineJoin = "round";
+    ctx.beginPath();
+    for (let i = 0; i < path.length; i++) {
+      const p = worldToScreen(toMilli(path[i].x), toMilli(path[i].y));
+      if (i === 0) ctx.moveTo(p.x, p.y);
+      else ctx.lineTo(p.x, p.y);
+    }
+    ctx.strokeStyle = v.glow;
+    ctx.lineWidth = 4;
+    ctx.stroke();
+    ctx.strokeStyle = v.core;
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+  });
+}
 
 // Impact burst at whoever got hit: a six-ray starburst in the skill's
 // palette around a shrinking core.
@@ -1067,24 +1187,73 @@ canvas.addEventListener("mousedown", (e) => {
   }
 });
 
-// The skill bar is the single source for skill keybinds: keydown and the
-// clickable slots both cast through castSlot. Mana costs mirror content
-// (like BASE_SLOTS) — display-only, the server validates the real cost.
-const SKILL_BAR = [
-  { key: "q", skill: "fireball", name: "Fireball", aimed: true, mana: 10, color: "#d35400" },
-  { key: "e", skill: "frost_nova", name: "Frost Nova", aimed: false, mana: 15, color: "#7fd4ff" },
-  { key: "r", skill: "spark", name: "Spark", aimed: true, mana: 6, color: "#5fa8f5" },
-  { key: "t", skill: "adrenaline", name: "Adrenaline", aimed: false, mana: 15, color: "#9fff9f" },
-];
+// The skill bar is driven by the actor's cut gems (up to four, in cut
+// order) on keys Q/E/R/T. Mana costs arrive on the gem snap — the server
+// computes them; the client never re-derives cost math. SKILL_META is
+// display-only flavor: glyph color and whether the skill wants an aim
+// point; unknown skills get a neutral aimed default.
+const GEM_KEYS = ["q", "e", "r", "t"];
+const SKILL_META = {
+  fireball: { color: "#d35400", aimed: true },
+  frost_nova: { color: "#7fd4ff", aimed: false },
+  spark: { color: "#5fa8f5", aimed: true },
+  adrenaline: { color: "#9fff9f", aimed: false },
+  arc_bolt: { color: "#8f6ff0", aimed: true },
+  arc: { color: "#8f6ff0", aimed: true },
+  bone_arrow: { color: "#8d8678", aimed: true },
+};
 
-function castSlot(s) {
-  if (s.aimed) {
+let supportTable = [];  // SupportSnap list from the welcome
+let cutSkillTable = []; // SkillSnap list from the welcome
+let skillBarKey = "";
+
+function skillName(id) {
+  const s = cutSkillTable.find((sk) => sk.id === id);
+  return s ? s.name : prettify(id);
+}
+
+function supportInfo(id) {
+  return supportTable.find((s) => s.id === id) || { id, name: prettify(id), desc: "", legal_for: [] };
+}
+
+// renderSkillBar rebuilds the bar's DOM when the gem loadout changes
+// (cut, level, socket, support — anything that renames or re-costs a slot).
+function renderSkillBar(self) {
+  const gems = (self && self.gems) || [];
+  const key = JSON.stringify(gems.map((g) => [g.skill, g.level, g.mana_cost]));
+  if (key === skillBarKey) return;
+  skillBarKey = key;
+  skillBarEl.replaceChildren();
+  gems.slice(0, GEM_KEYS.length).forEach((g, i) => {
+    const meta = SKILL_META[g.skill] || { color: "#cfc9bf", aimed: true };
+    const btn = document.createElement("button");
+    btn.className = "skill-slot";
+    btn.id = `slot-${i}`;
+    btn.title = `${skillName(g.skill)} — level ${g.level}, ${fmtMana(g.mana_cost)} mana`;
+    btn.innerHTML =
+      `<div class="glyph" style="background: radial-gradient(circle at 35% 30%, #fff8, ${meta.color}); color: ${meta.color}"></div>` +
+      `<span class="slot-name">${skillName(g.skill)}</span>` +
+      `<span class="key">${GEM_KEYS[i].toUpperCase()}</span>` +
+      `<span class="gem-level">${g.level}</span>`;
+    btn.onclick = () => castGem(i);
+    skillBarEl.appendChild(btn);
+  });
+}
+
+const fmtMana = (milli) => Math.ceil(milli / 1000);
+
+function castGem(i) {
+  const self = me();
+  const g = self && self.gems && self.gems[i];
+  if (!g) return;
+  const meta = SKILL_META[g.skill] || { aimed: true };
+  if (meta.aimed) {
     const w = screenToWorldUnits(mouse.x, mouse.y);
-    send({ kind: "use_skill", skill: s.skill, x: toMilli(w.x), y: toMilli(w.y) });
+    send({ kind: "use_skill", skill: g.skill, x: toMilli(w.x), y: toMilli(w.y) });
   } else {
-    send({ kind: "use_skill", skill: s.skill });
+    send({ kind: "use_skill", skill: g.skill });
   }
-  const el = document.getElementById(`slot-${s.skill}`);
+  const el = document.getElementById(`slot-${i}`);
   if (el) {
     el.classList.add("cast-flash");
     setTimeout(() => el.classList.remove("cast-flash"), 160);
@@ -1112,15 +1281,6 @@ FLASKS.forEach((f, i) => {
 });
 
 const skillBarEl = document.getElementById("skill-bar");
-for (const s of SKILL_BAR) {
-  const btn = document.createElement("button");
-  btn.className = "skill-slot";
-  btn.id = `slot-${s.skill}`;
-  btn.title = `${s.name} (${s.mana} mana)`;
-  btn.innerHTML = `<div class="glyph" style="background: radial-gradient(circle at 35% 30%, #fff8, ${s.color}); color: ${s.color}"></div><span class="slot-name">${s.name}</span><span class="key">${s.key.toUpperCase()}</span>`;
-  btn.onclick = () => castSlot(s);
-  skillBarEl.appendChild(btn);
-}
 
 // WASD held-key movement, PoE2-style. The held set drives a short move
 // command every WASD_MS toward the combined direction; releasing the last
@@ -1172,9 +1332,9 @@ window.addEventListener("keydown", (e) => {
     logLine(audioMuted ? "sound muted (M to unmute)" : "sound on");
     return;
   }
-  const slot = SKILL_BAR.find((s) => s.key === key);
-  if (slot) {
-    castSlot(slot);
+  const slot = GEM_KEYS.indexOf(key);
+  if (slot >= 0) {
+    castGem(slot);
     return;
   }
   const flask = FLASKS.findIndex((f) => f.key === key);
@@ -1214,6 +1374,8 @@ const ORBS = [
   { id: "transmutation", name: "Transmutation", hint: "normal → magic", color: "#7a9bf0" },
   { id: "alchemy", name: "Alchemy", hint: "normal → rare", color: "#f0d060" },
   { id: "chaos", name: "Chaos", hint: "reroll a rare", color: "#d97b4a" },
+  // Jewellers target the gem row, not the bag: arm it, click a skill gem.
+  { id: "jeweller", name: "Jeweller", hint: "add a gem socket", color: "#4ad1c8" },
 ];
 let armedOrb = -1;
 
@@ -1296,6 +1458,10 @@ const ICONS = {
 };
 const ICON_FALLBACK =
   '<svg viewBox="0 0 24 24"><rect x="7" y="7" width="10" height="10" transform="rotate(45 12 12)" fill="currentColor"/></svg>';
+// Uncut gems: a faceted stone, colored by kind via the slot's gem class.
+const ICON_GEM =
+  '<svg viewBox="0 0 24 24"><path d="M12 2.5 L19 8 L16 21 H8 L5 8 Z" fill="currentColor"/>' +
+  '<path d="M5 8 H19 M12 2.5 L9.5 8 L8 21 M12 2.5 L14.5 8 L16 21" stroke="#0b0b10" stroke-width="1" fill="none"/></svg>';
 
 const prettify = (id) => id.replace(/_/g, " ");
 
@@ -1303,6 +1469,18 @@ const prettify = (id) => id.replace(/_/g, " ");
 // never from other players, so innerHTML is safe here)
 
 function itemLines(item, where) {
+  if (item.gem) {
+    const kind = item.gem.support ? "Uncut Support Gem" : `Uncut Skill Gem (level ${item.gem.level})`;
+    const cls = item.gem.support ? "gem-support" : "gem-skill";
+    const lines = [
+      `<span class="tt-name ${cls}">${kind}</span>`,
+      `<span class="tt-kind">click to cut</span>`,
+    ];
+    for (const c of item.gem.choices || []) {
+      lines.push(`<span class="tt-affix">${item.gem.support ? supportInfo(c).name : skillName(c)}</span>`);
+    }
+    return lines;
+  }
   const lines = [
     `<span class="tt-name rarity-${item.rarity}">${prettify(item.base)}</span>`,
     `<span class="tt-kind">${item.rarity}${where ? " · " + where : ""}</span>`,
@@ -1321,7 +1499,7 @@ function showTooltip(item, where, e, compare) {
   const lines = itemLines(item, where);
   // Hovering a bag item: show what it would replace, PoE-style — the
   // upgrade decision without cross-referencing the equipment row.
-  if (compare) {
+  if (compare && !item.gem) {
     const self = me();
     const bySlot = new Map();
     for (const eq of (self && self.equipment) || []) bySlot.set(eq.slot, eq.item);
@@ -1506,9 +1684,14 @@ function slotDiv(label) {
 }
 
 function fillSlot(div, item, from, where) {
-  div.classList.add("filled", `rarity-${item.rarity}`);
-  div.dataset.base = item.base;
-  div.insertAdjacentHTML("afterbegin", ICONS[item.base] || ICON_FALLBACK);
+  if (item.gem) {
+    div.classList.add("filled", item.gem.support ? "gem-support" : "gem-skill");
+    div.insertAdjacentHTML("afterbegin", ICON_GEM);
+  } else {
+    div.classList.add("filled", `rarity-${item.rarity}`);
+    div.dataset.base = item.base;
+    div.insertAdjacentHTML("afterbegin", ICONS[item.base] || ICON_FALLBACK);
+  }
   makeDraggable(div, item, from);
   div.addEventListener("mouseenter", (e) => showTooltip(item, where, e, from === "inv"));
   div.addEventListener("mousemove", moveTooltip);
@@ -1526,6 +1709,7 @@ function renderPanel(self, force) {
     (self.inventory || []).map((i) => [i.id, i.rarity, (i.affixes || []).length]),
     self.inv_size,
     self.orbs || [],
+    self.gems || [],
   ]);
   if (!force && key === panelKey) return;
   panelKey = key;
@@ -1535,8 +1719,11 @@ function renderPanel(self, force) {
   inventoryEl.replaceChildren();
   if (!self) {
     invCountEl.textContent = "";
+    gemListEl.replaceChildren();
     return;
   }
+
+  renderGemList(self);
 
   const bySlot = new Map();
   for (const eq of self.equipment || []) bySlot.set(eq.slot, eq.item);
@@ -1558,16 +1745,208 @@ function renderPanel(self, force) {
     bagCellZone(div, i);
     if (cells[i]) {
       fillSlot(div, cells[i], "inv", legalEquipSlots(cells[i].base).join("/"));
-      const itemID = cells[i].id;
+      const item = cells[i];
       div.addEventListener("click", () => {
-        if (armedOrb < 0) return;
-        send({ kind: "apply_orb", orb: ORBS[armedOrb].id, target: itemID });
+        // Uncut gems open the cutting dialog; crafting orbs target gear.
+        if (item.gem) {
+          openCutDialog(item);
+          return;
+        }
+        if (armedOrb < 0 || ORBS[armedOrb].id === "jeweller") return;
+        send({ kind: "apply_orb", orb: ORBS[armedOrb].id, target: item.id });
         armedOrb = -1;
         renderOrbStrip(me());
       });
     }
     inventoryEl.appendChild(div);
   }
+}
+
+// --- gem row: one card per cut gem — name, level, socket pips. With a
+// jeweller armed, clicking a card buys it a socket.
+
+const gemListEl = document.getElementById("gem-list");
+
+function renderGemList(self) {
+  gemListEl.replaceChildren();
+  (self.gems || []).forEach((g, i) => {
+    const card = document.createElement("button");
+    card.className = "gem-card";
+    const meta = SKILL_META[g.skill] || { color: "#cfc9bf" };
+    const pips = (g.supports || []).map((sup) => {
+      if (!sup) return '<span class="socket empty" title="empty socket"></span>';
+      const info = supportInfo(sup);
+      return `<span class="socket filled" title="${info.name} — ${info.desc}">${info.name[0]}</span>`;
+    }).join("");
+    card.innerHTML =
+      `<span class="gem-dot" style="background:${meta.color}"></span>` +
+      `<span class="gem-name">${skillName(g.skill)}</span>` +
+      `<span class="gem-lv">Lv ${g.level}</span>` +
+      `<span class="sockets">${pips}</span>`;
+    card.title = `${skillName(g.skill)} — level ${g.level}, ${fmtMana(g.mana_cost)} mana, ${g.sockets} socket${g.sockets === 1 ? "" : "s"}`;
+    card.onclick = () => {
+      if (armedOrb >= 0 && ORBS[armedOrb].id === "jeweller") {
+        send({ kind: "add_socket", gem: i });
+        armedOrb = -1;
+        renderOrbStrip(me());
+      }
+    };
+    gemListEl.appendChild(card);
+  });
+}
+
+// ------------------------------------------------------------ cut dialog
+//
+// Clicking an uncut gem in the bag opens this. Skill gems offer their
+// three-choice draft (or leveling an existing gem to the drop's level);
+// support gems pick a support, then a target gem and socket. Every button
+// just sends a command — the server validates, and the dialog closes
+// optimistically; a rejected cut leaves the item in the bag to try again.
+
+let cutState = null; // { itemId, support, level, choices, choice }
+const gemDialog = document.getElementById("gem-dialog");
+
+function openCutDialog(item) {
+  cutState = {
+    itemId: item.id,
+    support: !!item.gem.support,
+    level: item.gem.level,
+    choices: item.gem.choices || [],
+    choice: -1,
+  };
+  renderCutDialog();
+}
+
+function closeCutDialog() {
+  cutState = null;
+  gemDialog.classList.add("hidden");
+  gemDialog.innerHTML = "";
+}
+
+// syncCutDialog closes the dialog once its item leaves the bag (the cut
+// landed, or the item was dropped/lost some other way).
+function syncCutDialog(self) {
+  if (!cutState) return;
+  if (!self || !(self.inventory || []).some((i) => i.id === cutState.itemId)) closeCutDialog();
+}
+
+function dialogButton(html, onclick, disabled, title) {
+  const btn = document.createElement("button");
+  btn.className = "passive-option";
+  btn.innerHTML = html;
+  if (title) btn.title = title;
+  if (disabled) btn.disabled = true;
+  else btn.onclick = onclick;
+  gemDialog.appendChild(btn);
+  return btn;
+}
+
+function dialogNote(text) {
+  const p = document.createElement("p");
+  p.className = "dialog-note";
+  p.textContent = text;
+  gemDialog.appendChild(p);
+}
+
+function renderCutDialog() {
+  if (!cutState) return;
+  const self = me();
+  if (!self) {
+    closeCutDialog();
+    return;
+  }
+  const gems = self.gems || [];
+  const st = cutState;
+  gemDialog.innerHTML = "";
+  const h = document.createElement("h3");
+  h.textContent = st.support ? "Cut Support Gem" : `Cut Skill Gem — level ${st.level}`;
+  gemDialog.appendChild(h);
+
+  if (!st.support && st.choice >= 0) {
+    // At the four-gem cap: cutting means destroying one, sockets and all.
+    dialogNote(`cut ${skillName(st.choices[st.choice])} — which gem does it replace?`);
+    gems.forEach((g, i) => {
+      dialogButton(`<b>${skillName(g.skill)}</b><span>Lv ${g.level} · ${g.sockets} socket${g.sockets === 1 ? "" : "s"} — destroyed</span>`, () => {
+        send({ kind: "cut_skill", target: st.itemId, choice: st.choice, replace: true, gem: i });
+        closeCutDialog();
+      });
+    });
+    dialogButton("back", () => {
+      st.choice = -1;
+      renderCutDialog();
+    });
+  } else if (!st.support) {
+    dialogNote("cut a new skill:");
+    st.choices.forEach((c, idx) => {
+      const owned = gems.some((g) => g.skill === c);
+      dialogButton(
+        `<b>${skillName(c)}</b>${owned ? "<span>already cut</span>" : ""}`,
+        () => {
+          if (gems.length >= GEM_KEYS.length) {
+            st.choice = idx;
+            renderCutDialog();
+          } else {
+            send({ kind: "cut_skill", target: st.itemId, choice: idx });
+            closeCutDialog();
+          }
+        },
+        owned,
+      );
+    });
+    const uppable = gems.map((g, i) => [g, i]).filter(([g]) => g.level < st.level);
+    if (uppable.length) {
+      dialogNote("— or raise an existing gem to this level —");
+      for (const [g, i] of uppable) {
+        dialogButton(`<b>${skillName(g.skill)}</b><span>Lv ${g.level} → Lv ${st.level}</span>`, () => {
+          send({ kind: "level_gem", target: st.itemId, gem: i });
+          closeCutDialog();
+        });
+      }
+    }
+  } else if (st.choice < 0) {
+    dialogNote("choose a support:");
+    st.choices.forEach((c, idx) => {
+      const info = supportInfo(c);
+      dialogButton(`<b>${info.name}</b><span>${info.desc}</span>`, () => {
+        st.choice = idx;
+        renderCutDialog();
+      });
+    });
+  } else {
+    const info = supportInfo(st.choices[st.choice]);
+    dialogNote(`socket ${info.name} into:`);
+    gems.forEach((g, i) => {
+      const legal = (info.legal_for || []).includes(g.skill) && !(g.supports || []).includes(info.id);
+      const row = document.createElement("div");
+      row.className = "socket-row" + (legal ? "" : " illegal");
+      row.innerHTML = `<b>${skillName(g.skill)}</b>`;
+      (g.supports || []).forEach((sup, s) => {
+        const btn = document.createElement("button");
+        btn.className = "socket-pick" + (sup ? " occupied" : "");
+        btn.textContent = sup ? supportInfo(sup).name[0] : "○";
+        btn.title = sup ? `replaces ${supportInfo(sup).name}` : "empty socket";
+        if (!legal) btn.disabled = true;
+        else btn.onclick = () => {
+          send({ kind: "cut_support", target: st.itemId, choice: st.choice, gem: i, socket: s });
+          closeCutDialog();
+        };
+        row.appendChild(btn);
+      });
+      if (!legal) {
+        const why = document.createElement("span");
+        why.className = "why";
+        why.textContent = (g.supports || []).includes(info.id) ? "already socketed" : "incompatible";
+        row.appendChild(why);
+      }
+      gemDialog.appendChild(row);
+    });
+    dialogButton("back", () => {
+      st.choice = -1;
+      renderCutDialog();
+    });
+  }
+  dialogButton("cancel", closeCutDialog);
+  gemDialog.classList.remove("hidden");
 }
 
 // ----------------------------------------------------------- event log
@@ -1600,11 +1979,30 @@ function logEvent(ev) {
       text = `${nameOf(ev.other)} is shocked (+${Math.round(ev.amount / 10)}% damage taken)`;
       break;
     case "drop":
-      text = `${ev.note.replace("_", " ")} dropped`;
+      text = `${ev.note.replace(/_/g, " ")} dropped`;
       break;
     case "pickup":
-      text = `${nameOf(ev.actor)} picked up ${ev.note.replace("_", " ")}`;
+      text = `${nameOf(ev.actor)} picked up ${ev.note.replace(/_/g, " ")}`;
       break;
+    case "gem": {
+      const parts = ev.note.split(":");
+      const n = Math.round(ev.amount / 1000);
+      switch (parts[0]) {
+        case "cut":
+          text = `${nameOf(ev.actor)} cut ${skillName(parts[1])} (level ${n})`;
+          break;
+        case "level":
+          text = `${nameOf(ev.actor)} raised ${skillName(parts[1])} to level ${n}`;
+          break;
+        case "support":
+          text = `${nameOf(ev.actor)} socketed ${supportInfo(parts[1]).name} into ${skillName(parts[2])}`;
+          break;
+        case "socket":
+          text = `${nameOf(ev.actor)} added a socket to ${skillName(parts[1])} (${n})`;
+          break;
+      }
+      break;
+    }
     case "equip":
       text = `${nameOf(ev.actor)} equipped ${ev.note.replace("_", " ")}`;
       break;
@@ -1671,10 +2069,11 @@ function updateHUD(self) {
   const manaPct = self.max_mana > 0 ? (100 * self.mana) / self.max_mana : 0;
   document.getElementById("life-fill").style.height = `${lifePct}%`;
   document.getElementById("mana-fill").style.height = `${manaPct}%`;
-  for (const s of SKILL_BAR) {
-    const el = document.getElementById(`slot-${s.skill}`);
-    if (el) el.classList.toggle("drained", self.mana < s.mana * 1000);
-  }
+  renderSkillBar(self);
+  (self.gems || []).slice(0, GEM_KEYS.length).forEach((g, i) => {
+    const el = document.getElementById(`slot-${i}`);
+    if (el) el.classList.toggle("drained", self.mana < g.mana_cost);
+  });
   (self.flasks || []).forEach((charges, i) => {
     const el = document.getElementById(`flask-${i}`);
     if (!el) return;

@@ -36,6 +36,23 @@ func RollLoot(w *core.World) {
 		if killer := w.ActorByID(ev.Other); killer != nil && !killer.Dead && killer.Team != a.Team {
 			rollOrb(w, killer, a.Rarity)
 		}
+		// Uncut gems next: independent skill and support draws (a rare can
+		// pay both), permilles scaled by the dier's rarity like orbs.
+		// Zero-chance tables consume nothing.
+		mult := rarityMult(a.Rarity)
+		for _, g := range [2]struct {
+			permille uint32
+			support  bool
+		}{{table.SkillGemPermille, false}, {table.SupportGemPermille, true}} {
+			if g.permille == 0 {
+				continue
+			}
+			if w.RNGLoot.Uint64n(1000) < uint64(g.permille)*mult {
+				item := RollUncutGem(w, g.support, a.Level)
+				d := w.SpawnDrop(a.Pos, item)
+				w.Emit(core.Event{Kind: core.EvDrop, Actor: a.ID, Other: d.ID, Note: item.Name()})
+			}
+		}
 		// Rarity pays in drop attempts — magic 2, rare 3 — each gated by
 		// the table's chance independently. Consumption is keyed off the
 		// dier's rarity (world state, hashed), so replays stay aligned;
@@ -119,19 +136,24 @@ func fillAffixes(w *core.World, item *core.Item) {
 // Orb drop rates per kill, per mille, scaled by the dier's rarity (x2
 // magic, x3 rare — matching the drop-attempt ladder). One combined draw
 // decides which orb, if any. Open for tuning.
-var orbPermille = [core.OrbCount]uint64{90, 30, 15} // transmutation, alchemy, chaos
+var orbPermille = [core.OrbCount]uint64{90, 30, 15, 40} // transmutation, alchemy, chaos, jeweller
+
+// rarityMult is the shared drop-luck ladder: magic pays double, rare triple.
+func rarityMult(r core.Rarity) uint64 {
+	switch r {
+	case core.RarityMagic:
+		return 2
+	case core.RarityRare:
+		return 3
+	}
+	return 1
+}
 
 // rollOrb banks a currency drop straight to the killer — no ground
 // entity; picking up shards of currency is friction, not fun. Consumes
 // exactly one loot draw per eligible kill.
 func rollOrb(w *core.World, killer *core.Actor, rarity core.Rarity) {
-	mult := uint64(1)
-	switch rarity {
-	case core.RarityMagic:
-		mult = 2
-	case core.RarityRare:
-		mult = 3
-	}
+	mult := rarityMult(rarity)
 	roll := w.RNGLoot.Uint64n(1000)
 	for o := core.OrbKind(0); o < core.OrbCount; o++ {
 		band := orbPermille[o] * mult
@@ -155,13 +177,18 @@ func ApplyOrb(w *core.World, a *core.Actor, orb core.OrbKind, itemID core.Entity
 	if orb >= core.OrbCount || a.Orbs[orb] <= 0 {
 		return false
 	}
+	// Jewellers work on cut gems (CmdAddSocket), never bag items; uncut
+	// gems have no affixes to craft.
+	if orb == core.OrbJeweller {
+		return false
+	}
 	var item *core.Item
 	for i := range a.Inventory {
 		if a.Inventory[i].ID == itemID {
 			item = &a.Inventory[i]
 		}
 	}
-	if item == nil {
+	if item == nil || item.Gem != nil {
 		return false
 	}
 	switch orb {

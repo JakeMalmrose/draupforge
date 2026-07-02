@@ -20,8 +20,10 @@ import (
 	"time"
 
 	"github.com/JakeMalmrose/draupforge/protocol"
+	"github.com/JakeMalmrose/draupforge/sim/core"
 	fm "github.com/JakeMalmrose/draupforge/sim/fixmath"
 	"github.com/JakeMalmrose/draupforge/sim/space"
+	"github.com/JakeMalmrose/draupforge/sim/stats"
 )
 
 const (
@@ -60,9 +62,22 @@ type adminStatus struct {
 	Clients      []adminClientInfo `json:"clients"`
 	// WorldHash travels as hex text — a uint64 in JSON loses precision past
 	// 2^53 in JS.
-	WorldHash string `json:"world_hash"`
-	ActorDefs    []string          `json:"actor_defs"`
-	Events       []adminEvent      `json:"events"`
+	WorldHash string       `json:"world_hash"`
+	ActorDefs []string     `json:"actor_defs"`
+	Events    []adminEvent `json:"events"`
+	// Run is the descent-run state; nil on plain arenas.
+	Run *adminRunInfo `json:"run,omitempty"`
+	// CutSkills is the cuttable-skill table, feeding the gem cheat's dropdown.
+	CutSkills []string `json:"cut_skills"`
+}
+
+// adminRunInfo mirrors the descent HUD line: which run, how deep, how many
+// portal uses remain, and the best floor this process has seen.
+type adminRunInfo struct {
+	Run     int `json:"run"`
+	Floor   int `json:"floor"`
+	Portals int `json:"portals"`
+	Best    int `json:"best"`
 }
 
 // saveBlob carries a serialized world from the tick goroutine to the admin
@@ -126,6 +141,14 @@ func (in *Instance) adminStatusLocked() *adminStatus {
 		st.ActorDefs = append(st.ActorDefs, id)
 	}
 	sort.Strings(st.ActorDefs)
+	for _, sk := range w.Content.Cuttable {
+		st.CutSkills = append(st.CutSkills, sk.ID)
+	}
+	if in.run > 0 {
+		st.Run = &adminRunInfo{
+			Run: in.run, Floor: in.floor, Portals: in.portalsLeft, Best: in.best,
+		}
+	}
 	return st
 }
 
@@ -139,6 +162,10 @@ func (in *Instance) serveAdmin(ctx context.Context) {
 		log.Printf("server: admin listener: %v", err)
 	}
 }
+
+// devGodSource is the sheet source for the /api/god cheat: all bits set —
+// inside buff-space (top two bits) with a hash no real buff will produce.
+const devGodSource = ^uint64(0)
 
 func (in *Instance) adminMux() *http.ServeMux {
 	mux := http.NewServeMux()
@@ -175,6 +202,87 @@ func (in *Instance) adminMux() *http.ServeMux {
 				return nil, err
 			}
 			return map[string]uint64{"id": uint64(id)}, nil
+		})
+		adminReplyJSON(w, v, err)
+	})
+	// Dev cheat: cut a gem straight onto an actor, skipping the drop-and-cut
+	// loop — for exercising skills without farming. Level 0 means 1.
+	mux.HandleFunc("POST /api/gem", func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Actor uint64 `json:"actor"`
+			Skill string `json:"skill"`
+			Level int    `json:"level"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		v, err := in.runOnTick(func() (any, error) {
+			if err := in.sim.GrantGem(core.EntityID(req.Actor), req.Skill, max(req.Level, 1)); err != nil {
+				return nil, err
+			}
+			return map[string]string{"granted": req.Skill}, nil
+		})
+		adminReplyJSON(w, v, err)
+	})
+	// Dev cheat: toggle an actor unhittable — DamageTaken overridden to
+	// zero, same lever as portal grace but permanent. Sheet state, so it
+	// dies with the zone (transfers rebuild sheets); re-apply after a
+	// floor swap.
+	mux.HandleFunc("POST /api/god", func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Actor uint64 `json:"actor"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		v, err := in.runOnTick(func() (any, error) {
+			a := in.sim.W.ActorByID(core.EntityID(req.Actor))
+			if a == nil {
+				return nil, fmt.Errorf("no actor %d", req.Actor)
+			}
+			for _, m := range a.Sheet.Mods() {
+				if m.Source == devGodSource {
+					a.Sheet.RemoveSource(devGodSource)
+					return map[string]bool{"god": false}, nil
+				}
+			}
+			a.Sheet.Add(stats.Modifier{
+				Stat: stats.DamageTaken, Layer: stats.LayerOverride,
+				Value: 0, Source: devGodSource,
+			})
+			return map[string]bool{"god": true}, nil
+		})
+		adminReplyJSON(w, v, err)
+	})
+	// Dev cheat: hand an actor crafting orbs — jewellers make socket work
+	// testable without farming, the others feed the crafting verbs.
+	mux.HandleFunc("POST /api/orbs", func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Actor uint64 `json:"actor"`
+			Orb   string `json:"orb"`
+			Count int32  `json:"count"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		kind, ok := core.ParseOrbKind(req.Orb)
+		if !ok {
+			http.Error(w, "unknown orb kind "+req.Orb, http.StatusBadRequest)
+			return
+		}
+		if req.Count < 1 {
+			req.Count = 1
+		}
+		v, err := in.runOnTick(func() (any, error) {
+			a := in.sim.W.ActorByID(core.EntityID(req.Actor))
+			if a == nil {
+				return nil, fmt.Errorf("no actor %d", req.Actor)
+			}
+			a.Orbs[kind] += req.Count
+			return map[string]any{"orb": req.Orb, "count": a.Orbs[kind]}, nil
 		})
 		adminReplyJSON(w, v, err)
 	})
@@ -292,6 +400,27 @@ const adminPage = `<!doctype html>
   <button id="spawnbtn">spawn</button>
   <span id="spawnmsg"></span>
 </p>
+<h2>cheats</h2>
+<p>
+  actor <input id="cactor" size="6"> (blank = first client)
+  <button id="godbtn">god mode</button>
+  <span id="godmsg"></span>
+</p>
+<p>
+  gem <select id="cskill"></select>
+  level <input id="clevel" value="1" size="3">
+  <button id="gembtn">force-cut</button>
+  <span id="gemmsg"></span>
+</p>
+<p>
+  orbs <select id="corb">
+    <option>jeweller</option><option>transmutation</option>
+    <option>alchemy</option><option>chaos</option>
+  </select>
+  × <input id="ccount" value="10" size="3">
+  <button id="orbbtn">give</button>
+  <span id="orbmsg"></span>
+</p>
 <h2>save</h2>
 <p>
   path <input id="savepath" placeholder="(default: draupforge-save-tick&lt;N&gt;.json)" size="34">
@@ -321,7 +450,7 @@ async function api(path, body) {
 function fmtBytes(n) {
   if (n > 1 << 20) return (n / (1 << 20)).toFixed(1) + " MiB";
   if (n > 1 << 10) return (n / (1 << 10)).toFixed(1) + " KiB";
-  return n + " B";
+  return Math.round(n) + " B";
 }
 
 function render() {
@@ -332,6 +461,8 @@ function render() {
     (st.paused ? ' · <span class="paused">PAUSED</span>' : "");
 
   document.getElementById("world").innerHTML =
+    (st.run ? "<tr><th>run</th><td>#" + st.run.run + " · floor " + st.run.floor +
+      " · portals " + st.run.portals + " · best " + st.run.best + "</td></tr>" : "") +
     "<tr><th>actors</th><td>" + st.actors + "</td></tr>" +
     "<tr><th>projectiles</th><td>" + st.projectiles + "</td></tr>" +
     "<tr><th>drops</th><td>" + st.drops + "</td></tr>" +
@@ -341,6 +472,10 @@ function render() {
   const def = document.getElementById("def");
   if (def.options.length === 0) {
     for (const d of st.actor_defs) def.add(new Option(d));
+  }
+  const cskill = document.getElementById("cskill");
+  if (cskill.options.length === 0) {
+    for (const s of st.cut_skills || []) cskill.add(new Option(s));
   }
 
   const now = performance.now();
@@ -352,7 +487,8 @@ function render() {
     }
     prevBytes.set(c.actor, { bytes: c.bytes_sent, at: now });
     return "<tr><td>" + c.actor + "</td><td>" + c.mode + "</td><td>" + fmtBytes(c.bytes_sent) +
-      '</td><td>' + rate + '</td><td><button onclick="kick(' + c.actor + ')">kick</button></td></tr>';
+      '</td><td>' + rate + '</td><td><button onclick="useActor(' + c.actor + ')">cheat</button> ' +
+      '<button onclick="kick(' + c.actor + ')">kick</button></td></tr>';
   });
   document.getElementById("clients").innerHTML = rows.join("") || "<tr><td>none</td></tr>";
 
@@ -403,6 +539,43 @@ document.getElementById("savebtn").onclick = async () => {
   }
 };
 window.kick = async (actor) => { await api("/api/kick", { actor }); poll(); };
+window.useActor = (actor) => { document.getElementById("cactor").value = actor; };
+
+// Cheats act on the actor field, falling back to the first connected client —
+// the single-player case needs zero typing.
+function cheatActor() {
+  const v = document.getElementById("cactor").value.trim();
+  if (v) return parseInt(v, 10);
+  if (st && st.clients && st.clients.length) return st.clients[0].actor;
+  throw new Error("no clients connected; fill the actor field");
+}
+
+async function cheat(msgId, fn) {
+  const msg = document.getElementById(msgId);
+  try {
+    msg.textContent = await fn(cheatActor());
+  } catch (e) {
+    msg.innerHTML = '<span class="err">' + e.message + "</span>";
+  }
+  poll();
+}
+
+document.getElementById("godbtn").onclick = () => cheat("godmsg", async (actor) => {
+  const r = await api("/api/god", { actor });
+  return "#" + actor + (r.god ? " is unhittable" : " is mortal again");
+});
+document.getElementById("gembtn").onclick = () => cheat("gemmsg", async (actor) => {
+  const skill = document.getElementById("cskill").value;
+  const level = parseInt(document.getElementById("clevel").value, 10) || 1;
+  await api("/api/gem", { actor, skill, level });
+  return "cut " + skill + " " + level + " onto #" + actor;
+});
+document.getElementById("orbbtn").onclick = () => cheat("orbmsg", async (actor) => {
+  const orb = document.getElementById("corb").value;
+  const count = parseInt(document.getElementById("ccount").value, 10) || 1;
+  const r = await api("/api/orbs", { actor, orb, count });
+  return "#" + actor + " has " + r.count + " " + orb;
+});
 
 poll();
 setInterval(poll, 1000);

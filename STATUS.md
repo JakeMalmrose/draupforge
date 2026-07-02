@@ -11,8 +11,9 @@ tests, and session-log entries older than a few sessions (git history is the
 archive). If this file outgrows ~150 lines, it has stopped being a status doc
 and started being a changelog — cut it back.
 
-**Last updated: 2026-07-02** (session 33: WASD movement — PoE2-style
-held-key steering alongside click-to-move)
+**Last updated: 2026-07-02** (session 35: skill feel — arc replaces arc_bolt
+as the lightning gem, fireball explodes, spark bounces, finite projectile
+ranges, +50% gem drops)
 
 ## Where things stand
 
@@ -28,15 +29,23 @@ walking into it travels to the hideout — a small safe world, floor 0 — for
 one use; stepping back through is free. The HUD shows run · floor · portals ·
 best; stairs and portal render in-world and are click-to-use.
 
+Player skills are gems now (session 34): a fresh exile knows only a level-1
+Fireball gem; uncut skill and support gems drop from kills carrying a
+pre-rolled draft of three choices, and cutting is deterministic — cut a new
+skill at the drop's level (1–20, from the dier's level), raise an existing
+gem to it, or socket a support (more/less damage, extra projectiles, chain,
+conversion, speed, mana). Sockets live on the gem (start 1, cap 4); the new
+jeweller orb adds one. The Q/E/R/T bar is the gem list.
+
 Under it: characters extract/inject across worlds (`sim/core/character.go` —
 item IDs re-minted, sheet rebuilt, pools carried; zone-local state dropped),
 and every transfer is a re-welcome on the same socket (welcome generation
 tags acks so stale ones die with their world). All of session 14's game
-loop still holds: click-to-move with pathing, Q/E/R/T skills, the full item
+loop still holds: click-to-move with pathing, the full item
 flow, ailments, kiting archers. Run it:
 
 ```sh
-go test ./...                                    # ~40 tests, all green
+go test ./...                                    # ~55 tests, all green
 go run ./cmd/headless -script scripts/slice.json # watch the fight as events
 go run ./cmd/server -scenario scripts/arena.json # then open localhost:8080
                                                  # admin dashboard: localhost:9090
@@ -53,9 +62,10 @@ All foundational machinery from DESIGN.md is real, not stubbed:
 | Damage pipeline + DoTs + regen | `sim/combat` | done, tested |
 | Statuses: ignite (DoT) + chill/shock (hit-scaled, strongest-wins) + content buffs (`BuffDef` packages, refresh-not-stack, `SkillBuff` skills via pending-buff queue) | `sim/combat/ailments.go`, `buff.go` | done, tested |
 | Persistence: `World.Save`/`LoadWorld` (versioned JSON, content by string ID, bit-exact continuation), admin `POST /api/save`, `cmd/server -load`; descent instances wrap the world in a run envelope (`server/runsave.go`, own version gate) so loads resume mid-run — legacy bare-world files still load as fresh runs | `sim/core/save.go`, `sim/space/save.go`, `server/runsave.go` | done, tested |
-| Actions (windup/recovery) + projectiles | `sim/skills` | done |
+| Actions (windup/recovery) + projectiles; skill-feel mechanics: impact explosions with linear distance falloff (`Hit.AreaScale`, events noted `<skill>:aoe`), wall bounce (`SegmentHitN` face normals), heading wiggle (combat-stream draw every `WigglePeriod` ticks), hitscan chain skills (`SkillChain`: aim-point acquisition + shared chain-hop targeting) | `sim/skills` | done, tested |
 | Loot: per-table rarity weights, weighted affixes, group caps, per-slot affix pools (`AffixDef.Families`, DB() asserts 3+3 groups per family), rolled base implicits, starved-pool event | `sim/items` | done, tested |
-| Currency: `Actor.Orbs` wallet (transmute/alch/chaos), orbs bank straight to the killer (one loot draw per kill, rates ×2/×3 by dier rarity), `apply_orb` on bag items (transmute normal→magic, alch normal→rare, chaos rerolls rare — shared `fillAffixes`), durable (save v8, transfers), wire v15, panel orb strip with apply-mode | `sim/items/loot.go`, `web/` | done, tested |
+| Currency: `Actor.Orbs` wallet (transmute/alch/chaos/jeweller), orbs bank straight to the killer (one loot draw per kill, rates ×2/×3 by dier rarity), `apply_orb` on bag items (transmute normal→magic, alch normal→rare, chaos rerolls rare — shared `fillAffixes`; jewellers go to gems via `add_socket`), durable (save v8, transfers), panel orb strip with apply-mode | `sim/items/loot.go`, `web/` | done, tested |
+| Gems: players cast only from cut gems (`Actor.Gems`; `ActorDef.StartingGems` seeds Fireball, monsters keep `Def.Skills`); uncut gem items drop with a 3-distinct-choice draft rolled at drop time (loot stream; per-table permilles ×2/×3 by rarity), level = dier level capped 20; verbs `cut_skill` (new gem at drop level, replace at the 4-gem cap), `level_gem` (raise-to-drop-level), `cut_support` (tag-gated, socket-addressed, swap destroys), `add_socket` (jeweller, cap 4); supports fold into the socketed skill's queries only (more/less, added flat, cast/attack speed, mana mult, +projectiles fan, chain with LoS retarget, fire/lightning→cold conversion — the pipeline's conversion stage is live, converted portions scale by both types' mods); gem level scales the skill's base roll +10%/level and mana +5%/level; cast contexts bake at use time so in-flight projectiles keep their stats; durable (save v9, transfers, hashed), wire v16 (gem field group + welcome tables), client gem panel/cut dialog/dynamic skill bar | `sim/core/gems.go`, `sim/items/gems.go`, `sim/combat/pipeline.go`, `content/supports.go`, `web/` | done, tested (13 gem tests), verified live in the browser |
 | Progression: XP on kill (scaled by monster level), quadratic curve, level cap 50, PerLevel growth mods under `LevelModSource`, ding heal, HUD level + XP bar | `sim/progress`, `core.Actor.SetLevel` | done, tested |
 | Flasks: `ActorDef.Flasks` (buff IDs) + `Actor.FlaskCharges`, `use_flask` command (charges-gated, applies the flask's regen-burst buff, legal mid-swing), kills feed +10 capped 60 (same reward hook as XP), durable across transfers/saves (v7), charges group on the wire (v14), HUD vials on keys 1/2 | `sim/`, `content/`, `protocol/`, `web/` | done, tested |
 | Passive forks: `PassiveDef` milestones (5/10, 3 forks each), `choose_passive` command (level-gated, one per milestone, permanent under `PassiveModSource`), durable across transfers (`Character.Passives`) and saves (v6), table in the welcome + chosen IDs on actors (protocol v13), client chooser card | `sim/core`, `content/`, `protocol/`, `web/` | done, tested |
@@ -65,12 +75,12 @@ All foundational machinery from DESIGN.md is real, not stubbed:
 | Equipment: 10 slots (weapon…belt), slot-addressed equip command (auto fallback), affix→sheet | `sim/items/equip.go` | done, tested |
 | Inventory: pickup/unequip/drop_item, capacity | `sim/items/equip.go` | done, tested |
 | Server: TCP + WS transports, joins/leaves, send-rate decoupling, interest culling, binary deltas + acks, pause | `server/` | done, race-tested |
-| Admin dashboard: observe (tick health, counts, bandwidth, events, world hash) + poke (pause/resume, spawn, kick), own port, embedded HTML | `server/admin.go` | done, tested; NO AUTH — localhost/tailnet only |
+| Admin dashboard: observe (tick health, counts, bandwidth, events, world hash, run/floor/portals line) + poke (pause/resume, spawn, kick), dev-cheat panel with buttons (`/api/gem` force-cuts a gem, `/api/god` toggles DamageTaken-zero, `/api/orbs` grants currency; actor field defaults to the first client, per-client "cheat" prefill) — cheats are zone-local sheet/wallet pokes | `server/admin.go` | done, tested; NO AUTH — localhost/tailnet only |
 | Web client: canvas, input, terrain render (walls/floor), drag-drop inventory grid (icons, tooltips), delta decoding, tick-timeline interpolation, fade-in/out, cast/impact VFX + ailment rings, floating damage numbers (crit/self emphasis), hit flashes, death pops (rarity-scaled), PoE2-style HUD (life/mana globes, clickable skill bar with mana-gating, `SKILL_BAR` as the single keybind source) | `web/` | working, no build step |
 | AI: behavior registry — `melee_chaser`, `ranged_kiter` (LoS-gated shooting, retreat band), `boss_brute` (stateless two-skill selection by range); territorial aggro: LoS/hearing acquisition, leash to `Actor.Home`, return-home (SaveVersion 4) | `sim/ai` | real, tested |
 | Phase order + command validation | `sim/sim.go` | done — this IS the determinism contract |
 | Wire types: versioned welcome, JSON snapshots, binary delta view codec | `protocol/` | done, tested |
-| Content tables | `content/` | 8 skills (fireball, frost_nova, spark, zombie_slam, bone_arrow, adrenaline, ghoul_claws, arc_bolt), 6 actors (player/zombie/archer/dummy/ghoul/mage), 32 affixes (tiered groups, per-slot pools), 9 bases (one per slot family, each with a rolled implicit), 5 drop tables, 4 monster rarity mods, 2 buffs |
+| Content tables | `content/` | 11 skills (6 cuttable: fireball, frost_nova, spark, adrenaline, arc, bone_arrow — arc_bolt went monster-only), 10 support gems (`content/supports.go`), 7 actors, 32 affixes (tiered groups, per-slot pools), 9 bases (rolled implicits), 6 drop tables (each with gem permilles), 4 monster rarity mods, 4 buffs |
 | Debug client | `cmd/headless` | done |
 | Determinism + golden replay tests | `sim/sim_test.go` | done |
 
@@ -122,10 +132,18 @@ All foundational machinery from DESIGN.md is real, not stubbed:
   swap the actor-ID/gen/pending-queue cutover is one mutex section —
   commands tagged with old-world IDs must never drive whichever actor wears
   that ID in the new world.
-- Characters transfer only durables (def/level/XP/pools/bag/gear); position,
-  action, buffs, DoTs — and `Home`, which re-anchors at the injection
-  point — deliberately die with the zone. Life ≤ 0 at injection
-  means "arrive refilled" — the death-respawn convention.
+- Characters transfer only durables (def/level/XP/pools/bag/gear/gems);
+  position, action, buffs, DoTs — and `Home`, which re-anchors at the
+  injection point — deliberately die with the zone. Life ≤ 0 at injection
+  means "arrive refilled" — the death-respawn convention. A character with
+  no gems (legacy saves) is re-granted its def's starting gems.
+- Support modifiers never touch the actor's sheet: they fold into the
+  socketed skill's stat queries at use/resolve time (`GemCtx`), and cast
+  contexts bake at the command gate — an in-flight projectile keeps the
+  stats it was fired with whatever happens to the gem. The uncut draft is
+  rolled at drop time (exactly three loot-stream draws); cutting itself
+  consumes no RNG. `content.Supports` and `ContentDB.Cuttable` are ordered
+  tables — reordering is replay-relevant, same rule as affixes.
 
 Structural risks live in `RISKS.md` — read it before building anything load-bearing (top entry: the action model is still one-thing-at-a-time — no channelling/stun/interrupt).
 
@@ -190,9 +208,21 @@ Structural risks live in `RISKS.md` — read it before building anything load-be
   scales linearly with level; hideout trips cost 1 use, returns free;
   rarity chances (magic 10% +2%/floor cap 30%, rare 2% +1%/floor cap 12%),
   XP multipliers (×3/×6), and drop attempts (2/3) per rarity; portal
-  grace lasts 2.5s; flasks bank 60 charges, sips cost 30, kills pay 10.
+  grace lasts 2.5s; flasks bank 60 charges, sips cost 30, kills pay 10;
+  gem drop permilles per table (trash ~18–38 skill / 12–27 support, boss
+  450/300, ×2/×3 by rarity — session 35 raised all of these 50%), jeweller
+  orb 40‰, gem damage +10%/level and mana +5%/level, support numbers in
+  `content/supports.go`; projectile ranges are TTL-derived (fireball ~14u,
+  arrows/bolts ~16–17u, spark 1.5s of bouncing), fireball splash 2u,
+  spark wiggle every 12 ticks, arc 12u reach / 2 base chains.
+- Uncut skill gems drop at the dier's level, so `level_gem` only matters
+  once floors (leveled packs) outpace your gems — floor 1 drops are all
+  level 1. Deliberate: depth is how gems grow.
+- Support display metadata (glyph colors, which skills aim at the cursor)
+  is the client-side `SKILL_META` map — new cuttable skills should update
+  it or accept the neutral default (aimed, gray).
 - Cast-on-death portal still deliberately unshipped — it must carry an
-  opportunity cost (a gem slot once gems exist), never free.
+  opportunity cost (now expressible: a gem socket), never free.
 
 ## Feature plan
 
@@ -207,6 +237,47 @@ fun-first counterweight to all of that.
 
 ## Session log
 
+- **2026-07-02 (35)** — Skill feel (Jake: "not just blue fireball").
+  Arc: new cuttable `SkillChain` hitscan — strikes the enemy nearest
+  the cursor (12u reach, LoS), chains to 2 more (supports add), one
+  full hit each, no projectile; client draws a jagged bolt through
+  the strike positions from the hit events alone (no wire change).
+  arc_bolt stays as the mage's dodgeable projectile, no longer
+  cuttable. Fireball explodes on impact: 2u splash re-hits bystanders
+  scaled 1→0 linearly by distance (`Hit.AreaScale`; events noted
+  `fireball:aoe`), explosion-ring VFX. Spark bounces off walls
+  (`SegmentHitN` returns the crossed face's normal) and wiggles ±24°
+  every 12 ticks (combat-stream draw per nudge) until its 1.5s TTL.
+  All projectile TTLs cut to real ranges (fireball 14u, arrows/bolts
+  16–17u — were 26–40u). Uncut gem permilles ×1.5 across all tables.
+  Five new sim tests, both goldens re-recorded (wiggle/TTL/loot
+  shifts). Verified live in Chrome: 3-target arc chains (log + bolt
+  polyline instrumentation), `:aoe` splash numbers with falloff,
+  spark position trace showing two wall reflections + drift; zero
+  console errors. Jake confirmed the bounce in-session. Follow-up:
+  the admin dashboard grew a cheats panel (god-mode toggle,
+  force-cut gem, orb grants — buttons defaulting to the first
+  client) and a run/floor/portals line; endpoints black-box tested
+  (`TestAdminCheats`), buttons verified live from the dashboard.
+- **2026-07-02 (34)** — Skill & support gems (the loot-driven skill
+  system; four design calls from Jake: gems-only skills, draft-of-3
+  cutting, sockets start 1 / cap 4, level-to-drop-level). Sim: gem/
+  support/uncut types in `core/gems.go`, verbs in `items/gems.go`, the
+  reserved conversion stage went live (per-portion multipliers query
+  with both source and destination type tags), projectile fans
+  (hardcoded fixed-point rotation table), chain (retarget nearest
+  unhit enemy, wall-LoS-gated), jeweller orb. Save v9, wire v16 (gem
+  field group carries server-computed mana costs; welcome carries
+  support/cuttable tables with precomputed legality), 13 new sim
+  tests, both goldens re-recorded (gem loot draws shift the stream).
+  Client: dynamic gem skill bar, gem panel row with socket pips, the
+  cut dialog (draft → replace-at-cap / level-up / support-target
+  flows), gem drop shafts. Verified live in Chrome over the binary
+  wire: farm → shafted drops → cut (duplicate greyed) → socket GMP
+  (Frost Nova gated "incompatible", mana ×1.35 on the bar) → 5-way
+  fan (3 survive the corridor on screen; exact server-side check),
+  and a mid-session death eject carried gems + uncut items across
+  the world swap. Zero console errors.
 - **2026-07-02 (33)** — WASD movement (client-only, the PoE2 GUI
   signature). A held-key set sends a short move command every 100ms
   toward the combined direction (~4 units ahead — the repath is cheap
@@ -226,169 +297,4 @@ fun-first counterweight to all of that.
   floor 1 of a fresh run. Plain arenas keep the bare format. Closed
   the STATUS shortcut. Verified live: admin save → restart with -load
   → instance ticking with the full roster.
-- **2026-07-02 (30)** — Audio (ROADMAP's stinger line, client-only).
-  A tiny WebAudio synth — every cue is an enveloped oscillator, zero
-  asset files: hit thuds (harder when it's you), crit accents, death
-  pops (doubled for rares), a level-up arpeggio, orb chimes, drop
-  shimmers, flask gulps, travel sweeps. Per-kind throttles keep a
-  nova from machine-gunning; master gain 0.15; M toggles mute
-  (persisted in localStorage); the context unlocks on first
-  click/keypress per browser autoplay rules.
-- **2026-07-01 (29)** — Equip-compare tooltips (client-only). Hovering
-  a bag item appends "— equipped (slot) —" blocks for whatever its
-  legal slots currently hold (both rings, for rings), PoE-style — the
-  upgrade decision without cross-referencing the equipment row.
-- **2026-07-01 (28)** — Minimap (client-only). Terrain baked once per
-  welcome onto an offscreen canvas (3px/tile), live dots each frame:
-  self white, other players blue, monsters red (rarity-colored for
-  elites), stairs gold, portal cyan. Entities only show in interest
-  range — the radar shows what you sense; stairs/portal are floor
-  knowledge and always show. Kills the wander-for-stairs problem.
-- **2026-07-01 (27)** — Currency crafting-lite (loot gets a use beyond
-  equip-or-ignore). Three PoE1 orbs in an `Actor.Orbs` wallet:
-  transmutation (normal→magic), alchemy (normal→rare), chaos (reroll a
-  rare) — all through the shared `fillAffixes` (extracted from
-  RollItem), so per-slot pools and group caps apply to crafts too.
-  Orbs bank straight to the killer on kills (own spin: no ground
-  pickup friction) — one loot-stream draw per eligible kill, rates
-  90/30/15‰ scaled ×2/×3 by dier rarity; slice golden re-recorded
-  (dungeon trace has no kills, stood). apply_orb is a bag-item verb
-  (equipped items excluded — their mods live on the sheet). Wallet is
-  durable: Character.Orbs, SaveVersion 8, conditional hash. Wire v15:
-  wallet field group + orb command. Client: panel currency strip —
-  click an orb to arm it, click a bag item to craft; orb finds and
-  crafts narrate in the log.
-- **2026-07-01 (26)** — The floor guardian. `bone_colossus`: a slow
-  1.1-radius heavyweight with two heavily telegraphed attacks —
-  `colossus_slam` (1.2s windup, 3.5-radius nova) up close,
-  `bone_volley` (0.8s draw, fat slow projectile) at range — picked
-  statelessly by distance (`boss_brute`), so it fits the
-  one-action-at-a-time model without touching RISKS #1; the real
-  multi-stage action redesign stays a deliberate future session.
-  `SpawnRareLeveled` guarantees it spawns rare with 2 mods, so the
-  x6 XP / 3-drop-attempt rarity hooks come along free, plus an
-  always-drops rare-heavy `boss_drops` table. `buildFloor` parks one
-  on the stairs every 3rd floor, two levels hot, leashed tight (14 <
-  aggro 18 — a guardian guards, it doesn't chase). Goldens untouched.
-- **2026-07-01 (25)** — Flasks (the missing PoE1 recovery verb). Player
-  carries a life and a mana flask (`ActorDef.Flasks` names their
-  buffs): a sip costs 30 of 60 charges and applies a 4s regen burst
-  (life 25/s, mana 15/s) through the existing buff machinery — no new
-  effect mechanism, only charges are new state. Kills feed +10 to
-  every flask (the AwardXP loop — same reward hook), charges are
-  durable (Character.FlaskCharges, SaveVersion 7, hashed when
-  present — goldens re-recorded since players now carry charges).
-  Wire v14: charges ride their own actor field group. HUD: two vials
-  beside the life globe, keys 1/2, drained-graying under one sip.
-  Numbers (60/30/10, burst rates) open for tuning.
-- **2026-07-01 (24)** — PoE2-style HUD (client-only; the first slice of
-  Jake's "PoE2 GUI, PoE1 mechanics" direction). Life/mana globes with
-  rising-liquid fills and glassy highlights flank a clickable skill bar
-  (Q/E/R/T slots: colored glyphs, names, key badges, cast flash,
-  drained-graying when mana runs short — costs mirrored client-side
-  like BASE_SLOTS); thin XP strip between. SKILL_BAR is now the single
-  source for skill keybinds (keydown and clicks share castSlot).
-  Renamed the bar's class to .skill-slot after catching a collision
-  with the inventory grid's .slot. Verified live: globes drain/refill,
-  slots gray at low mana, inventory panel unharmed.
-- **2026-07-01 (23)** — Passive forks (ROADMAP phase 3's
-  "ascendancy-lite"). `PassiveDef` (6 defs: milestones 5 and 10, three
-  forks each — tank/precision/caster at 5, damage/mobility/spellcaster
-  at 10); `choose_passive` through the normal command gate (level ≥
-  milestone, one pick per milestone, permanent, no RNG); mods live
-  under `PassiveModSource` (bit 63+60 — fourth disjoint shared-source
-  space). Durable character state: transfers (`Character.Passives`),
-  SaveVersion 6, conditionally hashed (goldens stand). Wire v13:
-  passive table rides the welcome, chosen IDs are their own actor
-  field group. Client: a PoE-ish chooser card appears while a
-  milestone is unlocked+untaken, clears only when the server confirms
-  the pick. Verified over a live server: table arrives, card renders
-  through the real view pipeline, click sends the command, level gate
-  drops it for an under-leveled actor.
-- **2026-07-01 (22)** — Loot juice, client-only. Magic/rare drops throw
-  pulsing light shafts (rare taller than magic) so a rare kill's triple
-  drop reads across the room; every drop lands with a ground ring (tiny
-  for normal, wide + colored for magic/rare) off the EvDrop event; drop
-  nameplates take the rarity color. Verified live: staged all three
-  rarities side by side in the browser.
-- **2026-07-01 (21)** — Two new archetypes (ROADMAP phase 2 pack
-  variety), pure content + existing machinery. Grave ghoul: fast
-  (5.5 u/s — outruns a bootless player), fragile, quick shallow claws;
-  exists to force target priority. Skeleton mage: tanky caster backline,
-  arc_bolt (0.6s windup lightning bolt, 35% shock, spark's wild-roll
-  identity but harder-hitting). Own drop tables (ghouls drop rarely and
-  lean quick gear; mages lean jewelry with real rarity odds). Client:
-  per-def body colors (DEF_COLORS), arc_bolt/claws projectile + impact
-  palettes. arena.json packs now mix 5 archetypes. Goldens untouched.
-- **2026-07-01 (20)** — Eject grace. `portal_grace` BuffDef (DamageTaken
-  overridden to 0 for 2.5s — zeroed hits also starve ailments, whose
-  magnitudes scale off dealt damage); the host grants it to every client
-  actor after a death eject or run-over arrival via `combat.ApplyBuff`
-  between ticks (no RNG, no pending state — safe at the swap seam).
-  Voluntary travel (stairs, portal trips) stays unshielded. The client's
-  existing buff ring shows it. Server test pins: buff present after
-  eject, slam bounces during grace, hurts after expiry. Goldens
-  untouched.
-- **2026-07-01 (19)** — Per-slot affix pools (ROADMAP phase 3's "an item
-  is exciting when it's good *for me*"). `AffixDef.Families` (nil = any)
-  + `AllowedOn`; `pickAffix` filters by the base's slot family. All 32
-  affixes tagged PoE-flavored: damage on weapons (+rings flat), defences
-  on armour, move speed on boots alone, crit/cast on weapon+amulet.
-  content.DB() panics if any family's pool can't fill a rare (3+3
-  distinct groups). Slice golden re-recorded (filtered pools shift
-  weighted rolls); dungeon golden unchanged. New test: 150 rare rolls
-  per base — every affix legal for its slot, boots do roll move speed.
-- **2026-07-01 (18)** — Combat juice (ROADMAP's cross-cutting slice).
-  Hit events now carry `Crit` (sim → EventSnap → binary wire, protocol
-  v12, net.js in lockstep; headless prints " CRIT"). Client: floating
-  damage numbers (crit = big/gold/lingers, damage-on-you = red, chip
-  damage keeps a decimal), white hit flashes (`flashes` map consulted
-  against the interp clock), death pops (rarity-colored, bigger for
-  magic/rare), all on the existing server-timeline effect system; dead
-  entities' positions resolve via the previous view. Verified live in
-  Chrome: real fight (crit line in the log over the binary wire), all
-  four elements on screen, zero console errors.
-- **2026-07-01 (17)** — Magic/rare monsters. `MonsterModDef` (4 mods:
-  Fleet/Brawny/Deadly/Stalwart) as permanent sheet packages under
-  `MonsterModSource` (bits 63+61); `ScatterSpawnPack` rolls rarity + mods
-  off RNGMap — zero chances are stream-identical to `ScatterSpawnLeveled`
-  (test-pinned), so goldens stand un-re-recorded, and rarity hashes only
-  when rolled (nil-grid trick). Rare pays ×6 XP and 3 drop attempts,
-  magic ×3 and 2. `buildFloor` scales chances with depth. Wire: rarity +
-  mod names in the actor identity group, protocol v11 + net.js; client
-  draws rarity rings and colored nameplates. SaveVersion 5. Verified
-  live: 60-zombie world spawned 5 magic + 1 rare over the TCP wire, and
-  a Go-encoded frame decodes correctly through net.js in node.
-- **2026-07-01 (16)** — Territorial aggro (the spawn-camp fix). Monsters
-  now acquire targets by line of sight, or hearing (AggroRadius/2)
-  through walls; a leashed monster (`ActorDef.LeashRadius`, zombie 20 /
-  archer 24) only engages enemies within leash of its `Actor.Home` and
-  walks home otherwise — stateless, so no boundary oscillation. Home is
-  set at spawn/injection, saved (SaveVersion 4) and hashed; goldens
-  re-recorded (hash layout + dungeon AI behavior). Death-eject no longer
-  lands in a permanently converged pack: the pack can't hear you through
-  walls at range, and whatever chased you goes home.
-- **2026-07-01 (15)** — The descent + hideout, e2e. Sim side stayed thin
-  and golden-neutral: `core.Character` extract/inject (IDs re-minted,
-  sheet rebuilt, pools carried, Life≤0 = arrive refilled),
-  `Actor.AddItemMods` shared with equip, `SpawnLeveled`/
-  `ScatterSpawnLeveled`, XP × monster level. Everything else is host
-  layer (`server/descent.go`): per-floor world builds off derived seeds,
-  stairs = farthest walkable tile, swap = extract → inject → re-welcome
-  with an atomic actor/gen/pending cutover, death→portal-eject→run-over
-  chain, plant/enter portal verbs riding the transport like acks,
-  hideout as floor 0. Protocol v10 (welcome gen/stairs/run, "run"
-  frames, gen-tagged acks) — no binary format change. Two real bugs
-  found by the new e2e suite, both fixed: tick-0 views could become
-  delta baselines (baseTick-0 keyframe sentinel collision), and
-  commands decoded mid-swap could drive the old entity ID's new owner.
-  Client: full reset on any welcome, stairs/portal rendering +
-  click-to-use, P to plant, run HUD. Verified live in the browser:
-  descend, plant, hideout round trip, death eject, run over — and the
-  spawn-camp death spiral (see shortcuts).
-- **2026-06-12 (14, a–c)** — Loot 2.0 (rolled implicits, 32-affix pool,
-  per-actor drop tables; protocol v8, SaveVersion 2) and XP/levels
-  (`sim/progress`, quadratic curve, PerLevel growth, ding heal; protocol
-  v9, SaveVersion 3, goldens re-recorded); DESIGN.md §14 settled the
-  character/zone/instance separation the descent was then built on.
 - (older sessions pruned — git history is the archive)

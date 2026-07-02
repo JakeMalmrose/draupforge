@@ -80,7 +80,13 @@ func TestRareLootRolls(t *testing.T) {
 		a.Dead = true
 		s.W.Emit(core.Event{Kind: core.EvDeath, Actor: a.ID, Other: killer})
 		items.RollLoot(s.W)
-		return len(s.W.Drops)
+		n := 0
+		for _, d := range s.W.Drops {
+			if d.Item.Gem == nil { // equipment attempts only; gems draw separately
+				n++
+			}
+		}
+		return n
 	}
 	if n := drops(core.RarityNormal); n != 1 {
 		t.Fatalf("normal dummy dropped %d items, want exactly 1", n)

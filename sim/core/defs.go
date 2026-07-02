@@ -70,6 +70,10 @@ const (
 	// SkillBuff applies the skill's SelfBuff to the caster at the effect
 	// point. No hits, no targets, no RNG.
 	SkillBuff
+	// SkillChain is hitscan: at the effect point it instantly strikes the
+	// enemy nearest the aim point (within Range of the caster, LoS-gated),
+	// then chains to Chains more nearby enemies. No projectile exists.
+	SkillChain
 )
 
 type SkillDef struct {
@@ -88,13 +92,28 @@ type SkillDef struct {
 	WindupTicks, RecoveryTicks uint32
 	SpeedStat                  stats.StatID // CastSpeed or AttackSpeed
 
-	// Melee: reach measured between collision circle edges.
+	// Melee: reach measured between collision circle edges. Chain skills:
+	// the target-acquisition range from the caster.
 	Range fm.Fixed
 
 	// Projectile fields.
 	ProjSpeed  fm.Fixed // units per second
 	ProjTTL    uint32   // ticks
 	ProjRadius fm.Fixed
+	// ExplodeRadius makes projectile impacts detonate: every other enemy
+	// within it of the impact point takes the hit again, scaled down
+	// linearly with distance (Hit.AreaScale). Zero = no explosion.
+	ExplodeRadius fm.Fixed
+	// Bounce reflects the projectile off walls instead of dying, until its
+	// TTL runs out.
+	Bounce bool
+	// WigglePeriod nudges the projectile's heading by a small random angle
+	// (combat stream) every WigglePeriod ticks of flight. Zero = flies true.
+	WigglePeriod uint32
+
+	// Chains is a chain skill's extra targets after the first (supports'
+	// chain counts add on top).
+	Chains int
 
 	// Nova field: blast radius measured from the caster's center to the
 	// target's circle edge.
@@ -109,6 +128,10 @@ type SkillDef struct {
 
 	// SelfBuff names the BuffDef a SkillBuff skill applies to its caster.
 	SelfBuff string
+
+	// Cuttable marks skills an uncut skill gem's draft can offer — the
+	// player-appropriate subset of the table.
+	Cuttable bool
 }
 
 // BuffMod is one modifier a buff grants, exactly as authored — buffs are
@@ -181,6 +204,10 @@ type ActorDef struct {
 	// recovery: a charges-gated regen burst). Empty = the actor has none.
 	// Slot order is wire/command order.
 	Flasks []string
+	// StartingGems are skill IDs cut as level-1 gems at spawn — how a fresh
+	// character can act at all in a gems-only world. Monsters don't need
+	// them; their Def.Skills work directly.
+	StartingGems []string
 }
 
 type AffixKind uint8
@@ -266,6 +293,10 @@ type LootTableDef struct {
 	// Rarity. All-zero falls back to normal-only — a content table should
 	// always set it.
 	RarityWeights [3]uint32
+	// Uncut-gem drop chances per kill, in permille, scaled by the dier's
+	// rarity like orbs (×2 magic, ×3 rare). One combined draw decides
+	// skill-or-support; both zero consumes no RNG.
+	SkillGemPermille, SupportGemPermille uint32
 }
 
 // ContentDB is the registry of definitions the world runs against. The sim
@@ -304,6 +335,23 @@ type ContentDB struct {
 	MonsterMods []*MonsterModDef
 	// Passives is ordered for stable presentation; lookups go by ID.
 	Passives []*PassiveDef
+	// Supports is ordered — uncut-gem drafts roll indices into it, so
+	// reordering is replay-relevant like the affix table.
+	Supports []*SupportDef
+	// Cuttable is the ordered draft pool for uncut skill gems: every skill
+	// with Cuttable set, in table order. Built by the content package.
+	Cuttable []*SkillDef
+}
+
+// Support resolves a support-gem ID; nil if unknown. Linear scan, same
+// reasoning as MonsterMod.
+func (db *ContentDB) Support(id string) *SupportDef {
+	for _, s := range db.Supports {
+		if s.ID == id {
+			return s
+		}
+	}
+	return nil
 }
 
 // MonsterMod resolves a rarity-modifier ID; nil if unknown. Linear scan —

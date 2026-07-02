@@ -58,6 +58,7 @@ func TestFlaskUseCostsAndHeals(t *testing.T) {
 func TestKillsFeedFlasks(t *testing.T) {
 	s := sim.New(content.DB(), 62)
 	id := mustSpawn(t, s, "player", 0, 0)
+	grantGems(t, s, id, "spark")
 	a := s.W.ActorByID(id)
 	a.FlaskCharges[0], a.FlaskCharges[1] = 0, core.FlaskMaxCharges-5
 

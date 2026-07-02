@@ -34,11 +34,13 @@
   <div id="panel" class="hidden">
     <h2>Currency</h2>
     <div id="orb-strip"></div>
+    <h2>Skill Gems</h2>
+    <div id="gem-list"></div>
     <h2>Equipment</h2>
     <div id="equipment" class="inv-grid"></div>
     <h2>Inventory <span id="inv-count"></span></h2>
     <div id="inventory" class="inv-grid"></div>
-    <p class="hint">drag to equip/unequip &middot; drag onto the ground to drop</p>
+    <p class="hint">drag to equip/unequip &middot; drag onto the ground to drop &middot; click an uncut gem to cut it</p>
   </div>
 
   <div id="tooltip" class="hidden"></div>
@@ -47,12 +49,14 @@
 
   <div id="passive-chooser" class="hidden"></div>
 
+  <div id="gem-dialog" class="hidden"></div>
+
   <div id="overlay" class="hidden">
     <div id="overlay-text">YOU DIED</div>
     <button onclick="location.reload()">rise again</button>
   </div>
 
-  <div id="help">WASD or click to move &middot; click pickup/stairs/portal &middot; <b>Q</b> fireball &middot; <b>E</b> nova &middot; <b>R</b> spark &middot; <b>T</b> adrenaline &middot; <b>1</b>/<b>2</b> flasks &middot; <b>P</b> plant portal &middot; <b>I</b> inventory &middot; <b>M</b> mute</div>
+  <div id="help">WASD or click to move &middot; click pickup/stairs/portal &middot; <b>Q</b>/<b>E</b>/<b>R</b>/<b>T</b> skill gems &middot; <b>1</b>/<b>2</b> flasks &middot; <b>P</b> plant portal &middot; <b>I</b> inventory &middot; <b>M</b> mute</div>
 
   <script src="net.js"></script>
   <script src="client.js"></script>
