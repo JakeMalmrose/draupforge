@@ -1,0 +1,42 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: [self-hosted, draupforge]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Build
+        run: CGO_ENABLED=0 go build -o playserver ./cmd/server
+
+      - name: Deploy
+        run: |
+          DEST="$HOME/draupforge"
+          if [ -f "$DEST/playserver" ]; then
+            cp -f "$DEST/playserver" "$DEST/playserver.prev"
+          fi
+          install -m 755 playserver "$DEST/playserver.new"
+          mv -f "$DEST/playserver.new" "$DEST/playserver"
+          rsync -a --delete web/ "$DEST/web/"
+          rsync -a scripts/ "$DEST/scripts/"
+          sudo systemctl restart draupforge
+
+      - name: Health check
+        run: |
+          sleep 3
+          systemctl is-active draupforge
+          curl -fsS http://localhost:8080/ > /dev/null
+          echo "Deployed $(git rev-parse --short HEAD)"
