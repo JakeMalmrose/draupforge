@@ -228,16 +228,34 @@ func New(db *core.ContentDB, cfg Config) (*Instance, error) {
 		listenerAddr: make(chan net.Addr, 1),
 	}
 	if cfg.Load != nil {
-		s, err := sim.Load(db, cfg.Load)
+		world := cfg.Load
+		rs, wrapped := decodeRunSave(cfg.Load)
+		if wrapped {
+			if rs.RunVersion != runSaveVersion {
+				return nil, fmt.Errorf("server: run save version %d, this build reads %d", rs.RunVersion, runSaveVersion)
+			}
+			world = rs.World
+		}
+		s, err := sim.Load(db, world)
 		if err != nil {
 			return nil, fmt.Errorf("server: loading world: %w", err)
 		}
 		in.sim = s
 		reclaimOrphanPlayers(s.W, cfg.PlayerDef)
 		in.mapSnap = in.sim.EncodeMap()
-		if s.W.Grid != nil {
-			// Descent resumes as floor 1 of a fresh run — run state (floor,
-			// portals) isn't part of World.Save yet (known shortcut).
+		switch {
+		case wrapped:
+			// Resume the run exactly where the save left it — including a
+			// hideout visit (floor 0: no stairs, portal anchored elsewhere).
+			in.run, in.runSeed = rs.Run, rs.RunSeed
+			in.floor, in.portalsLeft = rs.Floor, rs.PortalsLeft
+			in.portalFloor, in.portalPos = rs.PortalFloor, rs.PortalPos
+			in.best = rs.Best
+			if in.floor > 0 && s.W.Grid != nil {
+				in.stairs = farthestWalkable(s.W.Grid)
+			}
+		case s.W.Grid != nil:
+			// Legacy bare-world save: resume as floor 1 of a fresh run.
 			in.run = 1
 			in.runSeed = deriveSeed(cfg.Seed, uint64(in.run))
 			in.beginRun()

@@ -407,3 +407,52 @@ func TestGuardianFloorsSpawnTheColossus(t *testing.T) {
 		t.Errorf("guardian %v from the stairs, want parked on them", d)
 	}
 }
+
+// TestRunSaveRoundTrip: the run envelope restores a mid-run instance —
+// floor, portal anchor, budget, best — around a bit-identical world;
+// legacy bare-world saves still load as floor 1 of a fresh run.
+func TestRunSaveRoundTrip(t *testing.T) {
+	in, _, _ := descentInstance(t, 3)
+	in.descend()
+	in.descend() // floor 3
+	in.portalsLeft = 1
+	in.portalFloor, in.portalPos = 3, in.sim.W.Grid.Spawn
+
+	world, err := in.sim.W.Save()
+	if err != nil {
+		t.Fatal(err)
+	}
+	blob, err := in.encodeRunSave(world)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	in2, err := New(content.DB(), Config{Load: blob, Portals: 3})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if in2.floor != 3 || in2.portalsLeft != 1 || in2.best != 3 || in2.run != in.run {
+		t.Errorf("restored run = floor %d portals %d best %d run %d, want 3/1/3/%d",
+			in2.floor, in2.portalsLeft, in2.best, in2.run, in.run)
+	}
+	if in2.portalFloor != 3 || in2.portalPos != in.portalPos {
+		t.Errorf("restored portal anchor = %d %v", in2.portalFloor, in2.portalPos)
+	}
+	if in2.stairs == (space.Vec2{}) {
+		t.Error("restored instance has no stairs")
+	}
+
+	// Legacy path: a bare world file resumes as a fresh run.
+	in3, err := New(content.DB(), Config{Load: world, Portals: 3})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if in3.run != 1 || in3.floor != 1 || in3.portalsLeft != 3 {
+		t.Errorf("legacy load = run %d floor %d portals %d, want 1/1/3", in3.run, in3.floor, in3.portalsLeft)
+	}
+	// Both paths load the same world bytes (player reclamation included),
+	// so the worlds themselves must match bit for bit.
+	if in2.sim.W.Hash() != in3.sim.W.Hash() {
+		t.Error("envelope and legacy loads produced different worlds")
+	}
+}

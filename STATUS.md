@@ -11,8 +11,8 @@ tests, and session-log entries older than a few sessions (git history is the
 archive). If this file outgrows ~150 lines, it has stopped being a status doc
 and started being a changelog — cut it back.
 
-**Last updated: 2026-07-02** (session 30: audio — procedural WebAudio
-stingers for hits/crits/deaths/level-ups/orbs/flasks/travel, M mutes)
+**Last updated: 2026-07-02** (session 31: run persistence — saves carry
+the descent; -load resumes mid-run)
 
 ## Where things stand
 
@@ -52,7 +52,7 @@ All foundational machinery from DESIGN.md is real, not stubbed:
 | World/Actor/Hit/defs, RNG, state hashing | `sim/core` | done |
 | Damage pipeline + DoTs + regen | `sim/combat` | done, tested |
 | Statuses: ignite (DoT) + chill/shock (hit-scaled, strongest-wins) + content buffs (`BuffDef` packages, refresh-not-stack, `SkillBuff` skills via pending-buff queue) | `sim/combat/ailments.go`, `buff.go` | done, tested |
-| Persistence: `World.Save`/`LoadWorld` (versioned JSON, content by string ID, bit-exact continuation), admin `POST /api/save`, `cmd/server -load` | `sim/core/save.go`, `sim/space/save.go` | done, tested |
+| Persistence: `World.Save`/`LoadWorld` (versioned JSON, content by string ID, bit-exact continuation), admin `POST /api/save`, `cmd/server -load`; descent instances wrap the world in a run envelope (`server/runsave.go`, own version gate) so loads resume mid-run — legacy bare-world files still load as fresh runs | `sim/core/save.go`, `sim/space/save.go`, `server/runsave.go` | done, tested |
 | Actions (windup/recovery) + projectiles | `sim/skills` | done |
 | Loot: per-table rarity weights, weighted affixes, group caps, per-slot affix pools (`AffixDef.Families`, DB() asserts 3+3 groups per family), rolled base implicits, starved-pool event | `sim/items` | done, tested |
 | Currency: `Actor.Orbs` wallet (transmute/alch/chaos), orbs bank straight to the killer (one loot draw per kill, rates ×2/×3 by dier rarity), `apply_orb` on bag items (transmute normal→magic, alch normal→rare, chaos rerolls rare — shared `fillAffixes`), durable (save v8, transfers), wire v15, panel orb strip with apply-mode | `sim/items/loot.go`, `web/` | done, tested |
@@ -179,9 +179,6 @@ Structural risks live in `RISKS.md` — read it before building anything load-be
   16) stops packs converging on the portal room, and death arrivals get
   2.5s of portal grace (session 20) — a portal planted inside a
   territory no longer means an instant re-kill.
-- Run state (floor, portals, run seed) is host-layer and NOT in World.Save:
-  `-load` resumes the world as floor 1 of a fresh run. Fine until runs are
-  worth persisting.
 - The run is per-instance, designed single-player-first: any player's death
   ejects *everyone* to the portal, and portal/stairs travel moves the whole
   instance (co-op parties live and die together). One eject consumes one
@@ -208,6 +205,13 @@ fun-first counterweight to all of that.
 
 ## Session log
 
+- **2026-07-02 (31)** — Run persistence. Descent saves wrap World.Save
+  in a host-layer envelope (`runSave`: run/seed/floor/portal
+  anchor+budget/best, own version gate) — `-load` resumes mid-run,
+  including hideout visits; legacy bare-world files still load as
+  floor 1 of a fresh run. Plain arenas keep the bare format. Closed
+  the STATUS shortcut. Verified live: admin save → restart with -load
+  → instance ticking with the full roster.
 - **2026-07-02 (30)** — Audio (ROADMAP's stinger line, client-only).
   A tiny WebAudio synth — every cue is an enveloped oscillator, zero
   asset files: hit thuds (harder when it's you), crit accents, death
