@@ -177,6 +177,7 @@ func (w *World) SpawnActor(def *ActorDef, pos space.Vec2) *Actor {
 		Def:   def,
 		Team:  def.Team,
 		Pos:   pos,
+		Home:  pos,
 		Sheet: stats.NewSheet(def.BaseStats),
 	}
 	a.SetLevel(def.Level) // clamps 0 → 1; applies PerLevel growth before pools fill

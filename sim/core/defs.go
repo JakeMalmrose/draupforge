@@ -166,6 +166,11 @@ type ActorDef struct {
 	// AI behavior key; "" means externally controlled (player) or inert.
 	AI          string
 	AggroRadius fm.Fixed
+	// LeashRadius bounds the actor's territory around Home: it only engages
+	// enemies standing within this range of Home, and walks back home when
+	// nothing qualifies. 0 = unleashed. Keep it above AggroRadius so fights
+	// that start inside the territory can play out.
+	LeashRadius fm.Fixed
 	// PreferredRange is the engagement distance for ranged behaviors: shoot
 	// inside it, retreat when an enemy closes within a third of it.
 	PreferredRange fm.Fixed

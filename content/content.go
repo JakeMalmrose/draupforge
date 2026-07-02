@@ -211,6 +211,7 @@ func actorDefs() []*core.ActorDef {
 		Skills:      []string{"zombie_slam"},
 		AI:          "melee_chaser",
 		AggroRadius: fm.FromInt(15),
+		LeashRadius: fm.FromInt(20),
 		LootTable:   "zombie_drops",
 		Level:       1,
 		XPValue:     20,
@@ -237,6 +238,7 @@ func actorDefs() []*core.ActorDef {
 		Skills:         []string{"bone_arrow"},
 		AI:             "ranged_kiter",
 		AggroRadius:    fm.FromInt(18),
+		LeashRadius:    fm.FromInt(24), // kites within a wider territory than the zombie
 		PreferredRange: fm.FromInt(12),
 		LootTable:      "archer_drops",
 		Level:          1,
