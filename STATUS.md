@@ -11,8 +11,8 @@ tests, and session-log entries older than a few sessions (git history is the
 archive). If this file outgrows ~150 lines, it has stopped being a status doc
 and started being a changelog — cut it back.
 
-**Last updated: 2026-07-01** (session 18: combat juice — floating damage
-numbers with crit emphasis, hit flashes, death pops; crit on the wire, v12)
+**Last updated: 2026-07-01** (session 19: per-slot affix pools — gear
+rolls slot-appropriate affixes, move speed lives on boots alone)
 
 ## Where things stand
 
@@ -54,7 +54,7 @@ All foundational machinery from DESIGN.md is real, not stubbed:
 | Statuses: ignite (DoT) + chill/shock (hit-scaled, strongest-wins) + content buffs (`BuffDef` packages, refresh-not-stack, `SkillBuff` skills via pending-buff queue) | `sim/combat/ailments.go`, `buff.go` | done, tested |
 | Persistence: `World.Save`/`LoadWorld` (versioned JSON, content by string ID, bit-exact continuation), admin `POST /api/save`, `cmd/server -load` | `sim/core/save.go`, `sim/space/save.go` | done, tested |
 | Actions (windup/recovery) + projectiles | `sim/skills` | done |
-| Loot: per-table rarity weights, weighted affixes, group caps, rolled base implicits, starved-pool event | `sim/items` | done, tested |
+| Loot: per-table rarity weights, weighted affixes, group caps, per-slot affix pools (`AffixDef.Families`, DB() asserts 3+3 groups per family), rolled base implicits, starved-pool event | `sim/items` | done, tested |
 | Progression: XP on kill (scaled by monster level), quadratic curve, level cap 50, PerLevel growth mods under `LevelModSource`, ding heal, HUD level + XP bar | `sim/progress`, `core.Actor.SetLevel` | done, tested |
 | Character extract/inject: portable struct (def/level/XP/pools/gear), IDs re-minted at injection, sheet rebuilt, walkable-clamped | `sim/core/character.go` | done, tested |
 | The descent: floor swap (build → extract → inject → re-welcome), run rules (portal economy, XP death penalty, run-over → new run), hideout, leveled+thickened packs, stairs/portal/run on the wire | `server/descent.go`, protocol v10 | done, unit + e2e tested, verified live in the browser |
@@ -170,8 +170,8 @@ Structural risks live in `RISKS.md` — read it before building anything load-be
   maps get big or revealable (fog of war would change this).
 - Kiter retreat picks from 5 fixed directions, no flee pathfinding — a
   cornered archer stands and fights.
-- Affix pool is global — no per-slot pools, so boots can roll cast speed.
-  Fine until itemization depth matters.
+- Affix tiers are shallow (one "greater" tier on a few groups) and pools
+  don't scale with item/monster level yet — depth for later.
 - Spawn-camp pressure got its fix (session 16): territorial aggro means
   packs no longer converge on the portal room and stay there. Residual
   risk: a portal planted inside a territory still gets you greeted on
@@ -204,6 +204,15 @@ fun-first counterweight to all of that.
 
 ## Session log
 
+- **2026-07-01 (19)** — Per-slot affix pools (ROADMAP phase 3's "an item
+  is exciting when it's good *for me*"). `AffixDef.Families` (nil = any)
+  + `AllowedOn`; `pickAffix` filters by the base's slot family. All 32
+  affixes tagged PoE-flavored: damage on weapons (+rings flat), defences
+  on armour, move speed on boots alone, crit/cast on weapon+amulet.
+  content.DB() panics if any family's pool can't fill a rare (3+3
+  distinct groups). Slice golden re-recorded (filtered pools shift
+  weighted rolls); dungeon golden unchanged. New test: 150 rare rolls
+  per base — every affix legal for its slot, boots do roll move speed.
 - **2026-07-01 (18)** — Combat juice (ROADMAP's cross-cutting slice).
   Hit events now carry `Crit` (sim → EventSnap → binary wire, protocol
   v12, net.js in lockstep; headless prints " CRIT"). Client: floating

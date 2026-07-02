@@ -5,6 +5,7 @@ import (
 
 	"github.com/JakeMalmrose/draupforge/content"
 	"github.com/JakeMalmrose/draupforge/sim/core"
+	fm "github.com/JakeMalmrose/draupforge/sim/fixmath"
 	"github.com/JakeMalmrose/draupforge/sim/items"
 )
 
@@ -133,4 +134,40 @@ func TestRollItemStarvedPoolEmitsEvent(t *testing.T) {
 		}
 	}
 	t.Fatal("no EvLootStarved event for a roll that came up short")
+}
+
+// TestAffixesRespectSlotFamilies: every affix rolled on any base is legal
+// for that base's family — and the marquee case: boots roll move speed,
+// nothing else does.
+func TestAffixesRespectSlotFamilies(t *testing.T) {
+	db := content.DB()
+	rareOnly := func(base string) *core.LootTableDef {
+		return &core.LootTableDef{
+			ID: "test_" + base, DropChance: fm.One,
+			RarityWeights: [3]uint32{0, 0, 1},
+			Bases:         []string{base},
+		}
+	}
+	sawMoveSpeedOnBoots := false
+	for base, def := range db.BaseItems {
+		w := core.NewWorld(db, 99)
+		table := rareOnly(base)
+		for i := 0; i < 150; i++ {
+			item := items.RollItem(w, table)
+			for _, af := range item.Affixes {
+				if !af.Def.AllowedOn(def.Slot) {
+					t.Fatalf("%s rolled %s, not allowed on family %d", base, af.Def.ID, def.Slot)
+				}
+				if af.Def.ID == "increased_move_speed" {
+					if base != "leather_boots" {
+						t.Fatalf("move speed rolled on %s", base)
+					}
+					sawMoveSpeedOnBoots = true
+				}
+			}
+		}
+	}
+	if !sawMoveSpeedOnBoots {
+		t.Error("150 rare boots never rolled move speed — pool wiring suspect")
+	}
 }
