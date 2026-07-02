@@ -206,3 +206,33 @@ func TestAddedFlatDamageScalesWithModifiers(t *testing.T) {
 		t.Errorf("damage dealt = %d, want 27000", got)
 	}
 }
+
+// TestCritFlagOnHitEvent: a guaranteed crit marks its hit event, a
+// guaranteed non-crit doesn't — the flag the client keys damage-number
+// emphasis off.
+func TestCritFlagOnHitEvent(t *testing.T) {
+	for _, tc := range []struct {
+		chance fm.Fixed
+		want   bool
+	}{
+		{fm.One, true},
+		{0, false},
+	} {
+		w := testWorld()
+		att := w.SpawnActor(actorDef(100, map[stats.StatID]fm.Fixed{stats.CritChance: tc.chance}), space.V(0, 0))
+		def := w.SpawnActor(actorDef(100, nil), space.V(fm.One, 0))
+		queueAndResolve(w, att, def, spellDef(5, 5, core.Fire))
+		var hit *core.Event
+		for i, ev := range w.Events() {
+			if ev.Kind == core.EvHit {
+				hit = &w.Events()[i]
+			}
+		}
+		if hit == nil {
+			t.Fatal("no hit event")
+		}
+		if hit.Crit != tc.want {
+			t.Errorf("crit chance %v: event crit = %v, want %v", tc.chance, hit.Crit, tc.want)
+		}
+	}
+}

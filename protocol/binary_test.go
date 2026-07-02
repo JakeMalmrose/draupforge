@@ -39,7 +39,7 @@ func sampleView() Snapshot {
 					Affixes: []AffixSnap{{ID: "added_cold", Value: 1500}, {ID: "inc_life", Value: 12000}}}},
 		},
 		Events: []EventSnap{
-			{Kind: "hit", Actor: 1, Other: 2, Amount: 4200, Note: "fire"},
+			{Kind: "hit", Actor: 1, Other: 2, Amount: 4200, Note: "fire", Crit: true},
 			{Kind: "death", Actor: 2},
 		},
 	}

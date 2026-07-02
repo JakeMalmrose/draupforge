@@ -95,7 +95,11 @@ func main() {
 func printEvent(ev core.Event) {
 	switch ev.Kind {
 	case core.EvHit:
-		fmt.Printf("[tick %4d] %d hit %d for %s (%s)\n", ev.Tick, ev.Actor, ev.Other, fixedStr(ev.Amount), ev.Note)
+		crit := ""
+		if ev.Crit {
+			crit = " CRIT"
+		}
+		fmt.Printf("[tick %4d] %d hit %d for %s (%s)%s\n", ev.Tick, ev.Actor, ev.Other, fixedStr(ev.Amount), ev.Note, crit)
 	case core.EvMiss:
 		fmt.Printf("[tick %4d] %d missed %d (%s)\n", ev.Tick, ev.Actor, ev.Other, ev.Note)
 	case core.EvDeath:
