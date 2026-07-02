@@ -11,8 +11,8 @@ tests, and session-log entries older than a few sessions (git history is the
 archive). If this file outgrows ~150 lines, it has stopped being a status doc
 and started being a changelog — cut it back.
 
-**Last updated: 2026-07-01** (session 15: the descent shipped — floors,
-portals, hideout, run rules, e2e-tested)
+**Last updated: 2026-07-01** (session 16: territorial aggro — LoS/hearing
+acquisition, leashing, return-home; the spawn-camp death spiral fix)
 
 ## Where things stand
 
@@ -63,7 +63,7 @@ All foundational machinery from DESIGN.md is real, not stubbed:
 | Server: TCP + WS transports, joins/leaves, send-rate decoupling, interest culling, binary deltas + acks, pause | `server/` | done, race-tested |
 | Admin dashboard: observe (tick health, counts, bandwidth, events, world hash) + poke (pause/resume, spawn, kick), own port, embedded HTML | `server/admin.go` | done, tested; NO AUTH — localhost/tailnet only |
 | Web client: canvas, input, terrain render (walls/floor), drag-drop inventory grid (icons, tooltips), delta decoding, tick-timeline interpolation, fade-in/out, cast/impact VFX + ailment rings | `web/` | working, no build step |
-| AI: behavior registry — `melee_chaser`, `ranged_kiter` (LoS-gated shooting, retreat band) | `sim/ai` | real, tested |
+| AI: behavior registry — `melee_chaser`, `ranged_kiter` (LoS-gated shooting, retreat band); territorial aggro: LoS/hearing acquisition, leash to `Actor.Home`, return-home (SaveVersion 4) | `sim/ai` | real, tested |
 | Phase order + command validation | `sim/sim.go` | done — this IS the determinism contract |
 | Wire types: versioned welcome, JSON snapshots, binary delta view codec | `protocol/` | done, tested |
 | Content tables | `content/` | fireball, frost_nova (AoE), spark, zombie_slam, bone_arrow, 4 actors (player/zombie/archer/dummy), 32 affixes (tiered groups), 9 bases (one per slot family, each with a rolled implicit), 3 drop tables (zombie/archer/dummy) |
@@ -119,7 +119,8 @@ All foundational machinery from DESIGN.md is real, not stubbed:
   commands tagged with old-world IDs must never drive whichever actor wears
   that ID in the new world.
 - Characters transfer only durables (def/level/XP/pools/bag/gear); position,
-  action, buffs, DoTs deliberately die with the zone. Life ≤ 0 at injection
+  action, buffs, DoTs — and `Home`, which re-anchors at the injection
+  point — deliberately die with the zone. Life ≤ 0 at injection
   means "arrive refilled" — the death-respawn convention.
 
 Structural risks live in `RISKS.md` — read it before building anything load-bearing (top entry: the action model is still one-thing-at-a-time — no channelling/stun/interrupt).
@@ -155,7 +156,10 @@ Structural risks live in `RISKS.md` — read it before building anything load-be
   sort. A replay log (seed + per-tick commands) would restore full replays —
   cheap to add when wanted.
 - No actor-actor collision (archers can stack on one tile).
-- Monsters aggro through walls, then path around — "they heard you."
+- Aggro is LoS-gated with a hearing fallback (half aggro radius, through
+  walls) — a monster that loses you at range walks home rather than
+  haunting a corner. No aggro memory: break LoS beyond hearing range and
+  a chaser forgets you instantly.
 - AI re-issues its chase target every tick; the half-tile repath throttle
   in `CmdMove` keeps that cheap. A swarm in a maze could still make A* the
   hot path — measure before optimizing.
@@ -165,11 +169,10 @@ Structural risks live in `RISKS.md` — read it before building anything load-be
   cornered archer stands and fights.
 - Affix pool is global — no per-slot pools, so boots can roll cast speed.
   Fine until itemization depth matters.
-- Spawn-room pressure is now a run-killer: the pack converges on the spawn
-  room, which is also where the portal starts — death-eject respawns you
-  into the same converged pack and the portal budget evaporates (watched it
-  live: 3 uses in under a minute). Needs tuning: aggro leashing, a safe
-  entry room, or eject invulnerability ticks.
+- Spawn-camp pressure got its fix (session 16): territorial aggro means
+  packs no longer converge on the portal room and stay there. Residual
+  risk: a portal planted inside a territory still gets you greeted on
+  eject — invulnerability ticks remain an option if that stings in play.
 - Run state (floor, portals, run seed) is host-layer and NOT in World.Save:
   `-load` resumes the world as floor 1 of a fresh run. Fine until runs are
   worth persisting.
@@ -196,6 +199,15 @@ fun-first counterweight to all of that.
 
 ## Session log
 
+- **2026-07-01 (16)** — Territorial aggro (the spawn-camp fix). Monsters
+  now acquire targets by line of sight, or hearing (AggroRadius/2)
+  through walls; a leashed monster (`ActorDef.LeashRadius`, zombie 20 /
+  archer 24) only engages enemies within leash of its `Actor.Home` and
+  walks home otherwise — stateless, so no boundary oscillation. Home is
+  set at spawn/injection, saved (SaveVersion 4) and hashed; goldens
+  re-recorded (hash layout + dungeon AI behavior). Death-eject no longer
+  lands in a permanently converged pack: the pack can't hear you through
+  walls at range, and whatever chased you goes home.
 - **2026-07-01 (15)** — The descent + hideout, e2e. Sim side stayed thin
   and golden-neutral: `core.Character` extract/inject (IDs re-minted,
   sheet rebuilt, pools carried, Life≤0 = arrive refilled),

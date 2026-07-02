@@ -35,16 +35,16 @@ func Decide(w *core.World) []core.Command {
 	return cmds
 }
 
-// meleeChaser: aggro the nearest enemy in radius, walk into reach, swing.
+// meleeChaser: aggro the nearest enemy in territory, walk into reach, swing.
 // Re-decides every tick it isn't mid-swing, so it tracks moving targets;
 // walls are the pathfinder's problem (CmdMove routes around them).
 func meleeChaser(w *core.World, a *core.Actor) (core.Command, bool) {
 	if a.Action.Kind == core.ActionSkill {
 		return core.Command{}, false // committed to the swing
 	}
-	tgt := nearestEnemy(w, a, a.Def.AggroRadius)
+	tgt := acquireTarget(w, a)
 	if tgt == nil {
-		return core.Command{}, false
+		return returnHome(a)
 	}
 	skID := a.Def.Skills[0]
 	sk := w.Content.Skills[skID]
@@ -63,9 +63,9 @@ func rangedKiter(w *core.World, a *core.Actor) (core.Command, bool) {
 	if a.Action.Kind == core.ActionSkill {
 		return core.Command{}, false
 	}
-	tgt := nearestEnemy(w, a, a.Def.AggroRadius)
+	tgt := acquireTarget(w, a)
 	if tgt == nil {
-		return core.Command{}, false
+		return returnHome(a)
 	}
 	los := true
 	if w.Grid != nil {
@@ -119,7 +119,23 @@ func retreatPoint(w *core.World, a *core.Actor, tgt *core.Actor) (space.Vec2, bo
 	return space.Vec2{}, false
 }
 
-func nearestEnemy(w *core.World, a *core.Actor, radius fm.Fixed) *core.Actor {
+// hearingDiv: through walls, an enemy is noticed only within
+// AggroRadius/hearingDiv — "heard you up close". With line of sight the
+// full radius applies.
+var hearingDiv = fm.FromInt(2)
+
+// homeSlack is how close to Home counts as being home — a tile, so a
+// returned monster idles instead of shuffling onto the exact spot.
+var homeSlack = fm.One
+
+// acquireTarget picks the enemy this actor engages: the nearest one it can
+// notice (line of sight, or hearing range through walls) that stands inside
+// its territory (within LeashRadius of Home, when leashed). Everything here
+// is a pure function of positions, so a monster at a boundary never
+// oscillates between engaging and disengaging — the verdict only changes
+// when someone moves.
+func acquireTarget(w *core.World, a *core.Actor) *core.Actor {
+	hearing := fm.Div(a.Def.AggroRadius, hearingDiv)
 	var best *core.Actor
 	var bestDist fm.Fixed
 	for _, o := range w.Actors {
@@ -127,8 +143,18 @@ func nearestEnemy(w *core.World, a *core.Actor, radius fm.Fixed) *core.Actor {
 			continue
 		}
 		d := space.Dist(a.Pos, o.Pos)
-		if d > radius {
+		if d > a.Def.AggroRadius {
 			continue
+		}
+		if a.Def.LeashRadius > 0 && space.Dist(a.Home, o.Pos) > a.Def.LeashRadius {
+			continue // outside my territory — not my problem
+		}
+		// The raycast is the expensive check, so it runs last and only
+		// beyond hearing range.
+		if w.Grid != nil && d > hearing {
+			if _, blocked := w.Grid.SegmentHit(a.Pos, o.Pos); blocked {
+				continue
+			}
 		}
 		// Strict < breaks distance ties toward the earlier-spawned actor.
 		if best == nil || d < bestDist {
@@ -136,4 +162,13 @@ func nearestEnemy(w *core.World, a *core.Actor, radius fm.Fixed) *core.Actor {
 		}
 	}
 	return best
+}
+
+// returnHome sends a disengaged leashed monster back to its spawn point,
+// so packs drift home instead of piling up wherever a chase ended.
+func returnHome(a *core.Actor) (core.Command, bool) {
+	if a.Def.LeashRadius == 0 || space.Dist(a.Pos, a.Home) <= homeSlack {
+		return core.Command{}, false
+	}
+	return core.Command{Actor: a.ID, Kind: core.CmdMove, Point: a.Home}, true
 }

@@ -22,7 +22,7 @@ import (
 // SaveVersion gates restores: a format change bumps it, and old files fail
 // loudly instead of misloading. Saves are durable state — unlike replays,
 // they must never depend on re-execution of the code that wrote them.
-const SaveVersion = 3 // v3: actor level + xp (v2: item implicit values)
+const SaveVersion = 4 // v4: actor home anchor (v3: actor level + xp)
 
 type saveFile struct {
 	Version     int              `json:"version"`
@@ -91,6 +91,7 @@ type actorSave struct {
 	Def       string       `json:"def"`
 	Team      uint8        `json:"team"`
 	Pos       space.Vec2   `json:"pos"`
+	Home      space.Vec2   `json:"home"`
 	Life      fm.Fixed     `json:"life"`
 	Mana      fm.Fixed     `json:"mana"`
 	ES        fm.Fixed     `json:"es"`
@@ -168,7 +169,7 @@ func (w *World) Save() ([]byte, error) {
 
 func encodeActor(a *Actor) actorSave {
 	as := actorSave{
-		ID: uint64(a.ID), Def: a.Def.ID, Team: uint8(a.Team), Pos: a.Pos,
+		ID: uint64(a.ID), Def: a.Def.ID, Team: uint8(a.Team), Pos: a.Pos, Home: a.Home,
 		Life: a.Life, Mana: a.Mana, ES: a.ES,
 		Level: a.Level, XP: a.XP,
 		Base: make([]fm.Fixed, stats.StatCount),
@@ -328,7 +329,7 @@ func decodeActor(db *ContentDB, affixes map[string]*AffixDef, as actorSave) (*Ac
 		level = 1
 	}
 	a := &Actor{
-		ID: EntityID(as.ID), Def: def, Team: Team(as.Team), Pos: as.Pos,
+		ID: EntityID(as.ID), Def: def, Team: Team(as.Team), Pos: as.Pos, Home: as.Home,
 		Sheet: stats.RestoreSheet(base, mods),
 		Life:  as.Life, Mana: as.Mana, ES: as.ES,
 		Level: level, XP: as.XP,

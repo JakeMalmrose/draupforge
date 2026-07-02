@@ -55,6 +55,8 @@ func (w *World) Hash() uint64 {
 		s.u64(uint64(a.ID))
 		s.i64(a.Pos.X.Milli())
 		s.i64(a.Pos.Y.Milli())
+		s.i64(a.Home.X.Milli())
+		s.i64(a.Home.Y.Milli())
 		s.i64(a.Life.Milli())
 		s.i64(a.Mana.Milli())
 		s.i64(a.ES.Milli())

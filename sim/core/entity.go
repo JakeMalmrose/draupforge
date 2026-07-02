@@ -114,6 +114,12 @@ type Actor struct {
 	Pos   space.Vec2
 	Sheet *stats.Sheet
 
+	// Home is where the actor spawned — the anchor of a leashed monster's
+	// territory (see ActorDef.LeashRadius). Zone-local like Pos: transfers
+	// re-anchor it at the injection point. Saved and hashed; the minimal
+	// per-actor AI state RISKS.md said leashing would need.
+	Home space.Vec2
+
 	// Current resource pools; maxima come from the stat sheet.
 	Life, Mana, ES fm.Fixed
 

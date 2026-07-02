@@ -41,11 +41,12 @@ re-records every golden.
   def retro-patches every saved world (usually what you want, occasionally
   surprising), and content slice order feeds weighted rolls — reordering
   the affix table is a replay-relevant change, not a refactor.
-- AI deciders are stateless functions of the current world. Cooldowns,
-  leashing, threat tables, "don't repeat last tick's dodge" all need
-  per-actor AI memory that doesn't exist — when a behavior wants it, add a
-  saved (and hashed) AI-state blob on Actor rather than smuggling state
-  into ActorDef.
+- AI deciders are stateless functions of the current world. Leashing
+  shipped stateless off `Actor.Home` (saved + hashed), but cooldowns,
+  threat tables, and "don't repeat last tick's dodge" still need per-actor
+  AI memory that doesn't exist — when a behavior wants it, add a saved
+  (and hashed) AI-state blob on Actor rather than smuggling state into
+  ActorDef.
 - The world hash is a curated subset of saved state: Action's
   path/aim/target internals are saved but not hashed, so divergence there
   surfaces only later as position/outcome drift. Tolerable while known —
