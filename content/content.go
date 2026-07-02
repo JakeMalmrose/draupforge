@@ -41,7 +41,56 @@ func DB() *core.ContentDB {
 		sources[b.ModSource()] = b.ID
 		db.Buffs[b.ID] = b
 	}
+	db.MonsterMods = monsterModDefs()
+	seen := map[string]bool{}
+	for _, m := range db.MonsterMods {
+		if m.ID == "" || len(m.Mods) == 0 {
+			panic("content: monster mod " + m.ID + " is empty")
+		}
+		if seen[m.ID] {
+			panic("content: duplicate monster mod " + m.ID)
+		}
+		seen[m.ID] = true
+	}
 	return db
+}
+
+// monsterModDefs is the rarity-modifier pool: what a magic (one mod) or
+// rare (two distinct mods) monster spawns with. Slice order feeds rarity
+// rolls — reordering is a replay-relevant change, same as the affix table.
+func monsterModDefs() []*core.MonsterModDef {
+	return []*core.MonsterModDef{
+		{
+			ID: "fleet", Name: "Fleet",
+			Mods: []core.BuffMod{
+				{Stat: stats.MoveSpeed, Layer: stats.LayerIncreased, Value: fm.FromMilli(400)},
+				{Stat: stats.AttackSpeed, Layer: stats.LayerIncreased, Value: fm.FromMilli(200)},
+				{Stat: stats.CastSpeed, Layer: stats.LayerIncreased, Value: fm.FromMilli(200)},
+			},
+		},
+		{
+			ID: "brawny", Name: "Brawny",
+			Mods: []core.BuffMod{
+				{Stat: stats.Life, Layer: stats.LayerIncreased, Value: fm.FromMilli(800)},
+			},
+		},
+		{
+			ID: "deadly", Name: "Deadly",
+			Mods: []core.BuffMod{
+				{Stat: stats.Damage, Layer: stats.LayerIncreased, Value: fm.FromMilli(350)},
+				{Stat: stats.CritChance, Layer: stats.LayerFlat, Value: fm.FromMilli(100)},
+			},
+		},
+		{
+			ID: "stalwart", Name: "Stalwart",
+			Mods: []core.BuffMod{
+				{Stat: stats.Armour, Layer: stats.LayerFlat, Value: fm.FromInt(60)},
+				{Stat: stats.FireRes, Layer: stats.LayerFlat, Value: fm.FromMilli(300)},
+				{Stat: stats.ColdRes, Layer: stats.LayerFlat, Value: fm.FromMilli(300)},
+				{Stat: stats.LightningRes, Layer: stats.LayerFlat, Value: fm.FromMilli(300)},
+			},
+		},
+	}
 }
 
 func buffDefs() []*core.BuffDef {

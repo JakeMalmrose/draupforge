@@ -82,6 +82,14 @@ func (s *Sim) BuildSnapshotFor(viewer core.EntityID, radius fm.Fixed, events []p
 			continue
 		}
 		seen[uint64(a.ID)] = true
+		var rarity string
+		var modNames []string
+		if a.Rarity != core.RarityNormal {
+			rarity = a.Rarity.String()
+			for _, md := range a.Mods {
+				modNames = append(modNames, md.Name)
+			}
+		}
 		var equipment []protocol.EquippedSnap
 		for slot := core.EquipSlot(0); slot < core.EquipSlotCount; slot++ {
 			if item := a.Equipment[slot]; item != nil {
@@ -109,6 +117,8 @@ func (s *Sim) BuildSnapshotFor(viewer core.EntityID, radius fm.Fixed, events []p
 			Action:    actionString(a.Action),
 			Ail:       ailmentBits(a),
 			InvSize:   a.Def.InventorySize,
+			Rarity:    rarity,
+			Mods:      modNames,
 			Level:     a.Level,
 			XP:        a.XP,
 			XPNext:    xpNext(a.Level),

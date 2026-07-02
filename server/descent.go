@@ -74,8 +74,12 @@ func (in *Instance) buildFloor(floor int) (*sim.Sim, error) {
 			return nil, fmt.Errorf("server: floor %d spawn: %w", floor, err)
 		}
 	}
+	// Rarity pressure grows with depth (numbers open for tuning): magic
+	// 10% +2%/floor capped at 30%, rare 2% +1%/floor capped at 12%.
+	magicPm := min(uint64(100+20*(floor-1)), 300)
+	rarePm := min(uint64(20+10*(floor-1)), 120)
 	for _, sc := range in.cfg.Scatter {
-		if err := s.ScatterSpawnLeveled(sc.Def, sc.Count+floor-1, floor); err != nil {
+		if err := s.ScatterSpawnPack(sc.Def, sc.Count+floor-1, floor, magicPm, rarePm); err != nil {
 			return nil, fmt.Errorf("server: floor %d scatter: %w", floor, err)
 		}
 	}

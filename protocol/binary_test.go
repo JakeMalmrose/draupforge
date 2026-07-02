@@ -27,6 +27,7 @@ func sampleView() Snapshot {
 				ID: 2, Def: "zombie", Team: 2,
 				Pos: Vec{X: 9000, Y: 9000}, Radius: 500,
 				Life: 30000, MaxLife: 30000, Action: "move",
+				Rarity: "rare", Mods: []string{"Fleet", "Brawny"},
 			},
 		},
 		Projectiles: []ProjectileSnap{

@@ -42,6 +42,31 @@ func TestAwardXPOnKill(t *testing.T) {
 	}
 }
 
+// TestRarityXPMultiplier: magic monsters pay ×3, rares ×6, on top of the
+// level scaling.
+func TestRarityXPMultiplier(t *testing.T) {
+	db := content.DB()
+	base := db.Actors["zombie"].XPValue
+	for _, tc := range []struct {
+		rarity core.Rarity
+		want   int64
+	}{
+		{core.RarityMagic, base * 2 * 3},
+		{core.RarityRare, base * 2 * 6},
+	} {
+		w := core.NewWorld(db, 1)
+		player := w.SpawnActor(db.Actors["player"], space.V(0, 0))
+		player.SetLevel(10) // XPToNext(10) is far above any single kill: no ding
+		zombie := w.SpawnActor(db.Actors["zombie"], space.V(5000, 0))
+		zombie.SetLevel(2)
+		zombie.ApplyMonsterMods(tc.rarity, db.MonsterMods[:1])
+		kill(w, zombie, player)
+		if player.XP != tc.want {
+			t.Errorf("%v level-2 zombie paid %d XP, want %d", tc.rarity, player.XP, tc.want)
+		}
+	}
+}
+
 func TestLevelUpAppliesGrowthAndHeals(t *testing.T) {
 	db := content.DB()
 	w := core.NewWorld(db, 1)

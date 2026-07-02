@@ -85,6 +85,18 @@ func (s *Sim) ScatterSpawn(defID string, count int) error {
 // ScatterSpawnLeveled is ScatterSpawn with a level override (0 keeps the
 // def's level).
 func (s *Sim) ScatterSpawnLeveled(defID string, count, level int) error {
+	return s.ScatterSpawnPack(defID, count, level, 0, 0)
+}
+
+// ScatterSpawnPack is ScatterSpawnLeveled with rarity pressure: each
+// monster independently rolls rare (rarePermille‰) then magic
+// (magicPermille‰); magic monsters take one modifier from
+// Content.MonsterMods, rares two distinct ones (uniform picks). All draws
+// come from RNGMap, interleaved per monster: position (with retries), then
+// one rarity draw iff magicPermille+rarePermille > 0, then 1–2 mod draws
+// by outcome. Zero chances keep the stream identical to
+// ScatterSpawnLeveled, which existing goldens depend on.
+func (s *Sim) ScatterSpawnPack(defID string, count, level int, magicPermille, rarePermille uint64) error {
 	g := s.W.Grid
 	if g == nil {
 		return fmt.Errorf("sim: scatter spawn needs a generated map")
@@ -98,11 +110,46 @@ func (s *Sim) ScatterSpawnLeveled(defID string, count, level int) error {
 		for try := 0; try < 20 && space.Dist(pos, g.Spawn) < scatterMinSpawnDist; try++ {
 			pos = tiles[s.W.RNGMap.Uint64n(uint64(len(tiles)))]
 		}
-		if _, err := s.SpawnLeveled(defID, pos, level); err != nil {
+		id, err := s.SpawnLeveled(defID, pos, level)
+		if err != nil {
 			return err
+		}
+		if magicPermille+rarePermille > 0 {
+			s.rollMonsterRarity(s.W.ActorByID(id), magicPermille, rarePermille)
 		}
 	}
 	return nil
+}
+
+// rollMonsterRarity rolls one monster's rarity and modifiers off RNGMap
+// and refills its pools at the new maxima.
+func (s *Sim) rollMonsterRarity(a *core.Actor, magicPermille, rarePermille uint64) {
+	pool := s.W.Content.MonsterMods
+	if len(pool) == 0 {
+		return
+	}
+	roll := s.W.RNGMap.Uint64n(1000)
+	var rarity core.Rarity
+	switch {
+	case roll < rarePermille:
+		rarity = core.RarityRare
+	case roll < rarePermille+magicPermille:
+		rarity = core.RarityMagic
+	default:
+		return
+	}
+	i := s.W.RNGMap.Uint64n(uint64(len(pool)))
+	mods := []*core.MonsterModDef{pool[i]}
+	if rarity == core.RarityRare && len(pool) > 1 {
+		// Distinct second pick: roll over the remaining n-1 slots.
+		j := s.W.RNGMap.Uint64n(uint64(len(pool) - 1))
+		if j >= i {
+			j++
+		}
+		mods = append(mods, pool[j])
+	}
+	a.ApplyMonsterMods(rarity, mods)
+	a.Life, a.Mana, a.ES = a.MaxLife(), a.MaxMana(), a.MaxES()
 }
 
 // Step advances exactly one tick. The phase order below is the determinism

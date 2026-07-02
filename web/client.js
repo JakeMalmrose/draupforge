@@ -178,7 +178,9 @@ function onView(view) {
   }
 
   for (const a of view.actors.values()) {
-    names.set(a.id, a.def === "player" ? `player ${a.id}` : a.def.replace("_", " "));
+    let name = a.def === "player" ? `player ${a.id}` : a.def.replace("_", " ");
+    if (a.mods && a.mods.length) name = `${a.mods.join(" ")} ${name}`;
+    names.set(a.id, name);
   }
 
   const self = me();
@@ -510,12 +512,14 @@ function drawActor(a, pos) {
   const r = toUnits(a.radius) * SCALE;
   const isMe = a.id === myId;
 
+  const rarityColor = RARITY_COLORS[a.rarity];
+
   ctx.beginPath();
   ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
   ctx.fillStyle = a.team === 1 ? (isMe ? "#3d6fd1" : "#2a4fa3") : "#7a2424";
   ctx.fill();
-  ctx.lineWidth = 2;
-  ctx.strokeStyle = isMe ? "#cfc9bf" : "#00000066";
+  ctx.lineWidth = rarityColor ? 2.5 : 2;
+  ctx.strokeStyle = rarityColor || (isMe ? "#cfc9bf" : "#00000066");
   ctx.stroke();
 
   // casting telegraph: a thin arc while winding up
@@ -547,11 +551,14 @@ function drawActor(a, pos) {
   ctx.fillStyle = a.team === 1 ? "#3da14b" : "#a32626";
   ctx.fillRect(p.x - w / 2, p.y - r - 11, w * Math.max(0, frac), 5);
 
-  ctx.fillStyle = "#8d8678";
+  ctx.fillStyle = rarityColor || "#8d8678";
   ctx.font = "11px Georgia";
   ctx.textAlign = "center";
   ctx.fillText(names.get(a.id) || a.def, p.x, p.y - r - 16);
 }
+
+// PoE-flavored rarity colors: magic blue, rare yellow.
+const RARITY_COLORS = { magic: "#7a9bf0", rare: "#f0d060" };
 
 const AILMENT_RINGS = [
   [1, "#e67e22cc"], // ignited

@@ -142,6 +142,12 @@ type Actor struct {
 	Level int
 	XP    int64
 
+	// Rarity and Mods: rolled at spawn for magic/rare monsters (players
+	// stay RarityNormal). The mods' stat packages live on the sheet under
+	// MonsterModSource for the actor's whole life — nothing removes them.
+	Rarity Rarity
+	Mods   []*MonsterModDef
+
 	// Dead actors are tombstoned during the tick and compacted at tick end,
 	// so slice indices stay stable while a tick is in flight.
 	Dead bool
@@ -151,6 +157,32 @@ type Actor struct {
 // alone, disjoint from entity IDs (top bits clear), ailment sources (bit 63
 // set, 62 clear), and buff sources (both top bits set).
 const LevelModSource uint64 = 1 << 62
+
+// MonsterModSource is the shared sheet source for rarity-mod packages:
+// bits 63 and 61 (62 clear) — disjoint from entity IDs (top bits clear),
+// LevelModSource (bit 62), ailment sources (bit 63 | kind, kind < 8), and
+// buff sources (bits 63+62). One source for all rarity mods is enough
+// because they are permanent — nothing ever removes them individually.
+const MonsterModSource uint64 = 1<<63 | 1<<61
+
+// ApplyMonsterMods sets the actor's rarity and grants each modifier
+// package on the sheet under MonsterModSource. Callers refill pools
+// afterwards — Life maxima may have grown.
+func (a *Actor) ApplyMonsterMods(r Rarity, mods []*MonsterModDef) {
+	a.Rarity = r
+	a.Mods = mods
+	for _, md := range mods {
+		for _, m := range md.Mods {
+			a.Sheet.Add(stats.Modifier{
+				Stat:   m.Stat,
+				Layer:  m.Layer,
+				Value:  m.Value,
+				Tags:   m.Tags,
+				Source: MonsterModSource,
+			})
+		}
+	}
+}
 
 // SetLevel sets the actor's level (clamped to ≥1) and rebuilds its
 // per-level growth modifiers: Def.PerLevel scaled by (level-1) under

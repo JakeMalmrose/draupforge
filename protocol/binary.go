@@ -30,7 +30,7 @@ const FrameView = 1
 
 // Actor field-mask bits, in encode order.
 const (
-	actorIdentity = 1 << iota // def, team, radius, inv size — immutable per entity
+	actorIdentity = 1 << iota // def, team, radius, inv size, rarity+mods — immutable per entity
 	actorPos
 	actorLife
 	actorMaxLife
@@ -161,6 +161,11 @@ func encodeActors(w *bwriter, base, view []ActorSnap) {
 			w.uv(uint64(a.Team))
 			w.sv(a.Radius)
 			w.uv(uint64(a.InvSize))
+			w.str(a.Rarity)
+			w.uv(uint64(len(a.Mods)))
+			for _, m := range a.Mods {
+				w.str(m)
+			}
 		}
 		if c.mask&actorPos != 0 {
 			w.sv(a.Pos.X)
@@ -215,7 +220,8 @@ func actorMask(b, a *ActorSnap) uint64 {
 			actorAilments | actorProgress
 	}
 	var mask uint64
-	if b.Def != a.Def || b.Team != a.Team || b.Radius != a.Radius || b.InvSize != a.InvSize {
+	if b.Def != a.Def || b.Team != a.Team || b.Radius != a.Radius || b.InvSize != a.InvSize ||
+		b.Rarity != a.Rarity || !reflect.DeepEqual(b.Mods, a.Mods) {
 		mask |= actorIdentity
 	}
 	if b.Pos != a.Pos {
@@ -274,6 +280,10 @@ func decodeActors(r *breader, base []ActorSnap) []ActorSnap {
 			a.Team = uint8(r.uv())
 			a.Radius = r.sv()
 			a.InvSize = int(r.uv())
+			a.Rarity = r.str()
+			for m := r.uv(); m > 0 && r.err == nil; m-- {
+				a.Mods = append(a.Mods, r.str())
+			}
 		}
 		if mask&actorPos != 0 {
 			a.Pos = Vec{X: r.sv(), Y: r.sv()}
@@ -350,6 +360,7 @@ func mergeActor(b ActorSnap, d actorDelta) ActorSnap {
 	a, n := b, d.a
 	if d.mask&actorIdentity != 0 {
 		a.Def, a.Team, a.Radius, a.InvSize = n.Def, n.Team, n.Radius, n.InvSize
+		a.Rarity, a.Mods = n.Rarity, n.Mods
 	}
 	if d.mask&actorPos != 0 {
 		a.Pos = n.Pos

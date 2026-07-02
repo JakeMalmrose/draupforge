@@ -249,6 +249,16 @@ type LootTableDef struct {
 // ContentDB is the registry of definitions the world runs against. The sim
 // only reads it; content authoring lives outside sim/. Maps are lookup-only —
 // Affixes is a slice because loot rolling iterates it (weighted, in order).
+// MonsterModDef is one rarity modifier a magic or rare monster can spawn
+// with: a named, permanent package of stat modifiers. Unlike a BuffDef it
+// has no duration and is never removed, so every instance shares one sheet
+// source (MonsterModSource).
+type MonsterModDef struct {
+	ID   string
+	Name string // display fragment: "Fleet", "Brawny"
+	Mods []BuffMod
+}
+
 type ContentDB struct {
 	Skills     map[string]*SkillDef
 	Actors     map[string]*ActorDef
@@ -256,4 +266,18 @@ type ContentDB struct {
 	BaseItems  map[string]*BaseItemDef
 	LootTables map[string]*LootTableDef
 	Buffs      map[string]*BuffDef
+	// MonsterMods is ordered — rarity rolls index into it, so reordering
+	// is a replay-relevant change (same rule as the affix table).
+	MonsterMods []*MonsterModDef
+}
+
+// MonsterMod resolves a rarity-modifier ID; nil if unknown. Linear scan —
+// the table is a handful of entries and saves resolve it once at load.
+func (db *ContentDB) MonsterMod(id string) *MonsterModDef {
+	for _, m := range db.MonsterMods {
+		if m.ID == id {
+			return m
+		}
+	}
+	return nil
 }
