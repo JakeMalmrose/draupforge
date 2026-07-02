@@ -121,6 +121,33 @@ func (s *Sim) ScatterSpawnPack(defID string, count, level int, magicPermille, ra
 	return nil
 }
 
+// SpawnRareLeveled spawns a monster already rolled rare with two distinct
+// mods (RNGMap picks) — the guaranteed-elite path for floor guardians.
+// Rarity's usual hooks (XP x6, 3 drop attempts, wire tags) come along.
+func (s *Sim) SpawnRareLeveled(defID string, pos space.Vec2, level int) (core.EntityID, error) {
+	id, err := s.SpawnLeveled(defID, pos, level)
+	if err != nil {
+		return 0, err
+	}
+	a := s.W.ActorByID(id)
+	pool := s.W.Content.MonsterMods
+	if len(pool) == 0 {
+		return id, nil
+	}
+	i := s.W.RNGMap.Uint64n(uint64(len(pool)))
+	mods := []*core.MonsterModDef{pool[i]}
+	if len(pool) > 1 {
+		j := s.W.RNGMap.Uint64n(uint64(len(pool) - 1))
+		if j >= i {
+			j++
+		}
+		mods = append(mods, pool[j])
+	}
+	a.ApplyMonsterMods(core.RarityRare, mods)
+	a.Life, a.Mana, a.ES = a.MaxLife(), a.MaxMana(), a.MaxES()
+	return id, nil
+}
+
 // rollMonsterRarity rolls one monster's rarity and modifiers off RNGMap
 // and refills its pools at the new maxima.
 func (s *Sim) rollMonsterRarity(a *core.Actor, magicPermille, rarePermille uint64) {

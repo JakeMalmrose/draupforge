@@ -11,8 +11,8 @@ tests, and session-log entries older than a few sessions (git history is the
 archive). If this file outgrows ~150 lines, it has stopped being a status doc
 and started being a changelog — cut it back.
 
-**Last updated: 2026-07-01** (session 25: flasks — kill-fed charges,
-regen-burst sips, HUD vials; SaveVersion 7, protocol v14)
+**Last updated: 2026-07-01** (session 26: the floor guardian — a rare
+Bone Colossus parks on the stairs every 3rd floor)
 
 ## Where things stand
 
@@ -66,7 +66,7 @@ All foundational machinery from DESIGN.md is real, not stubbed:
 | Server: TCP + WS transports, joins/leaves, send-rate decoupling, interest culling, binary deltas + acks, pause | `server/` | done, race-tested |
 | Admin dashboard: observe (tick health, counts, bandwidth, events, world hash) + poke (pause/resume, spawn, kick), own port, embedded HTML | `server/admin.go` | done, tested; NO AUTH — localhost/tailnet only |
 | Web client: canvas, input, terrain render (walls/floor), drag-drop inventory grid (icons, tooltips), delta decoding, tick-timeline interpolation, fade-in/out, cast/impact VFX + ailment rings, floating damage numbers (crit/self emphasis), hit flashes, death pops (rarity-scaled), PoE2-style HUD (life/mana globes, clickable skill bar with mana-gating, `SKILL_BAR` as the single keybind source) | `web/` | working, no build step |
-| AI: behavior registry — `melee_chaser`, `ranged_kiter` (LoS-gated shooting, retreat band); territorial aggro: LoS/hearing acquisition, leash to `Actor.Home`, return-home (SaveVersion 4) | `sim/ai` | real, tested |
+| AI: behavior registry — `melee_chaser`, `ranged_kiter` (LoS-gated shooting, retreat band), `boss_brute` (stateless two-skill selection by range); territorial aggro: LoS/hearing acquisition, leash to `Actor.Home`, return-home (SaveVersion 4) | `sim/ai` | real, tested |
 | Phase order + command validation | `sim/sim.go` | done — this IS the determinism contract |
 | Wire types: versioned welcome, JSON snapshots, binary delta view codec | `protocol/` | done, tested |
 | Content tables | `content/` | 8 skills (fireball, frost_nova, spark, zombie_slam, bone_arrow, adrenaline, ghoul_claws, arc_bolt), 6 actors (player/zombie/archer/dummy/ghoul/mage), 32 affixes (tiered groups, per-slot pools), 9 bases (one per slot family, each with a rolled implicit), 5 drop tables, 4 monster rarity mods, 2 buffs |
@@ -207,6 +207,18 @@ fun-first counterweight to all of that.
 
 ## Session log
 
+- **2026-07-01 (26)** — The floor guardian. `bone_colossus`: a slow
+  1.1-radius heavyweight with two heavily telegraphed attacks —
+  `colossus_slam` (1.2s windup, 3.5-radius nova) up close,
+  `bone_volley` (0.8s draw, fat slow projectile) at range — picked
+  statelessly by distance (`boss_brute`), so it fits the
+  one-action-at-a-time model without touching RISKS #1; the real
+  multi-stage action redesign stays a deliberate future session.
+  `SpawnRareLeveled` guarantees it spawns rare with 2 mods, so the
+  x6 XP / 3-drop-attempt rarity hooks come along free, plus an
+  always-drops rare-heavy `boss_drops` table. `buildFloor` parks one
+  on the stairs every 3rd floor, two levels hot, leashed tight (14 <
+  aggro 18 — a guardian guards, it doesn't chase). Goldens untouched.
 - **2026-07-01 (25)** — Flasks (the missing PoE1 recovery verb). Player
   carries a life and a mana flask (`ActorDef.Flasks` names their
   buffs): a sip costs 30 of 60 charges and applies a 4s regen burst

@@ -605,6 +605,7 @@ const DEF_COLORS = {
   ghoul: "#5f7a2e",
   skeleton_mage: "#5a4a8e",
   skeleton_archer: "#6e6a58",
+  bone_colossus: "#a89c82",
 };
 
 const AILMENT_RINGS = [
@@ -619,6 +620,7 @@ const PROJ_COLORS = {
   spark: ["#ffffff", "#5fa8f5"],
   bone_arrow: ["#f2ead8", "#8d8678"],
   arc_bolt: ["#e8e0ff", "#8f6ff0"],
+  bone_volley: ["#f2ead8", "#6e5f48"],
 };
 
 function drawProjectile(p, pos) {
@@ -772,6 +774,8 @@ const IMPACT_VFX = {
   bone_arrow: { core: "#f2ead8", glow: "#8d8678", r: 0.6 },
   ghoul_claws: { core: "#ffe8d0", glow: "#5f7a2e", r: 0.5 },
   arc_bolt: { core: "#e8e0ff", glow: "#8f6ff0", r: 0.8 },
+  bone_volley: { core: "#f2ead8", glow: "#6e5f48", r: 0.9 },
+  colossus_slam: { core: "#ffe8d0", glow: "#a89c82", r: 1.2 },
 };
 
 // Impact burst at whoever got hit: a six-ray starburst in the skill's

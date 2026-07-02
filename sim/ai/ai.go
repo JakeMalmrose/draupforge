@@ -17,6 +17,7 @@ type decider func(w *core.World, a *core.Actor) (core.Command, bool)
 var deciders = map[string]decider{
 	"melee_chaser": meleeChaser,
 	"ranged_kiter": rangedKiter,
+	"boss_brute":   bossBrute,
 }
 
 // Decide produces this tick's AI commands in actor slice order.
@@ -117,6 +118,37 @@ func retreatPoint(w *core.World, a *core.Actor, tgt *core.Actor) (space.Vec2, bo
 		}
 	}
 	return space.Vec2{}, false
+}
+
+// bossBrute: a two-skill heavyweight. Skill selection is stateless and
+// reads as intent: inside slamRange it winds up Skills[0] (the big
+// telegraphed AoE — your cue to move), otherwise with line of sight it
+// throws Skills[1], and without either it lumbers closer.
+func bossBrute(w *core.World, a *core.Actor) (core.Command, bool) {
+	if a.Action.Kind == core.ActionSkill {
+		return core.Command{}, false
+	}
+	tgt := acquireTarget(w, a)
+	if tgt == nil {
+		return returnHome(a)
+	}
+	slam := w.Content.Skills[a.Def.Skills[0]]
+	slamReach := slam.AoERadius + tgt.Def.Radius
+	if space.Dist(a.Pos, tgt.Pos) <= slamReach {
+		return core.Command{Actor: a.ID, Kind: core.CmdUseSkill, Skill: slam.ID}, true
+	}
+	los := true
+	if w.Grid != nil {
+		_, blocked := w.Grid.SegmentHit(a.Pos, tgt.Pos)
+		los = !blocked
+	}
+	if los && len(a.Def.Skills) > 1 {
+		return core.Command{
+			Actor: a.ID, Kind: core.CmdUseSkill,
+			Skill: a.Def.Skills[1], Point: tgt.Pos,
+		}, true
+	}
+	return core.Command{Actor: a.ID, Kind: core.CmdMove, Point: tgt.Pos}, true
 }
 
 // hearingDiv: through walls, an enemy is noticed only within

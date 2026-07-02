@@ -12,6 +12,7 @@ import (
 
 	"github.com/JakeMalmrose/draupforge/content"
 	"github.com/JakeMalmrose/draupforge/protocol"
+	"github.com/JakeMalmrose/draupforge/sim"
 	"github.com/JakeMalmrose/draupforge/sim/combat"
 	"github.com/JakeMalmrose/draupforge/sim/core"
 	fm "github.com/JakeMalmrose/draupforge/sim/fixmath"
@@ -366,5 +367,43 @@ func TestDeathEjectGrantsGrace(t *testing.T) {
 	hit()
 	if a.Life == a.MaxLife() {
 		t.Error("hit after grace expiry dealt nothing — grace never ended")
+	}
+}
+
+// TestGuardianFloorsSpawnTheColossus: every guardianFloors-th floor builds
+// with a rare Bone Colossus at the stairs; other floors don't.
+func TestGuardianFloorsSpawnTheColossus(t *testing.T) {
+	in, _, _ := descentInstance(t, 3)
+	find := func(s *sim.Sim) *core.Actor {
+		for _, a := range s.W.Actors {
+			if a.Def.ID == guardianDef {
+				return a
+			}
+		}
+		return nil
+	}
+	s2, err := in.buildFloor(2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if find(s2) != nil {
+		t.Error("floor 2 spawned a guardian; wanted none")
+	}
+	s3, err := in.buildFloor(3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	g := find(s3)
+	if g == nil {
+		t.Fatal("floor 3 has no guardian")
+	}
+	if g.Rarity != core.RarityRare || len(g.Mods) != 2 {
+		t.Errorf("guardian rarity %v with %d mods, want rare with 2", g.Rarity, len(g.Mods))
+	}
+	if g.Level != 5 {
+		t.Errorf("guardian level = %d, want floor+2 = 5", g.Level)
+	}
+	if d := space.Dist(g.Pos, farthestWalkable(s3.W.Grid)); d > fm.FromInt(2) {
+		t.Errorf("guardian %v from the stairs, want parked on them", d)
 	}
 }
