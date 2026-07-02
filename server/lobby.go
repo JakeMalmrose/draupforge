@@ -63,6 +63,12 @@ func NewLobby(db *core.ContentDB, cfg Config) (*Lobby, error) {
 	if cfg.TickInterval <= 0 {
 		cfg.TickInterval = time.Second / core.TicksPerSecond
 	}
+	if cfg.Seed == 0 {
+		// Roll here, not per instance: every instance seed derives from
+		// this one, so one logged number reproduces the whole session.
+		cfg.Seed = randomSeed()
+		log.Printf("server: rolled world seed %d (pass -seed %d to reproduce)", cfg.Seed, cfg.Seed)
+	}
 	ids, err := NewIdentityStore(cfg.IdentityPath)
 	if err != nil {
 		return nil, err
@@ -139,11 +145,15 @@ func (lb *Lobby) Handler() http.Handler {
 }
 
 // newInstance builds and starts one more world. Each instance gets its own
-// derived seed so parallel parties don't race identical dungeons.
+// derived seed so parallel parties don't race identical dungeons; the base
+// seed itself is rolled at boot when the config left it 0 (New logs it).
 func (lb *Lobby) newInstanceLocked() (*Instance, error) {
 	icfg := lb.cfg
 	icfg.IdentityPath = "" // the lobby's store is shared, not per-instance
 	icfg.Seed = deriveSeed(lb.cfg.Seed, 0x10b_b700+lb.seedN)
+	if icfg.Seed == 0 {
+		icfg.Seed = 1 // 0 would re-roll randomly in New; keep derivation pure
+	}
 	lb.seedN++
 	in, err := New(lb.db, icfg)
 	if err != nil {

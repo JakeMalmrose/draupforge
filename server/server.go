@@ -16,6 +16,8 @@ package server
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -53,7 +55,15 @@ type Config struct {
 	// on its own port. No auth — bind it somewhere trusted (localhost or a
 	// tailnet), never the open internet.
 	AdminAddr string
-	Seed      uint64
+	// Seed is the world seed. 0 (the default) rolls a random one from the
+	// OS entropy pool and logs it — pass it back as -seed to reproduce a
+	// session. Randomness enters the system only here, at the host edge;
+	// everything below stays deterministic in the seed.
+	Seed uint64
+	// StartFloor is where a descent run begins. 0 (the default) starts in
+	// the hideout, floor 1 reachable through its portal; tests and dev
+	// servers can start directly on a floor. Applies only to Map worlds.
+	StartFloor int
 	// TickInterval defaults to one real tick (1s / core.TicksPerSecond).
 	// Tests shrink it; the sim itself never reads the clock.
 	TickInterval time.Duration
@@ -120,12 +130,16 @@ type Instance struct {
 	// when run > 0.
 	run         int        // 1-based run counter; a run ends when the portals run out
 	runSeed     uint64     // this run's seed; floor worlds derive from it
-	floor       int        // current depth, 1-based
+	floor       int        // current depth; 0 is the hideout
 	best        int        // deepest floor reached this process — the score
 	stairs      space.Vec2 // this floor's descent stairs (farthest walkable from spawn)
 	portalFloor int        // where death ejects to
 	portalPos   space.Vec2
-	portalsLeft int
+	// portalPlaced: portalPos is valid for portalFloor. False while a run
+	// starts in the hideout — the anchor lands on the floor's spawn the
+	// first time someone steps through.
+	portalPlaced bool
+	portalsLeft  int
 
 	mu       sync.Mutex
 	pending  []core.Command
@@ -273,6 +287,10 @@ func New(db *core.ContentDB, cfg Config) (*Instance, error) {
 	if cfg.PlayerDef == "" {
 		cfg.PlayerDef = "player"
 	}
+	if cfg.Seed == 0 {
+		cfg.Seed = randomSeed()
+		log.Printf("server: rolled world seed %d (pass -seed %d to reproduce)", cfg.Seed, cfg.Seed)
+	}
 	ids, err := NewIdentityStore(cfg.IdentityPath)
 	if err != nil {
 		return nil, err
@@ -306,6 +324,7 @@ func New(db *core.ContentDB, cfg Config) (*Instance, error) {
 			in.run, in.runSeed = rs.Run, rs.RunSeed
 			in.floor, in.portalsLeft = rs.Floor, rs.PortalsLeft
 			in.portalFloor, in.portalPos = rs.PortalFloor, rs.PortalPos
+			in.portalPlaced = rs.PortalPlaced
 			in.best = rs.Best
 			if in.floor > 0 && s.W.Grid != nil {
 				in.stairs = farthestWalkable(s.W.Grid)
@@ -323,13 +342,9 @@ func New(db *core.ContentDB, cfg Config) (*Instance, error) {
 		// world derives from (run seed, floor index) (DESIGN §14).
 		in.run = 1
 		in.runSeed = deriveSeed(cfg.Seed, uint64(in.run))
-		s, err := in.buildFloor(1)
-		if err != nil {
+		if err := in.startRunWorld(); err != nil {
 			return nil, err
 		}
-		in.sim = s
-		in.mapSnap = s.EncodeMap()
-		in.beginRun()
 		return in, nil
 	}
 	in.sim = sim.New(db, cfg.Seed)
@@ -347,10 +362,10 @@ func New(db *core.ContentDB, cfg Config) (*Instance, error) {
 }
 
 // reclaimOrphanPlayers removes saved player-def actors at load time. A fresh
-// process has no session to hand them to (reconnect/session identity doesn't
-// exist yet — RISKS.md), so they'd stand frozen forever; instead their gear
-// drops where they stood and the actor goes away. Runs before any client or
-// tick exists, so mutating the world directly is safe.
+// process has no live session to hand them to (identities bank characters
+// separately), so they'd stand frozen forever; instead their gear drops
+// where they stood and the actor goes away. Runs before any client or tick
+// exists, so mutating the world directly is safe.
 func reclaimOrphanPlayers(w *core.World, playerDef string) {
 	for _, a := range w.Actors {
 		if a.Def.ID != playerDef {
@@ -369,6 +384,21 @@ func reclaimOrphanPlayers(w *core.World, playerDef string) {
 		a.Dead = true
 	}
 	w.EndTick() // compact the tombstones
+}
+
+// randomSeed rolls a nonzero seed from the OS entropy pool. This is the
+// only place randomness enters the stack — everything below the host edge
+// stays deterministic in the seed it is given.
+func randomSeed() uint64 {
+	var b [8]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		panic(fmt.Sprintf("server: no entropy for a world seed: %v", err))
+	}
+	n := binary.LittleEndian.Uint64(b[:])
+	if n == 0 {
+		n = 1 // 0 means "roll one"; never hand it back
+	}
+	return n
 }
 
 // Addr returns the bound listen address once ListenAndServe is up — useful

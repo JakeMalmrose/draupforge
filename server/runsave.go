@@ -11,34 +11,37 @@ import (
 )
 
 // runSaveVersion gates the envelope like core.SaveVersion gates the world:
-// shape changes bump it and old envelopes fail loudly.
-const runSaveVersion = 1
+// shape changes bump it and old envelopes fail loudly. v2: PortalPlaced
+// (runs start in the hideout with the portal anchor pending).
+const runSaveVersion = 2
 
 type runSave struct {
-	RunVersion  int             `json:"run_version"`
-	Run         int             `json:"run"`
-	RunSeed     uint64          `json:"run_seed"`
-	Floor       int             `json:"floor"`
-	PortalsLeft int             `json:"portals_left"`
-	PortalFloor int             `json:"portal_floor"`
-	PortalPos   space.Vec2      `json:"portal_pos"`
-	Best        int             `json:"best"`
-	World       json.RawMessage `json:"world"`
+	RunVersion   int             `json:"run_version"`
+	Run          int             `json:"run"`
+	RunSeed      uint64          `json:"run_seed"`
+	Floor        int             `json:"floor"`
+	PortalsLeft  int             `json:"portals_left"`
+	PortalFloor  int             `json:"portal_floor"`
+	PortalPos    space.Vec2      `json:"portal_pos"`
+	PortalPlaced bool            `json:"portal_placed"`
+	Best         int             `json:"best"`
+	World        json.RawMessage `json:"world"`
 }
 
 // encodeRunSave wraps serialized world bytes with the instance's run state.
 // Call on the tick goroutine — it reads live run fields.
 func (in *Instance) encodeRunSave(world []byte) ([]byte, error) {
 	return json.Marshal(runSave{
-		RunVersion:  runSaveVersion,
-		Run:         in.run,
-		RunSeed:     in.runSeed,
-		Floor:       in.floor,
-		PortalsLeft: in.portalsLeft,
-		PortalFloor: in.portalFloor,
-		PortalPos:   in.portalPos,
-		Best:        in.best,
-		World:       world,
+		RunVersion:   runSaveVersion,
+		Run:          in.run,
+		RunSeed:      in.runSeed,
+		Floor:        in.floor,
+		PortalsLeft:  in.portalsLeft,
+		PortalFloor:  in.portalFloor,
+		PortalPos:    in.portalPos,
+		PortalPlaced: in.portalPlaced,
+		Best:         in.best,
+		World:        world,
 	})
 }
 

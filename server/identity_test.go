@@ -27,6 +27,7 @@ func startIdentityServer(t *testing.T) string {
 	t.Helper()
 	in, err := server.New(content.DB(), server.Config{
 		Addr:         "127.0.0.1:0",
+		Seed:         1,
 		TickInterval: 2 * time.Millisecond,
 		IdentityPath: filepath.Join(t.TempDir(), "ids.json"),
 	})

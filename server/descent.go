@@ -5,14 +5,16 @@
 // new world, inject, and re-welcome — the same full-reset machinery a
 // reconnect would use.
 //
-// Run rules: the portal is the death anchor — it starts on floor 1 and can
-// be re-planted wherever you stand. Death costs XP (never below the current
-// level's floor) and ejects everyone to the portal, consuming one portal
-// use; a death with none left ends the run (depth was the score; a new run
-// starts at floor 1 on a fresh seed — the character survives). Entering the
-// planted portal travels to the hideout (floor 0, a small safe world, one
-// use); stepping back through is free. Numbers (penalty, pack scaling,
-// portal budget) are open for tuning.
+// Run rules: a run starts in the hideout (floor 0, a small safe world,
+// pinned to its own seed so it's the same home every session); its portal
+// leads to floor 1. The portal is the death anchor — it lands on a floor's
+// spawn the first time you step through and can be re-planted wherever you
+// stand. Death costs XP (never below the current level's floor) and ejects
+// everyone to the portal, consuming one portal use; a death with none left
+// ends the run (depth was the score; a new run starts back home on a fresh
+// seed — the character survives). Entering the planted portal travels to
+// the hideout for one use; stepping back through is free. Numbers (penalty,
+// pack scaling, portal budget) are open for tuning.
 package server
 
 import (
@@ -101,16 +103,46 @@ func (in *Instance) buildFloor(floor int) (*sim.Sim, error) {
 	return s, nil
 }
 
+// hideoutSeed pins the hideout world — the same home for every instance
+// and every session, whatever seed the run rolled.
+const hideoutSeed uint64 = 0xCA5A
+
 // buildHideout constructs the hideout: one small safe room, no monsters.
-// Seeded off the config seed alone so it is the same home every run.
 func (in *Instance) buildHideout() *sim.Sim {
-	s := sim.New(in.db, deriveSeed(in.cfg.Seed, 0))
+	s := sim.New(in.db, hideoutSeed)
 	s.GenerateMap(space.MapSpec{Width: 16, Height: 12, Rooms: 1})
 	return s
 }
 
+// startRunWorld builds the current run's first world per cfg.StartFloor:
+// the hideout by default (floor 1 waits behind its portal), or directly on
+// a floor for tests and dev servers. Boot-time only — swaps use
+// startNextRun, which carries the clients along.
+func (in *Instance) startRunWorld() error {
+	in.portalsLeft = in.cfg.Portals
+	if in.cfg.StartFloor <= 0 {
+		in.sim = in.buildHideout()
+		in.floor = 0
+		in.portalFloor, in.portalPlaced = 1, false
+	} else {
+		s, err := in.buildFloor(in.cfg.StartFloor)
+		if err != nil {
+			return err
+		}
+		in.sim = s
+		in.floor = in.cfg.StartFloor
+		in.stairs = farthestWalkable(s.W.Grid)
+		in.portalFloor, in.portalPos, in.portalPlaced = in.floor, s.W.Grid.Spawn, true
+		if in.floor > in.best {
+			in.best = in.floor
+		}
+	}
+	in.mapSnap = in.sim.EncodeMap()
+	return nil
+}
+
 // beginRun initializes run bookkeeping over the current world, which must
-// be floor 1 with terrain installed.
+// be a floor with terrain installed — the legacy-save resume path.
 func (in *Instance) beginRun() {
 	g := in.sim.W.Grid
 	in.floor = 1
@@ -118,8 +150,32 @@ func (in *Instance) beginRun() {
 		in.best = 1
 	}
 	in.stairs = farthestWalkable(g)
-	in.portalFloor, in.portalPos = 1, g.Spawn
+	in.portalFloor, in.portalPos, in.portalPlaced = 1, g.Spawn, true
 	in.portalsLeft = in.cfg.Portals
+}
+
+// startNextRun begins run in.run+1 on a fresh derived seed at the
+// configured start floor — back home by default — carrying every client
+// through the swap. Hideout arrivals need no grace (nothing lives there);
+// floor arrivals get it, same as a death eject.
+func (in *Instance) startNextRun() {
+	in.run++
+	in.runSeed = deriveSeed(in.cfg.Seed, uint64(in.run))
+	in.portalsLeft = in.cfg.Portals
+	if in.cfg.StartFloor <= 0 {
+		s := in.buildHideout()
+		in.portalFloor, in.portalPlaced = 1, false
+		in.swapWorld(s, 0, s.W.Grid.Spawn)
+		return
+	}
+	s, err := in.buildFloor(in.cfg.StartFloor)
+	if err != nil {
+		log.Printf("server: new run: %v", err)
+		return
+	}
+	in.portalFloor, in.portalPos, in.portalPlaced = in.cfg.StartFloor, s.W.Grid.Spawn, true
+	in.swapWorld(s, in.cfg.StartFloor, s.W.Grid.Spawn)
+	in.grantGrace()
 }
 
 // runTick drives the descent between steps: deaths eject through the portal
@@ -172,7 +228,7 @@ func (in *Instance) runTick(fresh []protocol.EventSnap, descends, portals, plant
 			if a == nil || a.Dead {
 				continue
 			}
-			in.portalFloor, in.portalPos = in.floor, a.Pos
+			in.portalFloor, in.portalPos, in.portalPlaced = in.floor, a.Pos, true
 			in.syntheticEvent("portal", int64(in.floor)*1000, "planted")
 			in.broadcastRun()
 		}
@@ -210,23 +266,16 @@ func (in *Instance) handleDeaths(dead []*client) {
 			log.Printf("server: death eject: %v", err)
 			return
 		}
+		if !in.portalPlaced { // defensive: deaths shouldn't precede placement
+			in.portalPos, in.portalPlaced = s.W.Grid.Spawn, true
+		}
 		in.swapWorld(s, in.portalFloor, in.portalPos)
 		in.grantGrace()
 		in.syntheticEvent("death_eject", int64(in.portalsLeft)*1000, "")
 		return
 	}
 	depth := in.floor
-	in.run++
-	in.runSeed = deriveSeed(in.cfg.Seed, uint64(in.run))
-	s, err := in.buildFloor(1)
-	if err != nil {
-		log.Printf("server: new run: %v", err)
-		return
-	}
-	in.portalFloor, in.portalPos = 1, s.W.Grid.Spawn
-	in.portalsLeft = in.cfg.Portals
-	in.swapWorld(s, 1, s.W.Grid.Spawn)
-	in.grantGrace()
+	in.startNextRun()
 	in.syntheticEvent("run_over", int64(depth)*1000, "")
 }
 
@@ -276,6 +325,10 @@ func (in *Instance) portalTravel(c *client) bool {
 		if err != nil {
 			log.Printf("server: portal return: %v", err)
 			return false
+		}
+		// First trip of the run: the anchor lands on the floor's spawn.
+		if !in.portalPlaced {
+			in.portalPos, in.portalPlaced = s.W.Grid.Spawn, true
 		}
 		in.swapWorld(s, in.portalFloor, in.portalPos)
 		in.syntheticEvent("portal", int64(in.portalFloor)*1000, "return")

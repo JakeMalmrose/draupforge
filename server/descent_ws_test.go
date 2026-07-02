@@ -84,10 +84,11 @@ func TestDescentOverTheWire(t *testing.T) {
 		// SendEvery 5: at the test's 2ms tick a per-tick send rate outruns
 		// what this decode-and-ack loop can drain, and the backlog makes
 		// every view stale. The real cadence is what ships anyway.
-		SendEvery: 5,
-		Map:       &protocol.MapSpec{Width: 20, Height: 20, Rooms: 4},
-		Scatter:   []protocol.Scatter{{Def: "training_dummy", Count: 2}},
-		Portals:   3,
+		SendEvery:  5,
+		Map:        &protocol.MapSpec{Width: 20, Height: 20, Rooms: 4},
+		Scatter:    []protocol.Scatter{{Def: "training_dummy", Count: 2}},
+		Portals:    3,
+		StartFloor: 1,
 	})
 	c := dialWS(t, url, true)
 
@@ -176,11 +177,12 @@ func TestDescentOverTheWire(t *testing.T) {
 
 func TestDeathEjectAndRunOverOverTheWire(t *testing.T) {
 	url := startWS(t, server.Config{
-		Seed:      5,
-		SendEvery: 1,
-		Map:       &protocol.MapSpec{Width: 16, Height: 16, Rooms: 3},
-		Scatter:   []protocol.Scatter{{Def: "zombie", Count: 6}},
-		Portals:   1,
+		Seed:       5,
+		SendEvery:  1,
+		Map:        &protocol.MapSpec{Width: 16, Height: 16, Rooms: 3},
+		Scatter:    []protocol.Scatter{{Def: "zombie", Count: 6}},
+		Portals:    1,
+		StartFloor: 1,
 	})
 	c := dialWS(t, url, true)
 	if c.welcome.Run == nil || c.welcome.Run.Portals != 1 {
@@ -216,11 +218,12 @@ func TestDeathEjectAndRunOverOverTheWire(t *testing.T) {
 
 func TestHideoutRoundTripOverTheWire(t *testing.T) {
 	url := startWS(t, server.Config{
-		Seed:      3,
-		SendEvery: 1,
-		Map:       &protocol.MapSpec{Width: 20, Height: 20, Rooms: 4},
-		Scatter:   []protocol.Scatter{{Def: "training_dummy", Count: 1}},
-		Portals:   2,
+		Seed:       3,
+		SendEvery:  1,
+		Map:        &protocol.MapSpec{Width: 20, Height: 20, Rooms: 4},
+		Scatter:    []protocol.Scatter{{Def: "training_dummy", Count: 1}},
+		Portals:    2,
+		StartFloor: 1,
 	})
 	c := dialWS(t, url, true)
 

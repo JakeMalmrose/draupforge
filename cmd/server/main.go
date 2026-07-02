@@ -1,4 +1,5 @@
-// Command server hosts one map instance over TCP/NDJSON. Poke it by hand:
+// Command server hosts a lobby of world instances: WebSocket + web client
+// on -http, a TCP/NDJSON debug wire on -addr. Poke the debug wire by hand:
 //
 //	go run ./cmd/server -addr :7777 -scenario scripts/arena.json
 //	nc localhost 7777
@@ -22,7 +23,7 @@ func main() {
 	httpAddr := flag.String("http", ":8080", "HTTP listen address for /ws and the web client (\"\" disables)")
 	adminAddr := flag.String("admin", ":9090", "admin dashboard/API listen address (\"\" disables) — no auth, keep it off the open internet")
 	webDir := flag.String("web", "web", "static web client directory")
-	seed := flag.Uint64("seed", 1, "world seed")
+	seed := flag.Uint64("seed", 0, "world seed; 0 rolls a random one each boot (logged, reproducible)")
 	scenario := flag.String("scenario", "", "scenario script (JSON); only spawns are used")
 	load := flag.String("load", "", "world save file to restore (admin /api/save writes them); overrides -seed and -scenario")
 	sendEvery := flag.Int("sendevery", 3, "send a view every N sim ticks (3 = 10Hz at the 30Hz sim)")

@@ -1,6 +1,7 @@
-// Admin dashboard + JSON API on its own port (Config.AdminAddr) — the
-// observe/poke tier of the dashboard parked in RISKS.md. Save/load/rollback
-// wait on the persistence story (RISKS.md #1).
+// Admin dashboard + JSON API on its own port (Config.AdminAddr): observe
+// (tick health, entities, bandwidth, events, hash), poke (pause, spawn,
+// kick, save), and dev cheats. In lobby mode each instance's dashboard
+// hangs off the lobby's index at /i/{id}/.
 //
 // Every handler that touches the world enqueues a closure that the tick
 // goroutine runs between ticks (adminOp in server.go), so the sim's
