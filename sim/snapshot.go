@@ -95,6 +95,10 @@ func (s *Sim) BuildSnapshotFor(viewer core.EntityID, radius fm.Fixed, events []p
 		for _, ps := range a.Passives {
 			passives = append(passives, ps.ID)
 		}
+		var flasks []int64
+		for _, ch := range a.FlaskCharges {
+			flasks = append(flasks, int64(ch))
+		}
 		var equipment []protocol.EquippedSnap
 		for slot := core.EquipSlot(0); slot < core.EquipSlotCount; slot++ {
 			if item := a.Equipment[slot]; item != nil {
@@ -125,6 +129,7 @@ func (s *Sim) BuildSnapshotFor(viewer core.EntityID, radius fm.Fixed, events []p
 			Rarity:    rarity,
 			Mods:      modNames,
 			Passives:  passives,
+			Flasks:    flasks,
 			Level:     a.Level,
 			XP:        a.XP,
 			XPNext:    xpNext(a.Level),
@@ -255,6 +260,8 @@ func DecodeCommand(c protocol.Command) (core.Command, error) {
 	case "choose_passive":
 		out.Kind = core.CmdChoosePassive
 		out.Passive = c.Passive
+	case "use_flask":
+		out.Kind = core.CmdUseFlask
 	default:
 		return core.Command{}, fmt.Errorf("protocol: unknown command kind %q", c.Kind)
 	}

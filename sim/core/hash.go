@@ -79,6 +79,13 @@ func (w *World) Hash() uint64 {
 				s.str(ps.ID)
 			}
 		}
+		// Flask charges hash whenever the actor has flasks (players do, so
+		// the goldens re-recorded when this landed).
+		if len(a.FlaskCharges) > 0 {
+			for _, ch := range a.FlaskCharges {
+				s.i64(int64(ch))
+			}
+		}
 		s.u64(uint64(a.Action.Kind))
 		s.u64(uint64(a.Action.Phase))
 		s.u64(uint64(a.Action.TicksLeft))

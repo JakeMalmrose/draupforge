@@ -153,10 +153,22 @@ type Actor struct {
 	// Their stat packages live on the sheet under PassiveModSource.
 	Passives []*PassiveDef
 
+	// FlaskCharges tracks each flask slot's charges (parallel to
+	// Def.Flasks). Spent on use, gained on kills, durable across zones.
+	FlaskCharges []int32
+
 	// Dead actors are tombstoned during the tick and compacted at tick end,
 	// so slice indices stay stable while a tick is in flight.
 	Dead bool
 }
+
+// Flask economy (open for tuning): a use costs half the cap, kills feed a
+// sixth back, so sustained fighting keeps roughly one sip banked.
+const (
+	FlaskMaxCharges  int32 = 60
+	FlaskUseCost     int32 = 30
+	FlaskGainPerKill int32 = 10
+)
 
 // LevelModSource is the sheet source for per-level growth modifiers: bit 62
 // alone, disjoint from entity IDs (top bits clear), ailment sources (bit 63

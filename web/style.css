@@ -284,3 +284,30 @@ body {
   color: #8d8678;
   font-size: 11px;
 }
+
+/* Flask rack: two vials tucked against the life globe. */
+#flask-rack { display: flex; gap: 5px; align-items: flex-end; pointer-events: auto; }
+.flask {
+  position: relative;
+  width: 24px; height: 58px;
+  border: 1px solid #3a3a4e;
+  border-radius: 5px 5px 8px 8px;
+  background: #101018;
+  box-shadow: inset 0 0 8px #000;
+  overflow: hidden;
+  cursor: pointer;
+  padding: 0;
+}
+.flask:hover { border-color: #b8a44a; }
+.flask .flask-fill {
+  position: absolute; left: 0; right: 0; bottom: 0;
+  transition: height 150ms linear;
+}
+.flask.life .flask-fill { background: linear-gradient(#d14a4a, #6e1414); }
+.flask.mana .flask-fill { background: linear-gradient(#4a7ad1, #16306e); }
+.flask .key {
+  position: absolute; left: 0; right: 0; bottom: 1px;
+  text-align: center;
+  font-size: 10px; color: #b8a44a; text-shadow: 0 1px 2px #000;
+}
+.flask.drained { opacity: 0.45; filter: grayscale(0.6); }

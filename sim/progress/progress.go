@@ -46,6 +46,10 @@ func AwardXP(w *core.World) {
 			xp *= 6
 		}
 		killer.XP += xp
+		// Kills also feed the killer's flasks — same reward hook as XP.
+		for i := range killer.FlaskCharges {
+			killer.FlaskCharges[i] = min(killer.FlaskCharges[i]+core.FlaskGainPerKill, core.FlaskMaxCharges)
+		}
 		for killer.Level < MaxLevel && killer.XP >= XPToNext(killer.Level) {
 			killer.XP -= XPToNext(killer.Level)
 			killer.SetLevel(killer.Level + 1)

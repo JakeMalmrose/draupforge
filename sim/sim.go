@@ -230,6 +230,19 @@ func applyCommands(w *core.World, cmds []core.Command) {
 				items.DropItem(w, a, c.TargetID)
 			}
 
+		case core.CmdUseFlask:
+			// Not an action — a sip mid-swing is fine (PoE1 muscle memory).
+			i := int(c.TargetID)
+			if i < 0 || i >= len(a.FlaskCharges) || a.FlaskCharges[i] < core.FlaskUseCost {
+				continue
+			}
+			buff := w.Content.Buffs[a.Def.Flasks[i]]
+			if buff == nil {
+				continue
+			}
+			a.FlaskCharges[i] -= core.FlaskUseCost
+			combat.ApplyBuff(w, a, buff, a.ID)
+
 		case core.CmdChoosePassive:
 			// Not an action — legal even mid-swing. Level-gated, one pick
 			// per milestone, permanent.

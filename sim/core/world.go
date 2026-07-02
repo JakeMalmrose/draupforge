@@ -27,6 +27,9 @@ const (
 	// CmdChoosePassive takes the milestone passive named by Passive —
 	// permanent, one pick per milestone, level-gated.
 	CmdChoosePassive
+	// CmdUseFlask drinks the flask in slot TargetID (an index into
+	// Def.Flasks): costs charges, applies the flask's buff.
+	CmdUseFlask
 )
 
 // Command is the only way anything outside the sim affects it. The sim
@@ -194,6 +197,12 @@ func (w *World) SpawnActor(def *ActorDef, pos space.Vec2) *Actor {
 	a.Life = a.MaxLife()
 	a.Mana = a.MaxMana()
 	a.ES = a.MaxES()
+	if n := len(def.Flasks); n > 0 {
+		a.FlaskCharges = make([]int32, n)
+		for i := range a.FlaskCharges {
+			a.FlaskCharges[i] = FlaskMaxCharges // start full — fun over friction
+		}
+	}
 	w.Actors = append(w.Actors, a)
 	w.idx[a.ID] = a
 	return a

@@ -933,6 +933,26 @@ function castSlot(s) {
   }
 }
 
+// Flask slots mirror the player def's flask order; charges arrive on the
+// actor snap. FLASK_MAX mirrors core.FlaskMaxCharges (display-only).
+const FLASKS = [
+  { key: "1", name: "Life Flask", cls: "life" },
+  { key: "2", name: "Mana Flask", cls: "mana" },
+];
+const FLASK_MAX = 60;
+const FLASK_COST = 30;
+
+const flaskRackEl = document.getElementById("flask-rack");
+FLASKS.forEach((f, i) => {
+  const el = document.createElement("button");
+  el.className = `flask ${f.cls}`;
+  el.id = `flask-${i}`;
+  el.title = f.name;
+  el.innerHTML = `<div class="flask-fill"></div><span class="key">${f.key}</span>`;
+  el.onclick = () => send({ kind: "use_flask", target: i });
+  flaskRackEl.appendChild(el);
+});
+
 const skillBarEl = document.getElementById("skill-bar");
 for (const s of SKILL_BAR) {
   const btn = document.createElement("button");
@@ -950,6 +970,11 @@ window.addEventListener("keydown", (e) => {
   const slot = SKILL_BAR.find((s) => s.key === key);
   if (slot) {
     castSlot(slot);
+    return;
+  }
+  const flask = FLASKS.findIndex((f) => f.key === key);
+  if (flask >= 0) {
+    send({ kind: "use_flask", target: flask });
     return;
   }
   switch (key) {
@@ -1365,6 +1390,12 @@ function updateHUD(self) {
     const el = document.getElementById(`slot-${s.skill}`);
     if (el) el.classList.toggle("drained", self.mana < s.mana * 1000);
   }
+  (self.flasks || []).forEach((charges, i) => {
+    const el = document.getElementById(`flask-${i}`);
+    if (!el) return;
+    el.querySelector(".flask-fill").style.height = `${(100 * charges) / FLASK_MAX}%`;
+    el.classList.toggle("drained", charges < FLASK_COST);
+  });
   document.getElementById("life-text").textContent =
     `${Math.ceil(self.life / 1000)} / ${Math.ceil(self.max_life / 1000)}`;
   document.getElementById("mana-text").textContent =

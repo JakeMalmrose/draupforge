@@ -11,9 +11,8 @@ tests, and session-log entries older than a few sessions (git history is the
 archive). If this file outgrows ~150 lines, it has stopped being a status doc
 and started being a changelog — cut it back.
 
-**Last updated: 2026-07-01** (session 24: PoE2-style HUD — life/mana
-globes, clickable skill bar with mana gating, per Jake's direction:
-PoE2 GUI, PoE1 mechanics)
+**Last updated: 2026-07-01** (session 25: flasks — kill-fed charges,
+regen-burst sips, HUD vials; SaveVersion 7, protocol v14)
 
 ## Where things stand
 
@@ -57,6 +56,7 @@ All foundational machinery from DESIGN.md is real, not stubbed:
 | Actions (windup/recovery) + projectiles | `sim/skills` | done |
 | Loot: per-table rarity weights, weighted affixes, group caps, per-slot affix pools (`AffixDef.Families`, DB() asserts 3+3 groups per family), rolled base implicits, starved-pool event | `sim/items` | done, tested |
 | Progression: XP on kill (scaled by monster level), quadratic curve, level cap 50, PerLevel growth mods under `LevelModSource`, ding heal, HUD level + XP bar | `sim/progress`, `core.Actor.SetLevel` | done, tested |
+| Flasks: `ActorDef.Flasks` (buff IDs) + `Actor.FlaskCharges`, `use_flask` command (charges-gated, applies the flask's regen-burst buff, legal mid-swing), kills feed +10 capped 60 (same reward hook as XP), durable across transfers/saves (v7), charges group on the wire (v14), HUD vials on keys 1/2 | `sim/`, `content/`, `protocol/`, `web/` | done, tested |
 | Passive forks: `PassiveDef` milestones (5/10, 3 forks each), `choose_passive` command (level-gated, one per milestone, permanent under `PassiveModSource`), durable across transfers (`Character.Passives`) and saves (v6), table in the welcome + chosen IDs on actors (protocol v13), client chooser card | `sim/core`, `content/`, `protocol/`, `web/` | done, tested |
 | Character extract/inject: portable struct (def/level/XP/pools/gear), IDs re-minted at injection, sheet rebuilt, walkable-clamped | `sim/core/character.go` | done, tested |
 | The descent: floor swap (build → extract → inject → re-welcome), run rules (portal economy, XP death penalty, run-over → new run), hideout, leveled+thickened packs, stairs/portal/run on the wire | `server/descent.go`, protocol v10 | done, unit + e2e tested, verified live in the browser |
@@ -190,7 +190,7 @@ Structural risks live in `RISKS.md` — read it before building anything load-be
   scales linearly with level; hideout trips cost 1 use, returns free;
   rarity chances (magic 10% +2%/floor cap 30%, rare 2% +1%/floor cap 12%),
   XP multipliers (×3/×6), and drop attempts (2/3) per rarity; portal
-  grace lasts 2.5s.
+  grace lasts 2.5s; flasks bank 60 charges, sips cost 30, kills pay 10.
 - Cast-on-death portal still deliberately unshipped — it must carry an
   opportunity cost (a gem slot once gems exist), never free.
 
@@ -207,6 +207,17 @@ fun-first counterweight to all of that.
 
 ## Session log
 
+- **2026-07-01 (25)** — Flasks (the missing PoE1 recovery verb). Player
+  carries a life and a mana flask (`ActorDef.Flasks` names their
+  buffs): a sip costs 30 of 60 charges and applies a 4s regen burst
+  (life 25/s, mana 15/s) through the existing buff machinery — no new
+  effect mechanism, only charges are new state. Kills feed +10 to
+  every flask (the AwardXP loop — same reward hook), charges are
+  durable (Character.FlaskCharges, SaveVersion 7, hashed when
+  present — goldens re-recorded since players now carry charges).
+  Wire v14: charges ride their own actor field group. HUD: two vials
+  beside the life globe, keys 1/2, drained-graying under one sip.
+  Numbers (60/30/10, burst rates) open for tuning.
 - **2026-07-01 (24)** — PoE2-style HUD (client-only; the first slice of
   Jake's "PoE2 GUI, PoE1 mechanics" direction). Life/mana globes with
   rising-liquid fills and glassy highlights flank a clickable skill bar

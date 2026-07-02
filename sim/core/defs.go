@@ -177,6 +177,10 @@ type ActorDef struct {
 	LootTable      string // "" drops nothing
 	// InventorySize is the bag capacity; 0 means the actor carries nothing.
 	InventorySize int
+	// Flasks names the buff each flask slot applies when drunk (PoE1-style
+	// recovery: a charges-gated regen burst). Empty = the actor has none.
+	// Slot order is wire/command order.
+	Flasks []string
 }
 
 type AffixKind uint8
