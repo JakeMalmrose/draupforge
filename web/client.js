@@ -118,6 +118,8 @@ function resetWorld(msg) {
   gen = msg.gen || 0;
   worldMap = msg.map || null;
   stairs = msg.stairs || null;
+  passiveTable = msg.passives || [];
+  passiveKey = "";
   runState = msg.run || null;
   snap = null;
   seenSelf = false;
@@ -188,6 +190,7 @@ function onView(view) {
   if (self) {
     seenSelf = true;
     updateHUD(self);
+    updatePassiveChooser(self);
   } else if (seenSelf) {
     showOverlay("YOU DIED");
   }
@@ -1344,6 +1347,46 @@ function updateHUD(self) {
 }
 
 // updateRunHUD paints the descent scoreboard; floor 0 is the hideout.
+// ------------------------------------------------------- passive chooser
+//
+// The milestone-choice card: shown while the player has an unlocked,
+// untaken milestone. Server-authoritative — clicking sends choose_passive
+// and the card clears only when the actor's passives list confirms it.
+let passiveTable = [];
+let passiveKey = "";
+const passiveBox = document.getElementById("passive-chooser");
+
+function updatePassiveChooser(self) {
+  const taken = new Set(self.passives || []);
+  const takenMilestones = new Set(
+    [...taken].map((id) => (passiveTable.find((p) => p.id === id) || {}).milestone),
+  );
+  let pending = 0;
+  for (const p of passiveTable) {
+    if (self.level >= p.milestone && !takenMilestones.has(p.milestone)) {
+      if (!pending || p.milestone < pending) pending = p.milestone;
+    }
+  }
+  const key = pending ? `${pending}:${taken.size}` : "";
+  if (key === passiveKey) return;
+  passiveKey = key;
+  if (!pending) {
+    passiveBox.classList.add("hidden");
+    passiveBox.innerHTML = "";
+    return;
+  }
+  passiveBox.innerHTML = `<h3>Level ${pending} — choose a passive</h3>`;
+  for (const p of passiveTable) {
+    if (p.milestone !== pending) continue;
+    const btn = document.createElement("button");
+    btn.className = "passive-option";
+    btn.innerHTML = `<b>${p.name}</b><span>${p.desc}</span>`;
+    btn.onclick = () => send({ kind: "choose_passive", passive: p.id });
+    passiveBox.appendChild(btn);
+  }
+  passiveBox.classList.remove("hidden");
+}
+
 function updateRunHUD() {
   const el = document.getElementById("run-status");
   if (!runState) {

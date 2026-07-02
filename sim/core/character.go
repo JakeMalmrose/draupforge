@@ -45,6 +45,9 @@ type Character struct {
 	ES        fm.Fixed                  `json:"es"`
 	Equipment [EquipSlotCount]*CharItem `json:"equipment"`
 	Inventory []CharItem                `json:"inventory,omitempty"`
+	// Passives are milestone choices, by ID in pick order — durable build
+	// identity, unlike zone-local statuses.
+	Passives []string `json:"passives,omitempty"`
 }
 
 // ExtractCharacter reduces an actor to its character state — the reverse of
@@ -66,6 +69,9 @@ func ExtractCharacter(a *Actor) Character {
 	}
 	for i := range a.Inventory {
 		ch.Inventory = append(ch.Inventory, charItem(a.Inventory[i]))
+	}
+	for _, p := range a.Passives {
+		ch.Passives = append(ch.Passives, p.ID)
 	}
 	return ch
 }
@@ -122,6 +128,13 @@ func InjectCharacter(w *World, ch Character, pos space.Vec2) (*Actor, error) {
 	a := w.SpawnActor(def, pos)
 	a.SetLevel(ch.Level)
 	a.XP = ch.XP
+	for _, id := range ch.Passives {
+		pd := w.Content.Passive(id)
+		if pd == nil {
+			return nil, fmt.Errorf("core: character references unknown passive %q", id)
+		}
+		a.TakePassive(pd)
+	}
 	// Mint IDs in slot-then-bag order so injection is deterministic.
 	for slot := range equipment {
 		if item := equipment[slot]; item != nil {

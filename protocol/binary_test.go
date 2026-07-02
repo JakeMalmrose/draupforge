@@ -15,6 +15,7 @@ func sampleView() Snapshot {
 				Life: 90000, MaxLife: 100000, Mana: 40000, MaxMana: 50000,
 				ES: 1000, Action: "idle", Ail: AilIgnited | AilChilled, InvSize: 20,
 				Level: 3, XP: 250, XPNext: 900,
+				Passives: []string{"iron_constitution", "executioner"},
 				Equipment: []EquippedSnap{{
 					Slot: "weapon",
 					Item: ItemSnap{ID: 7, Base: "rusty_sword", Rarity: "magic",

@@ -584,6 +584,11 @@ func (in *Instance) welcomeFrame(c *client) []byte {
 		TickHz: core.TicksPerSecond, SendEvery: in.cfg.SendEvery,
 		Map: in.mapSnap,
 	}
+	for _, p := range in.db.Passives {
+		msg.Passives = append(msg.Passives, protocol.PassiveSnap{
+			ID: p.ID, Name: p.Name, Desc: p.Desc, Milestone: p.Milestone,
+		})
+	}
 	if in.run > 0 {
 		if in.floor > 0 {
 			msg.Stairs = &protocol.Vec{X: in.stairs.X.Milli(), Y: in.stairs.Y.Milli()}

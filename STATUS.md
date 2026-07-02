@@ -11,8 +11,8 @@ tests, and session-log entries older than a few sessions (git history is the
 archive). If this file outgrows ~150 lines, it has stopped being a status doc
 and started being a changelog — cut it back.
 
-**Last updated: 2026-07-01** (session 22: loot juice — rarity drop
-beams, landing rings, rarity-colored drop nameplates)
+**Last updated: 2026-07-01** (session 23: passive forks — milestone
+choices at levels 5/10, the first build-identity lever; protocol v13)
 
 ## Where things stand
 
@@ -56,6 +56,7 @@ All foundational machinery from DESIGN.md is real, not stubbed:
 | Actions (windup/recovery) + projectiles | `sim/skills` | done |
 | Loot: per-table rarity weights, weighted affixes, group caps, per-slot affix pools (`AffixDef.Families`, DB() asserts 3+3 groups per family), rolled base implicits, starved-pool event | `sim/items` | done, tested |
 | Progression: XP on kill (scaled by monster level), quadratic curve, level cap 50, PerLevel growth mods under `LevelModSource`, ding heal, HUD level + XP bar | `sim/progress`, `core.Actor.SetLevel` | done, tested |
+| Passive forks: `PassiveDef` milestones (5/10, 3 forks each), `choose_passive` command (level-gated, one per milestone, permanent under `PassiveModSource`), durable across transfers (`Character.Passives`) and saves (v6), table in the welcome + chosen IDs on actors (protocol v13), client chooser card | `sim/core`, `content/`, `protocol/`, `web/` | done, tested |
 | Character extract/inject: portable struct (def/level/XP/pools/gear), IDs re-minted at injection, sheet rebuilt, walkable-clamped | `sim/core/character.go` | done, tested |
 | The descent: floor swap (build → extract → inject → re-welcome), run rules (portal economy, XP death penalty, run-over → new run), hideout, leveled+thickened packs, stairs/portal/run on the wire | `server/descent.go`, protocol v10 | done, unit + e2e tested, verified live in the browser |
 | Monster rarity: `ScatterSpawnPack` rolls magic (1 mod) / rare (2 distinct mods) off RNGMap; `MonsterModDef` packages under `MonsterModSource`; XP ×3/×6, drop attempts 2/3; floor-scaled chances in `buildFloor`; rarity+mod names in the actor identity group (protocol v11), client rings + nameplates | `sim/sim.go`, `content/`, `protocol/`, `web/` | done, tested (incl. Go→net.js codec parity) |
@@ -205,6 +206,20 @@ fun-first counterweight to all of that.
 
 ## Session log
 
+- **2026-07-01 (23)** — Passive forks (ROADMAP phase 3's
+  "ascendancy-lite"). `PassiveDef` (6 defs: milestones 5 and 10, three
+  forks each — tank/precision/caster at 5, damage/mobility/spellcaster
+  at 10); `choose_passive` through the normal command gate (level ≥
+  milestone, one pick per milestone, permanent, no RNG); mods live
+  under `PassiveModSource` (bit 63+60 — fourth disjoint shared-source
+  space). Durable character state: transfers (`Character.Passives`),
+  SaveVersion 6, conditionally hashed (goldens stand). Wire v13:
+  passive table rides the welcome, chosen IDs are their own actor
+  field group. Client: a PoE-ish chooser card appears while a
+  milestone is unlocked+untaken, clears only when the server confirms
+  the pick. Verified over a live server: table arrives, card renders
+  through the real view pipeline, click sends the command, level gate
+  drops it for an under-leveled actor.
 - **2026-07-01 (22)** — Loot juice, client-only. Magic/rare drops throw
   pulsing light shafts (rare taller than magic) so a rare kill's triple
   drop reads across the room; every drop lands with a ground ring (tiny

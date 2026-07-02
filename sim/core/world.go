@@ -24,6 +24,9 @@ const (
 	// CmdDropItem drops the inventory item named by TargetID at the
 	// actor's feet.
 	CmdDropItem
+	// CmdChoosePassive takes the milestone passive named by Passive —
+	// permanent, one pick per milestone, level-gated.
+	CmdChoosePassive
 )
 
 // Command is the only way anything outside the sim affects it. The sim
@@ -41,6 +44,8 @@ type Command struct {
 	// target the weapon slot (slot 0).
 	Slot    EquipSlot
 	HasSlot bool
+	// Passive is the PassiveDef ID for CmdChoosePassive.
+	Passive string
 }
 
 type EventKind uint8
@@ -62,6 +67,8 @@ const (
 	EvLootStarved
 	// EvLevelUp fires once per level gained; Amount carries the new level.
 	EvLevelUp
+	// EvPassive fires when an actor takes a milestone passive; Note = ID.
+	EvPassive
 )
 
 func (k EventKind) String() string {
@@ -90,6 +97,8 @@ func (k EventKind) String() string {
 		return "loot_starved"
 	case EvLevelUp:
 		return "level_up"
+	case EvPassive:
+		return "passive"
 	default:
 		return "unequip"
 	}

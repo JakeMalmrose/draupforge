@@ -71,6 +71,14 @@ func (w *World) Hash() uint64 {
 				s.str(md.ID)
 			}
 		}
+		// Same conditional trick for passives: actors without any keep
+		// their pre-passive hash stream.
+		if len(a.Passives) > 0 {
+			s.u64(uint64(len(a.Passives)))
+			for _, ps := range a.Passives {
+				s.str(ps.ID)
+			}
+		}
 		s.u64(uint64(a.Action.Kind))
 		s.u64(uint64(a.Action.Phase))
 		s.u64(uint64(a.Action.TicksLeft))
