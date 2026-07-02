@@ -75,7 +75,7 @@ All foundational machinery from DESIGN.md is real, not stubbed:
 | Equipment: 10 slots (weapon…belt), slot-addressed equip command (auto fallback), affix→sheet | `sim/items/equip.go` | done, tested |
 | Inventory: pickup/unequip/drop_item, capacity | `sim/items/equip.go` | done, tested |
 | Server: TCP + WS transports, joins/leaves, send-rate decoupling, interest culling, binary deltas + acks, pause | `server/` | done, race-tested |
-| Admin dashboard: observe (tick health, counts, bandwidth, events, world hash) + poke (pause/resume, spawn, kick), dev cheats (`POST /api/gem` cuts a gem onto an actor, `POST /api/god` zeroes DamageTaken — both zone-local), own port, embedded HTML | `server/admin.go` | done, tested; NO AUTH — localhost/tailnet only |
+| Admin dashboard: observe (tick health, counts, bandwidth, events, world hash, run/floor/portals line) + poke (pause/resume, spawn, kick), dev-cheat panel with buttons (`/api/gem` force-cuts a gem, `/api/god` toggles DamageTaken-zero, `/api/orbs` grants currency; actor field defaults to the first client, per-client "cheat" prefill) — cheats are zone-local sheet/wallet pokes | `server/admin.go` | done, tested; NO AUTH — localhost/tailnet only |
 | Web client: canvas, input, terrain render (walls/floor), drag-drop inventory grid (icons, tooltips), delta decoding, tick-timeline interpolation, fade-in/out, cast/impact VFX + ailment rings, floating damage numbers (crit/self emphasis), hit flashes, death pops (rarity-scaled), PoE2-style HUD (life/mana globes, clickable skill bar with mana-gating, `SKILL_BAR` as the single keybind source) | `web/` | working, no build step |
 | AI: behavior registry — `melee_chaser`, `ranged_kiter` (LoS-gated shooting, retreat band), `boss_brute` (stateless two-skill selection by range); territorial aggro: LoS/hearing acquisition, leash to `Actor.Home`, return-home (SaveVersion 4) | `sim/ai` | real, tested |
 | Phase order + command validation | `sim/sim.go` | done — this IS the determinism contract |
@@ -250,12 +250,15 @@ fun-first counterweight to all of that.
   every 12 ticks (combat-stream draw per nudge) until its 1.5s TTL.
   All projectile TTLs cut to real ranges (fireball 14u, arrows/bolts
   16–17u — were 26–40u). Uncut gem permilles ×1.5 across all tables.
-  Admin dev cheats: `/api/gem`, `/api/god`. Five new sim tests, both
-  goldens re-recorded (wiggle/TTL/loot shifts). Verified live in
-  Chrome: 3-target arc chains (log + bolt polyline instrumentation),
-  `:aoe` splash numbers with falloff, spark position trace showing
-  two wall reflections + drift; zero console errors. Jake confirmed
-  the bounce in-session.
+  Five new sim tests, both goldens re-recorded (wiggle/TTL/loot
+  shifts). Verified live in Chrome: 3-target arc chains (log + bolt
+  polyline instrumentation), `:aoe` splash numbers with falloff,
+  spark position trace showing two wall reflections + drift; zero
+  console errors. Jake confirmed the bounce in-session. Follow-up:
+  the admin dashboard grew a cheats panel (god-mode toggle,
+  force-cut gem, orb grants — buttons defaulting to the first
+  client) and a run/floor/portals line; endpoints black-box tested
+  (`TestAdminCheats`), buttons verified live from the dashboard.
 - **2026-07-02 (34)** — Skill & support gems (the loot-driven skill
   system; four design calls from Jake: gems-only skills, draft-of-3
   cutting, sockets start 1 / cap 4, level-to-drop-level). Sim: gem/
