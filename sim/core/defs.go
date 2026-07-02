@@ -70,6 +70,10 @@ const (
 	// SkillBuff applies the skill's SelfBuff to the caster at the effect
 	// point. No hits, no targets, no RNG.
 	SkillBuff
+	// SkillChain is hitscan: at the effect point it instantly strikes the
+	// enemy nearest the aim point (within Range of the caster, LoS-gated),
+	// then chains to Chains more nearby enemies. No projectile exists.
+	SkillChain
 )
 
 type SkillDef struct {
@@ -88,13 +92,28 @@ type SkillDef struct {
 	WindupTicks, RecoveryTicks uint32
 	SpeedStat                  stats.StatID // CastSpeed or AttackSpeed
 
-	// Melee: reach measured between collision circle edges.
+	// Melee: reach measured between collision circle edges. Chain skills:
+	// the target-acquisition range from the caster.
 	Range fm.Fixed
 
 	// Projectile fields.
 	ProjSpeed  fm.Fixed // units per second
 	ProjTTL    uint32   // ticks
 	ProjRadius fm.Fixed
+	// ExplodeRadius makes projectile impacts detonate: every other enemy
+	// within it of the impact point takes the hit again, scaled down
+	// linearly with distance (Hit.AreaScale). Zero = no explosion.
+	ExplodeRadius fm.Fixed
+	// Bounce reflects the projectile off walls instead of dying, until its
+	// TTL runs out.
+	Bounce bool
+	// WigglePeriod nudges the projectile's heading by a small random angle
+	// (combat stream) every WigglePeriod ticks of flight. Zero = flies true.
+	WigglePeriod uint32
+
+	// Chains is a chain skill's extra targets after the first (supports'
+	// chain counts add on top).
+	Chains int
 
 	// Nova field: blast radius measured from the caster's center to the
 	// target's circle edge.

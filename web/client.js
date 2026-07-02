@@ -206,13 +206,33 @@ function onView(view) {
   // of the view that carries the event.
   const findEnt = (id) =>
     view.actors.get(id) || (newest && newest.view.actors.get(id)) || null;
+  const chains = new Map(); // caster id → strike positions, event order
   for (const ev of view.events) {
     logEvent(ev);
     sfxForEvent(ev);
     if (ev.kind === "hit") {
-      const v = IMPACT_VFX[ev.note];
+      // Splash hits (projectile explosions) arrive as "<skill>:aoe" — they
+      // keep their numbers/flash but skip the impact burst; the explosion
+      // ring at the direct hit is their visual.
+      const splash = ev.note.endsWith(":aoe");
+      const note = splash ? ev.note.slice(0, -4) : ev.note;
+      const v = IMPACT_VFX[note];
       const target = findEnt(ev.other);
-      if (v && target) spawnImpact(target.pos, view.tick * tickMs, v);
+      if (v && target && !splash) spawnImpact(target.pos, view.tick * tickMs, v);
+      if (target && !splash) {
+        const ex = EXPLODE_VFX[note];
+        if (ex) spawnExplosion(target.pos, view.tick * tickMs, ex);
+        const cv = CHAIN_VFX[note];
+        if (cv) {
+          let c = chains.get(ev.actor);
+          if (!c) {
+            const caster = findEnt(ev.actor);
+            c = { v: cv, pts: caster ? [caster.pos] : [] };
+            chains.set(ev.actor, c);
+          }
+          c.pts.push(target.pos);
+        }
+      }
       if (target) {
         spawnDamageNumber(target.pos, view.tick * tickMs, ev.amount, ev.crit, ev.other === myId);
         flashes.set(ev.other, view.tick * tickMs + FLASH_MS);
@@ -228,6 +248,8 @@ function onView(view) {
       if (d) spawnDropLanding(d.pos, view.tick * tickMs, d.item.rarity);
     }
   }
+  // One bolt per caster per view: caster → victim → victim, in hit order.
+  for (const c of chains.values()) spawnChainLightning(c.pts, view.tick * tickMs, c.v);
   // Flash entries expire by clock; sweep the map so dead IDs don't pile up.
   for (const [id, until] of flashes) {
     if (until < view.tick * tickMs - 2000) flashes.delete(id);
@@ -950,9 +972,84 @@ const IMPACT_VFX = {
   bone_arrow: { core: "#f2ead8", glow: "#8d8678", r: 0.6 },
   ghoul_claws: { core: "#ffe8d0", glow: "#5f7a2e", r: 0.5 },
   arc_bolt: { core: "#e8e0ff", glow: "#8f6ff0", r: 0.8 },
+  arc: { core: "#ffffff", glow: "#8f6ff0", r: 0.8 },
   bone_volley: { core: "#f2ead8", glow: "#6e5f48", r: 0.9 },
   colossus_slam: { core: "#ffe8d0", glow: "#a89c82", r: 1.2 },
 };
+
+// Skills whose projectile impacts detonate: radius mirrors the server's
+// ExplodeRadius (display-only, like FLASK_MAX).
+const EXPLODE_VFX = {
+  fireball: { color: "#ff9a3d", inner: "#ffd27d", radius: 2 },
+};
+
+// Chain (hitscan) skills: hit events with these notes get a jagged bolt
+// drawn caster → victim → victim instead of a flying projectile.
+const CHAIN_VFX = {
+  arc: { core: "#ffffff", glow: "#8f6ff0" },
+};
+
+// Explosion at a projectile impact: a fire flash expanding to the skill's
+// real splash radius — the visual is also the falloff telegraph.
+function spawnExplosion(pos, st, v) {
+  spawnEffect(st, 320, (t) => {
+    const p = worldToScreen(pos.x, pos.y);
+    const r = (0.4 + (v.radius - 0.4) * easeOut(t)) * SCALE;
+    ctx.globalAlpha = (1 - t) * 0.85;
+    ctx.fillStyle = v.color;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = 1 - t;
+    ctx.strokeStyle = v.inner;
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.fillStyle = v.inner;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, Math.max(1, r * 0.35 * (1 - t)), 0, Math.PI * 2);
+    ctx.fill();
+  });
+}
+
+// Chain lightning: one jagged polyline through the strike positions,
+// shaped once per bolt (in world units, so it stays pinned under camera
+// movement) and redrawn fading with a white core over a colored glow.
+function spawnChainLightning(points, st, v) {
+  if (points.length < 2) return;
+  const path = [];
+  for (let i = 0; i < points.length - 1; i++) {
+    const ax = toUnits(points[i].x), ay = toUnits(points[i].y);
+    const bx = toUnits(points[i + 1].x), by = toUnits(points[i + 1].y);
+    const segs = Math.max(2, Math.round(Math.hypot(bx - ax, by - ay) / 0.7));
+    // Perpendicular jitter at each interior vertex makes the jag.
+    const nx = -(by - ay), ny = bx - ax;
+    const nl = Math.hypot(nx, ny) || 1;
+    for (let s = 0; s <= segs; s++) {
+      if (i > 0 && s === 0) continue; // shared vertex with the last segment
+      const f = s / segs;
+      const j = s === 0 || s === segs ? 0 : (Math.random() - 0.5) * 0.55;
+      path.push({ x: ax + (bx - ax) * f + (nx / nl) * j, y: ay + (by - ay) * f + (ny / nl) * j });
+    }
+  }
+  spawnEffect(st, 260, (t) => {
+    ctx.globalAlpha = (1 - t) * (0.7 + 0.3 * Math.random()); // crackle
+    ctx.lineJoin = "round";
+    ctx.beginPath();
+    for (let i = 0; i < path.length; i++) {
+      const p = worldToScreen(toMilli(path[i].x), toMilli(path[i].y));
+      if (i === 0) ctx.moveTo(p.x, p.y);
+      else ctx.lineTo(p.x, p.y);
+    }
+    ctx.strokeStyle = v.glow;
+    ctx.lineWidth = 4;
+    ctx.stroke();
+    ctx.strokeStyle = v.core;
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+  });
+}
 
 // Impact burst at whoever got hit: a six-ray starburst in the skill's
 // palette around a shrinking core.
@@ -1102,6 +1199,7 @@ const SKILL_META = {
   spark: { color: "#5fa8f5", aimed: true },
   adrenaline: { color: "#9fff9f", aimed: false },
   arc_bolt: { color: "#8f6ff0", aimed: true },
+  arc: { color: "#8f6ff0", aimed: true },
   bone_arrow: { color: "#8d8678", aimed: true },
 };
 

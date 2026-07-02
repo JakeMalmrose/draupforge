@@ -20,8 +20,10 @@ import (
 	"time"
 
 	"github.com/JakeMalmrose/draupforge/protocol"
+	"github.com/JakeMalmrose/draupforge/sim/core"
 	fm "github.com/JakeMalmrose/draupforge/sim/fixmath"
 	"github.com/JakeMalmrose/draupforge/sim/space"
+	"github.com/JakeMalmrose/draupforge/sim/stats"
 )
 
 const (
@@ -60,9 +62,9 @@ type adminStatus struct {
 	Clients      []adminClientInfo `json:"clients"`
 	// WorldHash travels as hex text — a uint64 in JSON loses precision past
 	// 2^53 in JS.
-	WorldHash string `json:"world_hash"`
-	ActorDefs    []string          `json:"actor_defs"`
-	Events       []adminEvent      `json:"events"`
+	WorldHash string       `json:"world_hash"`
+	ActorDefs []string     `json:"actor_defs"`
+	Events    []adminEvent `json:"events"`
 }
 
 // saveBlob carries a serialized world from the tick goroutine to the admin
@@ -140,6 +142,10 @@ func (in *Instance) serveAdmin(ctx context.Context) {
 	}
 }
 
+// devGodSource is the sheet source for the /api/god cheat: all bits set —
+// inside buff-space (top two bits) with a hash no real buff will produce.
+const devGodSource = ^uint64(0)
+
 func (in *Instance) adminMux() *http.ServeMux {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/status", func(w http.ResponseWriter, r *http.Request) {
@@ -175,6 +181,50 @@ func (in *Instance) adminMux() *http.ServeMux {
 				return nil, err
 			}
 			return map[string]uint64{"id": uint64(id)}, nil
+		})
+		adminReplyJSON(w, v, err)
+	})
+	// Dev cheat: cut a gem straight onto an actor, skipping the drop-and-cut
+	// loop — for exercising skills without farming. Level 0 means 1.
+	mux.HandleFunc("POST /api/gem", func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Actor uint64 `json:"actor"`
+			Skill string `json:"skill"`
+			Level int    `json:"level"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		v, err := in.runOnTick(func() (any, error) {
+			if err := in.sim.GrantGem(core.EntityID(req.Actor), req.Skill, max(req.Level, 1)); err != nil {
+				return nil, err
+			}
+			return map[string]string{"granted": req.Skill}, nil
+		})
+		adminReplyJSON(w, v, err)
+	})
+	// Dev cheat: make an actor unhittable — DamageTaken overridden to zero,
+	// same lever as portal grace but permanent. Sheet state, so it dies
+	// with the zone (transfers rebuild sheets); re-apply after a floor swap.
+	mux.HandleFunc("POST /api/god", func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Actor uint64 `json:"actor"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		v, err := in.runOnTick(func() (any, error) {
+			a := in.sim.W.ActorByID(core.EntityID(req.Actor))
+			if a == nil {
+				return nil, fmt.Errorf("no actor %d", req.Actor)
+			}
+			a.Sheet.Add(stats.Modifier{
+				Stat: stats.DamageTaken, Layer: stats.LayerOverride,
+				Value: 0, Source: devGodSource,
+			})
+			return map[string]bool{"god": true}, nil
 		})
 		adminReplyJSON(w, v, err)
 	})

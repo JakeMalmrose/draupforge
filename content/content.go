@@ -268,8 +268,9 @@ func skillDefs() []*core.SkillDef {
 		RecoveryTicks: 6,
 		SpeedStat:     stats.CastSpeed,
 		ProjSpeed:     fm.FromInt(20),
-		ProjTTL:       60, // 2s flight
+		ProjTTL:       21, // 0.7s flight ≈ 14u — a skill shot, not a sniper rifle
 		ProjRadius:    fm.FromMilli(400),
+		ExplodeRadius: fm.FromInt(2), // impact splash, linear falloff to the edge
 		IgniteChance:  fm.FromMilli(250),
 	}
 	fireball.BaseMin[core.Fire] = fm.FromInt(20)
@@ -317,8 +318,10 @@ func skillDefs() []*core.SkillDef {
 		RecoveryTicks: 5,
 		SpeedStat:     stats.CastSpeed,
 		ProjSpeed:     fm.FromInt(28),
-		ProjTTL:       40,
+		ProjTTL:       45, // 1.5s — duration is spark's budget, not reach
 		ProjRadius:    fm.FromMilli(300),
+		Bounce:        true,              // ricochets off walls until the duration runs out
+		WigglePeriod:  12,                // heading drifts ~2.5×/s — sparks wander, not beam
 		ShockChance:   fm.FromMilli(300), // 30%
 	}
 	// Lightning identity: wild rolls. Averages below fireball, pays for the
@@ -337,7 +340,7 @@ func skillDefs() []*core.SkillDef {
 		RecoveryTicks: 9,
 		SpeedStat:     stats.AttackSpeed,
 		ProjSpeed:     fm.FromInt(16),
-		ProjTTL:       50,
+		ProjTTL:       30, // 1s ≈ 16u — outranges the archer's 12u kite band, barely
 		ProjRadius:    fm.FromMilli(350),
 	}
 	boneArrow.BaseMin[core.Physical] = fm.FromInt(5)
@@ -360,21 +363,40 @@ func skillDefs() []*core.SkillDef {
 	arcBolt := &core.SkillDef{
 		ID:            "arc_bolt",
 		Name:          "Arc Bolt",
-		Cuttable:      true, // harder-hitting spark; monsters share it
-		Kind:          core.SkillProjectile,
+		Kind:          core.SkillProjectile, // monster-only: the mage's dodgeable bolt (players get arc)
 		Tags:          stats.T(stats.TagSpell, stats.TagProjectile, stats.TagLightning),
 		Effectiveness: fm.One,
 		WindupTicks:   18, // 0.6s channelled crackle — dodgeable, unlike its shock
 		RecoveryTicks: 9,
 		SpeedStat:     stats.CastSpeed,
 		ProjSpeed:     fm.FromInt(18),
-		ProjTTL:       50,
+		ProjTTL:       27, // 0.9s ≈ 16u — comfortably past the mage's 10u stand-off
 		ProjRadius:    fm.FromMilli(350),
 		ShockChance:   fm.FromMilli(350),
 	}
 	// Same wild-roll lightning identity as spark, hitting harder on average.
 	arcBolt.BaseMin[core.Lightning] = fm.FromInt(4)
 	arcBolt.BaseMax[core.Lightning] = fm.FromInt(22)
+
+	arc := &core.SkillDef{
+		ID:            "arc",
+		Name:          "Arc",
+		Cuttable:      true, // the player's chain lightning — arc_bolt's gem slot
+		Kind:          core.SkillChain,
+		Tags:          stats.T(stats.TagSpell, stats.TagLightning),
+		Effectiveness: fm.One,
+		ManaCost:      fm.FromInt(13),
+		WindupTicks:   15, // 0.5s — fireball cadence, pack-clearing payoff
+		RecoveryTicks: 8,
+		SpeedStat:     stats.CastSpeed,
+		Range:         fm.FromInt(12), // acquisition reach from the caster
+		Chains:        2,              // three targets zapped per cast, base
+		ShockChance:   fm.FromMilli(350),
+	}
+	// Wild lightning rolls; per-target it sits between spark and fireball —
+	// the guaranteed multi-hit is the power budget.
+	arc.BaseMin[core.Lightning] = fm.FromInt(4)
+	arc.BaseMax[core.Lightning] = fm.FromInt(26)
 
 	colossusSlam := &core.SkillDef{
 		ID:            "colossus_slam",
@@ -400,7 +422,7 @@ func skillDefs() []*core.SkillDef {
 		RecoveryTicks: 12,
 		SpeedStat:     stats.AttackSpeed,
 		ProjSpeed:     fm.FromInt(14),
-		ProjTTL:       70,
+		ProjTTL:       36,                // 1.2s ≈ 17u — a lob, not an artillery barrage
 		ProjRadius:    fm.FromMilli(550), // a fat bone — harder to sidestep than an arrow
 	}
 	boneVolley.BaseMin[core.Physical] = fm.FromInt(12)
@@ -419,7 +441,7 @@ func skillDefs() []*core.SkillDef {
 		SelfBuff:      "adrenaline",
 	}
 
-	return []*core.SkillDef{fireball, slam, frostNova, spark, boneArrow, adrenaline, claws, arcBolt, colossusSlam, boneVolley}
+	return []*core.SkillDef{fireball, slam, frostNova, spark, boneArrow, adrenaline, claws, arcBolt, arc, colossusSlam, boneVolley}
 }
 
 func baseStats(pairs map[stats.StatID]fm.Fixed) [stats.StatCount]fm.Fixed {
@@ -893,8 +915,8 @@ func lootTableDefs() []*core.LootTableDef {
 			ID:                 "zombie_drops",
 			DropChance:         fm.FromMilli(450),
 			RarityWeights:      [3]uint32{60, 32, 8},
-			SkillGemPermille:   18,
-			SupportGemPermille: 10,
+			SkillGemPermille:   27,
+			SupportGemPermille: 15,
 			Bases: []string{
 				"rusty_sword", "wooden_shield", "leather_cap", "leather_vest",
 				"leather_gloves", "leather_boots", "leather_belt",
@@ -906,8 +928,8 @@ func lootTableDefs() []*core.LootTableDef {
 			ID:                 "archer_drops",
 			DropChance:         fm.FromMilli(400),
 			RarityWeights:      [3]uint32{45, 40, 15},
-			SkillGemPermille:   22,
-			SupportGemPermille: 14,
+			SkillGemPermille:   33,
+			SupportGemPermille: 21,
 			Bases: []string{
 				"rusty_sword", "bone_amulet", "iron_ring", "leather_cap",
 				"leather_gloves", "leather_boots",
@@ -933,8 +955,8 @@ func lootTableDefs() []*core.LootTableDef {
 			ID:                 "ghoul_drops",
 			DropChance:         fm.FromMilli(250),
 			RarityWeights:      [3]uint32{65, 30, 5},
-			SkillGemPermille:   12,
-			SupportGemPermille: 8,
+			SkillGemPermille:   18,
+			SupportGemPermille: 12,
 			Bases: []string{
 				"rusty_sword", "leather_boots", "leather_gloves", "leather_belt",
 			},
@@ -947,8 +969,8 @@ func lootTableDefs() []*core.LootTableDef {
 			ID:                 "boss_drops",
 			DropChance:         fm.One,
 			RarityWeights:      [3]uint32{10, 45, 45},
-			SkillGemPermille:   300,
-			SupportGemPermille: 200,
+			SkillGemPermille:   450,
+			SupportGemPermille: 300,
 			Bases: []string{
 				"rusty_sword", "wooden_shield", "leather_cap", "leather_vest",
 				"leather_gloves", "leather_boots", "bone_amulet", "iron_ring",
@@ -961,8 +983,8 @@ func lootTableDefs() []*core.LootTableDef {
 			ID:                 "mage_drops",
 			DropChance:         fm.FromMilli(350),
 			RarityWeights:      [3]uint32{35, 45, 20},
-			SkillGemPermille:   25,
-			SupportGemPermille: 18,
+			SkillGemPermille:   38,
+			SupportGemPermille: 27,
 			Bases: []string{
 				"bone_amulet", "iron_ring", "leather_cap", "wooden_shield",
 			},

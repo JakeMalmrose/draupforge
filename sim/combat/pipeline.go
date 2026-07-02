@@ -53,8 +53,13 @@ func resolve(w *core.World, h *core.Hit) {
 	// Stage: mitigation per type, then defender's damage-taken multiplier.
 	total := mitigate(att, def, h, tags)
 
-	// Stage: apply to pools, ES before life.
-	applyDamage(w, att, def, total, h.Skill.ID, h.Crit)
+	// Stage: apply to pools, ES before life. Splash hits mark their event
+	// note so clients can style them apart from the direct impact.
+	note := h.Skill.ID
+	if h.AreaScale > 0 {
+		note += ":aoe"
+	}
+	applyDamage(w, att, def, total, note, h.Crit)
 
 	// Stage: post-hit effects, fixed order (ignite → chill → shock; the
 	// order is part of the RNG-consumption contract).
@@ -142,6 +147,14 @@ func rollDamage(w *core.World, att *core.Actor, h *core.Hit, tags stats.TagSet) 
 		}
 		if total > 0 {
 			h.Damage[dt] = total
+		}
+	}
+
+	// Splash hits (projectile explosions): the whole roll scales by the
+	// distance falloff baked at impact time.
+	if h.AreaScale > 0 {
+		for dt := range h.Damage {
+			h.Damage[dt] = fm.Mul(h.Damage[dt], h.AreaScale)
 		}
 	}
 }

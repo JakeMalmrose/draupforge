@@ -11,8 +11,9 @@ tests, and session-log entries older than a few sessions (git history is the
 archive). If this file outgrows ~150 lines, it has stopped being a status doc
 and started being a changelog — cut it back.
 
-**Last updated: 2026-07-02** (session 34: skill & support gems — gems-only
-player skills, uncut drops with cutting drafts, sockets, jeweller orb)
+**Last updated: 2026-07-02** (session 35: skill feel — arc replaces arc_bolt
+as the lightning gem, fireball explodes, spark bounces, finite projectile
+ranges, +50% gem drops)
 
 ## Where things stand
 
@@ -61,7 +62,7 @@ All foundational machinery from DESIGN.md is real, not stubbed:
 | Damage pipeline + DoTs + regen | `sim/combat` | done, tested |
 | Statuses: ignite (DoT) + chill/shock (hit-scaled, strongest-wins) + content buffs (`BuffDef` packages, refresh-not-stack, `SkillBuff` skills via pending-buff queue) | `sim/combat/ailments.go`, `buff.go` | done, tested |
 | Persistence: `World.Save`/`LoadWorld` (versioned JSON, content by string ID, bit-exact continuation), admin `POST /api/save`, `cmd/server -load`; descent instances wrap the world in a run envelope (`server/runsave.go`, own version gate) so loads resume mid-run — legacy bare-world files still load as fresh runs | `sim/core/save.go`, `sim/space/save.go`, `server/runsave.go` | done, tested |
-| Actions (windup/recovery) + projectiles | `sim/skills` | done |
+| Actions (windup/recovery) + projectiles; skill-feel mechanics: impact explosions with linear distance falloff (`Hit.AreaScale`, events noted `<skill>:aoe`), wall bounce (`SegmentHitN` face normals), heading wiggle (combat-stream draw every `WigglePeriod` ticks), hitscan chain skills (`SkillChain`: aim-point acquisition + shared chain-hop targeting) | `sim/skills` | done, tested |
 | Loot: per-table rarity weights, weighted affixes, group caps, per-slot affix pools (`AffixDef.Families`, DB() asserts 3+3 groups per family), rolled base implicits, starved-pool event | `sim/items` | done, tested |
 | Currency: `Actor.Orbs` wallet (transmute/alch/chaos/jeweller), orbs bank straight to the killer (one loot draw per kill, rates ×2/×3 by dier rarity), `apply_orb` on bag items (transmute normal→magic, alch normal→rare, chaos rerolls rare — shared `fillAffixes`; jewellers go to gems via `add_socket`), durable (save v8, transfers), panel orb strip with apply-mode | `sim/items/loot.go`, `web/` | done, tested |
 | Gems: players cast only from cut gems (`Actor.Gems`; `ActorDef.StartingGems` seeds Fireball, monsters keep `Def.Skills`); uncut gem items drop with a 3-distinct-choice draft rolled at drop time (loot stream; per-table permilles ×2/×3 by rarity), level = dier level capped 20; verbs `cut_skill` (new gem at drop level, replace at the 4-gem cap), `level_gem` (raise-to-drop-level), `cut_support` (tag-gated, socket-addressed, swap destroys), `add_socket` (jeweller, cap 4); supports fold into the socketed skill's queries only (more/less, added flat, cast/attack speed, mana mult, +projectiles fan, chain with LoS retarget, fire/lightning→cold conversion — the pipeline's conversion stage is live, converted portions scale by both types' mods); gem level scales the skill's base roll +10%/level and mana +5%/level; cast contexts bake at use time so in-flight projectiles keep their stats; durable (save v9, transfers, hashed), wire v16 (gem field group + welcome tables), client gem panel/cut dialog/dynamic skill bar | `sim/core/gems.go`, `sim/items/gems.go`, `sim/combat/pipeline.go`, `content/supports.go`, `web/` | done, tested (13 gem tests), verified live in the browser |
@@ -74,12 +75,12 @@ All foundational machinery from DESIGN.md is real, not stubbed:
 | Equipment: 10 slots (weapon…belt), slot-addressed equip command (auto fallback), affix→sheet | `sim/items/equip.go` | done, tested |
 | Inventory: pickup/unequip/drop_item, capacity | `sim/items/equip.go` | done, tested |
 | Server: TCP + WS transports, joins/leaves, send-rate decoupling, interest culling, binary deltas + acks, pause | `server/` | done, race-tested |
-| Admin dashboard: observe (tick health, counts, bandwidth, events, world hash) + poke (pause/resume, spawn, kick), own port, embedded HTML | `server/admin.go` | done, tested; NO AUTH — localhost/tailnet only |
+| Admin dashboard: observe (tick health, counts, bandwidth, events, world hash) + poke (pause/resume, spawn, kick), dev cheats (`POST /api/gem` cuts a gem onto an actor, `POST /api/god` zeroes DamageTaken — both zone-local), own port, embedded HTML | `server/admin.go` | done, tested; NO AUTH — localhost/tailnet only |
 | Web client: canvas, input, terrain render (walls/floor), drag-drop inventory grid (icons, tooltips), delta decoding, tick-timeline interpolation, fade-in/out, cast/impact VFX + ailment rings, floating damage numbers (crit/self emphasis), hit flashes, death pops (rarity-scaled), PoE2-style HUD (life/mana globes, clickable skill bar with mana-gating, `SKILL_BAR` as the single keybind source) | `web/` | working, no build step |
 | AI: behavior registry — `melee_chaser`, `ranged_kiter` (LoS-gated shooting, retreat band), `boss_brute` (stateless two-skill selection by range); territorial aggro: LoS/hearing acquisition, leash to `Actor.Home`, return-home (SaveVersion 4) | `sim/ai` | real, tested |
 | Phase order + command validation | `sim/sim.go` | done — this IS the determinism contract |
 | Wire types: versioned welcome, JSON snapshots, binary delta view codec | `protocol/` | done, tested |
-| Content tables | `content/` | 10 skills (6 cuttable: fireball, frost_nova, spark, adrenaline, arc_bolt, bone_arrow), 10 support gems (`content/supports.go`), 7 actors, 32 affixes (tiered groups, per-slot pools), 9 bases (rolled implicits), 6 drop tables (each with gem permilles), 4 monster rarity mods, 4 buffs |
+| Content tables | `content/` | 11 skills (6 cuttable: fireball, frost_nova, spark, adrenaline, arc, bone_arrow — arc_bolt went monster-only), 10 support gems (`content/supports.go`), 7 actors, 32 affixes (tiered groups, per-slot pools), 9 bases (rolled implicits), 6 drop tables (each with gem permilles), 4 monster rarity mods, 4 buffs |
 | Debug client | `cmd/headless` | done |
 | Determinism + golden replay tests | `sim/sim_test.go` | done |
 
@@ -208,9 +209,12 @@ Structural risks live in `RISKS.md` — read it before building anything load-be
   rarity chances (magic 10% +2%/floor cap 30%, rare 2% +1%/floor cap 12%),
   XP multipliers (×3/×6), and drop attempts (2/3) per rarity; portal
   grace lasts 2.5s; flasks bank 60 charges, sips cost 30, kills pay 10;
-  gem drop permilles per table (trash ~12–25 skill / 8–18 support, boss
-  300/200, ×2/×3 by rarity), jeweller orb 40‰, gem damage +10%/level and
-  mana +5%/level, support numbers in `content/supports.go`.
+  gem drop permilles per table (trash ~18–38 skill / 12–27 support, boss
+  450/300, ×2/×3 by rarity — session 35 raised all of these 50%), jeweller
+  orb 40‰, gem damage +10%/level and mana +5%/level, support numbers in
+  `content/supports.go`; projectile ranges are TTL-derived (fireball ~14u,
+  arrows/bolts ~16–17u, spark 1.5s of bouncing), fireball splash 2u,
+  spark wiggle every 12 ticks, arc 12u reach / 2 base chains.
 - Uncut skill gems drop at the dier's level, so `level_gem` only matters
   once floors (leveled packs) outpace your gems — floor 1 drops are all
   level 1. Deliberate: depth is how gems grow.
@@ -233,6 +237,25 @@ fun-first counterweight to all of that.
 
 ## Session log
 
+- **2026-07-02 (35)** — Skill feel (Jake: "not just blue fireball").
+  Arc: new cuttable `SkillChain` hitscan — strikes the enemy nearest
+  the cursor (12u reach, LoS), chains to 2 more (supports add), one
+  full hit each, no projectile; client draws a jagged bolt through
+  the strike positions from the hit events alone (no wire change).
+  arc_bolt stays as the mage's dodgeable projectile, no longer
+  cuttable. Fireball explodes on impact: 2u splash re-hits bystanders
+  scaled 1→0 linearly by distance (`Hit.AreaScale`; events noted
+  `fireball:aoe`), explosion-ring VFX. Spark bounces off walls
+  (`SegmentHitN` returns the crossed face's normal) and wiggles ±24°
+  every 12 ticks (combat-stream draw per nudge) until its 1.5s TTL.
+  All projectile TTLs cut to real ranges (fireball 14u, arrows/bolts
+  16–17u — were 26–40u). Uncut gem permilles ×1.5 across all tables.
+  Admin dev cheats: `/api/gem`, `/api/god`. Five new sim tests, both
+  goldens re-recorded (wiggle/TTL/loot shifts). Verified live in
+  Chrome: 3-target arc chains (log + bolt polyline instrumentation),
+  `:aoe` splash numbers with falloff, spark position trace showing
+  two wall reflections + drift; zero console errors. Jake confirmed
+  the bounce in-session.
 - **2026-07-02 (34)** — Skill & support gems (the loot-driven skill
   system; four design calls from Jake: gems-only skills, draft-of-3
   cutting, sockets start 1 / cap 4, level-to-drop-level). Sim: gem/
@@ -271,16 +294,4 @@ fun-first counterweight to all of that.
   floor 1 of a fresh run. Plain arenas keep the bare format. Closed
   the STATUS shortcut. Verified live: admin save → restart with -load
   → instance ticking with the full roster.
-- **2026-07-02 (30)** — Audio (ROADMAP's stinger line, client-only).
-  A tiny WebAudio synth — every cue is an enveloped oscillator, zero
-  asset files: hit thuds (harder when it's you), crit accents, death
-  pops (doubled for rares), a level-up arpeggio, orb chimes, drop
-  shimmers, flask gulps, travel sweeps. Per-kind throttles keep a
-  nova from machine-gunning; master gain 0.15; M toggles mute
-  (persisted in localStorage); the context unlocks on first
-  click/keypress per browser autoplay rules.
-- **2026-07-01 (29)** — Equip-compare tooltips (client-only). Hovering
-  a bag item appends "— equipped (slot) —" blocks for whatever its
-  legal slots currently hold (both rings, for rings), PoE-style — the
-  upgrade decision without cross-referencing the equipment row.
 - (older sessions pruned — git history is the archive)

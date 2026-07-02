@@ -485,6 +485,11 @@ type Hit struct {
 	// level scales the base roll, supports fold into the damage queries.
 	Gem GemCtx
 
+	// AreaScale marks a splash hit (projectile explosion): the whole hit is
+	// multiplied by it — distance falloff. Zero means a direct hit at full
+	// damage, so plain Hit literals keep their old meaning.
+	AreaScale fm.Fixed
+
 	// Outcomes, populated by the pipeline.
 	Damage  [DamageTypeCount]fm.Fixed
 	Crit    bool

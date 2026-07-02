@@ -191,13 +191,22 @@ func (g *Grid) CanMove(from, to Vec2) bool { return g.ClearLine(from, to) }
 // enters a solid tile. This is the zero-width test — projectiles and line
 // of sight — as opposed to ClearLine's body-width one.
 func (g *Grid) SegmentHit(from, to Vec2) (fm.Fixed, bool) {
+	t, _, _, hit := g.SegmentHitN(from, to)
+	return t, hit
+}
+
+// SegmentHitN is SegmentHit plus the axis normal of the wall face crossed:
+// (±1, 0) for a vertical face, (0, ±1) for a horizontal one, pointing back
+// toward the segment's origin — what a bouncing projectile reflects
+// against. (0, 0) with hit=true means the segment started inside a wall.
+func (g *Grid) SegmentHitN(from, to Vec2) (fm.Fixed, int, int, bool) {
 	tx, ty := g.TileAt(from)
 	if g.Solid(tx, ty) {
-		return 0, true
+		return 0, 0, 0, true
 	}
 	ex, ey := g.TileAt(to)
 	if tx == ex && ty == ey {
-		return 0, false
+		return 0, 0, 0, false
 	}
 	d := to.Sub(from)
 
@@ -227,23 +236,26 @@ func (g *Grid) SegmentHit(from, to Vec2) (fm.Fixed, bool) {
 
 	for {
 		var t fm.Fixed
+		var nx, ny int
 		if tMaxX < tMaxY {
 			tx += stepX
 			t = tMaxX
 			tMaxX += tDeltaX
+			nx = -stepX
 		} else {
 			ty += stepY
 			t = tMaxY
 			tMaxY += tDeltaY
+			ny = -stepY
 		}
 		if t > fm.One {
-			return 0, false
+			return 0, 0, 0, false
 		}
 		if g.Solid(tx, ty) {
-			return fm.Clamp(t, 0, fm.One), true
+			return fm.Clamp(t, 0, fm.One), nx, ny, true
 		}
 		if tx == ex && ty == ey {
-			return 0, false
+			return 0, 0, 0, false
 		}
 	}
 }
