@@ -9,7 +9,7 @@
 
 "use strict";
 
-const PROTOCOL_VERSION = 16;
+const PROTOCOL_VERSION = 17;
 
 const FRAME_VIEW = 1;
 

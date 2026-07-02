@@ -8,7 +8,7 @@ package protocol
 // it on any change a deployed client could misread — renamed/removed JSON
 // fields (omitempty makes those fail silently) or any binary frame layout
 // change. Clients hard-fail on mismatch instead of limping.
-const Version = 16 // v16: identity — welcome name, roster + error frames (v15: currency)
+const Version = 17 // v17: parties — social frames, invite verbs (v16: identity)
 
 // Command is the wire form of player intent. Kind is one of "move",
 // "use_skill", "stop", the item verbs "pickup", "equip", "unequip",
@@ -35,6 +35,10 @@ type Command struct {
 	Passive string `json:"passive,omitempty"`
 	// Orb names the currency kind for "apply_orb".
 	Orb string `json:"orb,omitempty"`
+	// Name is the invitee's display name for the host-layer "invite" verb
+	// (the social verbs "accept_invite", "decline_invite" and "leave_party"
+	// carry nothing).
+	Name string `json:"name,omitempty"`
 }
 
 type Vec struct {
@@ -208,6 +212,19 @@ type ServerMsg struct {
 	// Error rides a terminal "error" frame: the connection is refused (a
 	// duplicate session, say) and closes after this message.
 	Error string `json:"error,omitempty"`
+	// Social rides "social" frames — pushed to named players whenever the
+	// online list, their party, or their pending invite changes.
+	Social *SocialSnap `json:"social,omitempty"`
+}
+
+// SocialSnap is one named player's view of the social layer. Party is the
+// named members of their world (guests are invisible here); Online is every
+// other named player connected right now — the default-visible friends
+// list; Invite names who wants them ("" = nobody).
+type SocialSnap struct {
+	Party  []string `json:"party"`
+	Online []string `json:"online"`
+	Invite string   `json:"invite,omitempty"`
 }
 
 // Script is the headless runner's input: a scenario plus scheduled commands.

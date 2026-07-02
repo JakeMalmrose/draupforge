@@ -57,12 +57,12 @@ func main() {
 		cfg.Scatter = script.Scatter
 	}
 
-	in, err := server.New(content.DB(), cfg)
+	lb, err := server.NewLobby(content.DB(), cfg)
 	if err != nil {
 		fatal(err)
 	}
 	go func() {
-		fmt.Println("tcp listening on", in.Addr())
+		fmt.Println("tcp listening on", lb.Addr())
 		if *httpAddr != "" {
 			fmt.Printf("web client on http://localhost%s\n", *httpAddr)
 		}
@@ -70,7 +70,7 @@ func main() {
 			fmt.Printf("admin dashboard on http://localhost%s\n", *adminAddr)
 		}
 	}()
-	if err := in.ListenAndServe(context.Background()); err != nil {
+	if err := lb.ListenAndServe(context.Background()); err != nil {
 		fatal(err)
 	}
 }

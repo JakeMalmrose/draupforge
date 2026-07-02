@@ -21,7 +21,8 @@ in the feature branches.
    from hosting one Instance to a lobby that routes connections to many.
 
 Build order: identity + guests (**done** — `server/identity.go`, wire v16)
-→ per-party instances → friends/invites UI.
+→ per-party instances + friends/invites (**done** — `server/lobby.go`, wire
+v17: party = instance, F panel, invite toast, `cmd/partybot` fake friend).
 
 ## Hosting (the nuc, no port forwarding needed)
 

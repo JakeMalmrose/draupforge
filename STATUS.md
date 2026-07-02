@@ -207,6 +207,18 @@ fun-first counterweight to all of that.
 
 ## Session log
 
+- **2026-07-02 (36)** — Parties + friends (multiplayer.md phase 2, wire
+  v17). `server/lobby.go`: cmd/server now runs a Lobby of instances —
+  party = instance, every connection gets a solo world (own derived seed),
+  invites transfer you into the inviter's world with the floor-swap
+  machinery (release → adopt → re-welcome), leave_party moves you out.
+  "Friends list" = all online named players (F panel, invite buttons,
+  toast). Empty instances reap after 60s — which doubles as reconnect
+  grace back into your old run. Client inbound state moved to a per-client
+  mutex so clients can cross instances. `cmd/partybot`: fake friend that
+  auto-accepts invites. Shortcuts: `-load` unsupported in lobby mode (run
+  saves predate parties); TCP debug conns get solo worlds; admin dashboard
+  is per-instance under `/i/{id}/`.
 - **2026-07-02 (35)** — Identity: named players + guests (multiplayer.md
   phase 1, wire v16). `server/identity.go`: name claim mints a 32-byte
   secret token in an HttpOnly cookie; the token (never the name) resumes

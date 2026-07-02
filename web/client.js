@@ -22,6 +22,7 @@ let myName = "";            // our identity name ("" = guest)
 let roster = new Map();     // actor id → identity name, server-maintained
 let guestMode = false;      // the join screen chose "play as guest"
 let fatalError = false;     // server refused us; keep that overlay on close
+let social = null;          // latest social snap: {party, online, invite}
 let snap = null;            // newest reconstructed view (HUD, log, input)
 let seenSelf = false;       // distinguishes "not spawned yet" from "died"
 let pendingPickup = 0;      // drop entity we're walking toward
@@ -97,6 +98,9 @@ function connect() {
         else hideOverlay();
       } else if (msg.type === "roster") {
         applyRoster(msg.roster);
+      } else if (msg.type === "social") {
+        social = msg.social || null;
+        renderSocial();
       } else if (msg.type === "error") {
         // Refused (duplicate session, say). Back to the join screen, which
         // offers the ways forward: another name, or guest mode.
@@ -1220,6 +1224,10 @@ window.addEventListener("keydown", (e) => {
       panel.classList.toggle("hidden");
       if (!panel.classList.contains("hidden")) renderPanel(me(), true);
       break;
+    case "f":
+      document.getElementById("social").classList.toggle("hidden");
+      renderSocial();
+      break;
   }
 });
 
@@ -1782,6 +1790,73 @@ function showOverlay(text) {
 // dead, and a closed socket can't deliver a resume, so neither is lost.
 function hideOverlay() {
   document.getElementById("overlay").classList.add("hidden");
+}
+
+// -------------------------------------------------------------- social
+//
+// The F panel: your party, and every named player online (the default
+// friends list — invitable unless already partied with you). Social frames
+// arrive only for named players; guests see a nudge to claim a name.
+
+function renderSocial() {
+  const panel = document.getElementById("social");
+  const partyEl = document.getElementById("party-list");
+  const onlineEl = document.getElementById("online-list");
+  const leaveBtn = document.getElementById("leave-party");
+  partyEl.textContent = "";
+  onlineEl.textContent = "";
+  if (!social) {
+    partyEl.textContent = myName ? "just you" : "guests can't party — claim a name";
+    onlineEl.textContent = "…";
+    leaveBtn.classList.add("hidden");
+  } else {
+    const party = social.party || [];
+    if (party.length <= 1) partyEl.textContent = "just you";
+    else {
+      for (const n of party) {
+        const row = document.createElement("div");
+        row.className = "social-row";
+        row.textContent = n === myName ? `${n} (you)` : n;
+        partyEl.appendChild(row);
+      }
+    }
+    leaveBtn.classList.toggle("hidden", party.length <= 1);
+    const online = social.online || [];
+    if (!online.length) onlineEl.textContent = "nobody else is on";
+    for (const n of online) {
+      const row = document.createElement("div");
+      row.className = "social-row";
+      const label = document.createElement("span");
+      label.textContent = n;
+      row.appendChild(label);
+      if (!party.includes(n)) {
+        const btn = document.createElement("button");
+        btn.textContent = "invite";
+        btn.onclick = () => send({ kind: "invite", name: n });
+        row.appendChild(btn);
+      }
+      onlineEl.appendChild(row);
+    }
+  }
+  // The invite toast lives outside the panel — it must interrupt.
+  const toast = document.getElementById("invite-toast");
+  if (social && social.invite) {
+    document.getElementById("invite-text").textContent =
+      `${social.invite} invites you to their party`;
+    toast.classList.remove("hidden");
+  } else {
+    toast.classList.add("hidden");
+  }
+}
+
+function sendAccept() {
+  send({ kind: "accept_invite" });
+}
+function sendDecline() {
+  send({ kind: "decline_invite" });
+}
+function sendLeaveParty() {
+  send({ kind: "leave_party" });
 }
 
 // ---------------------------------------------------------------- join

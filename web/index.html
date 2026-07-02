@@ -52,6 +52,21 @@
     <button onclick="location.reload()">rise again</button>
   </div>
 
+  <div id="social" class="hidden">
+    <h2>Party</h2>
+    <div id="party-list"></div>
+    <button id="leave-party" class="hidden" onclick="sendLeaveParty()">leave party</button>
+    <h2>Players online</h2>
+    <div id="online-list"></div>
+    <p class="hint">F closes this panel</p>
+  </div>
+
+  <div id="invite-toast" class="hidden">
+    <span id="invite-text"></span>
+    <button onclick="sendAccept()">join</button>
+    <button class="ghost" onclick="sendDecline()">decline</button>
+  </div>
+
   <div id="join" class="hidden">
     <div id="join-title">DRAUPFORGE</div>
     <input id="join-name" maxlength="16" placeholder="choose a name" autocomplete="off"
@@ -61,7 +76,7 @@
     <button class="ghost" onclick="playGuest()">play as guest</button>
   </div>
 
-  <div id="help">WASD or click to move &middot; click pickup/stairs/portal &middot; <b>Q</b> fireball &middot; <b>E</b> nova &middot; <b>R</b> spark &middot; <b>T</b> adrenaline &middot; <b>1</b>/<b>2</b> flasks &middot; <b>P</b> plant portal &middot; <b>I</b> inventory &middot; <b>M</b> mute</div>
+  <div id="help">WASD or click to move &middot; click pickup/stairs/portal &middot; <b>Q</b> fireball &middot; <b>E</b> nova &middot; <b>R</b> spark &middot; <b>T</b> adrenaline &middot; <b>1</b>/<b>2</b> flasks &middot; <b>P</b> plant portal &middot; <b>F</b> friends &middot; <b>I</b> inventory &middot; <b>M</b> mute</div>
 
   <script src="net.js"></script>
   <script src="client.js"></script>

@@ -85,13 +85,9 @@ func (t *wsTransport) Close() error {
 	return t.conn.Close(websocket.StatusNormalClosure, "")
 }
 
-// HandleWS upgrades an HTTP request to a WebSocket client of this instance.
-// It blocks until the client disconnects, like any connection read loop.
-// ?format=json swaps the binary delta wire for full-JSON views (debug);
-// ?guest=1 ignores any identity cookie and plays ephemerally. A token
-// cookie (identity.go) resumes that identity's character — unless the
-// identity is already connected, which is refused: one session per name.
-func (in *Instance) HandleWS(w http.ResponseWriter, r *http.Request) {
+// acceptWS upgrades a request and parses the view mode — shared by the
+// standalone instance and the lobby doors.
+func acceptWS(w http.ResponseWriter, r *http.Request) (*websocket.Conn, mode, bool) {
 	ws, err := websocket.Accept(w, r, &websocket.AcceptOptions{
 		// Dev server: accept any origin so LAN machines can join.
 		OriginPatterns: []string{"*"},
@@ -100,15 +96,29 @@ func (in *Instance) HandleWS(w http.ResponseWriter, r *http.Request) {
 		CompressionMode: websocket.CompressionContextTakeover,
 	})
 	if err != nil {
-		return
+		return nil, 0, false
 	}
 	m := modeBinary
 	if r.URL.Query().Get("format") == "json" {
 		m = modeJSONView
 	}
-	c := &client{tr: &wsTransport{conn: ws}, mode: m}
+	return ws, m, true
+}
+
+// HandleWS upgrades an HTTP request to a WebSocket client of this instance.
+// It blocks until the client disconnects, like any connection read loop.
+// ?format=json swaps the binary delta wire for full-JSON views (debug);
+// ?guest=1 ignores any identity cookie and plays ephemerally. A token
+// cookie (identity.go) resumes that identity's character — unless the
+// identity is already connected, which is refused: one session per name.
+func (in *Instance) HandleWS(w http.ResponseWriter, r *http.Request) {
+	ws, m, ok := acceptWS(w, r)
+	if !ok {
+		return
+	}
+	c := &client{tr: &wsTransport{conn: ws}, mode: m, inst: in}
 	if tok := cookieToken(r); tok != "" && r.URL.Query().Get("guest") == "" {
-		name, char, ok, dup := in.ids.Connect(tok)
+		name, char, ok, dup := in.ids.connectWithGrace(tok)
 		switch {
 		case dup:
 			frame, _ := json.Marshal(protocol.ServerMsg{
@@ -129,5 +139,5 @@ func (in *Instance) HandleWS(w http.ResponseWriter, r *http.Request) {
 	in.mu.Lock()
 	in.joins = append(in.joins, c)
 	in.mu.Unlock()
-	in.readLoop(r.Context(), c)
+	readLoop(r.Context(), c)
 }

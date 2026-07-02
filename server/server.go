@@ -23,6 +23,7 @@ import (
 	"net/http"
 	"sort"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/JakeMalmrose/draupforge/protocol"
@@ -94,12 +95,25 @@ type Instance struct {
 	db  *core.ContentDB
 	sim *sim.Sim
 	ids *IdentityStore
+	// lobby is set when this instance is one of many (party mode); nil for
+	// a standalone instance. The tick goroutine calls into it for social
+	// verbs and membership changes; the lobby never touches the world.
+	lobby *Lobby
+	// id names this instance in the lobby's registry and admin UI.
+	id int
 	// mapSnap is the terrain encoded once per world; rides every welcome.
 	mapSnap *protocol.MapSnap
 
 	// tickCount drives periodic host-layer work (character banking); it is
 	// process time, not world time — world swaps don't reset it.
 	tickCount uint64
+
+	// Lobby-facing telemetry, written on the tick goroutine, read by lobby
+	// goroutines: the current party (named clients), the client count, and
+	// when the instance last emptied (for reaping).
+	partyNames atomic.Value // []string
+	clientN    atomic.Int32
+	emptyAt    atomic.Int64 // unix nanos; 0 = occupied or never occupied
 
 	// Descent run state (descent.go), tick-goroutine-only. run == 0 means
 	// no descent (open-plane worlds); everything else is meaningful only
@@ -180,23 +194,36 @@ type client struct {
 	name  string
 	token string
 
+	// mu guards the client's inbound state below — everything readLoop and
+	// a tick goroutine both touch. It is its own lock domain so a client
+	// can move between instances (party transfers) without entangling two
+	// instance mutexes; never hold an instance mutex while taking it.
+	mu sync.Mutex
+	// inst is the instance currently housing this client — where readLoop
+	// routes commands and files the leave. Rewritten when a party transfer
+	// queues the client onto its destination.
+	inst  *Instance
 	actor core.EntityID
 	// early buffers commands that arrive before the tick loop has spawned
 	// this client's actor (a fast client races its own welcome); they flush
-	// into the pending queue at spawn. Guarded by the instance mutex.
+	// into the pending queue at spawn.
 	early []core.Command
 	wmu   sync.Mutex
 
-	// gen is the welcome generation: 1 at join, +1 per re-welcome (floor
-	// swap). readLoop drops acks whose gen doesn't match — they deltaed
-	// against a world this client no longer sees. Written by the tick
-	// goroutine under the instance mutex; readLoop reads it under the same.
+	// gen is the welcome generation: +1 per welcome (join, floor swap,
+	// party transfer). readLoop drops acks whose gen doesn't match — they
+	// deltaed against a world this client no longer sees.
 	gen int
 	// wantDescend/wantPlant/wantPortal buffer the transport-level run verbs
-	// for the tick goroutine, like ack. Guarded by the instance mutex.
+	// for the tick goroutine, like ack. The social verbs ride along:
+	// wantInvite names the invitee, the rest are flags.
 	wantDescend bool
 	wantPlant   bool
 	wantPortal  bool
+	wantInvite  string
+	wantAccept  bool
+	wantDecline bool
+	wantLeave   bool
 
 	// lastChar is the freshest character extraction for this client's
 	// actor, taken after every step — death compacts the actor away before
@@ -206,7 +233,7 @@ type client struct {
 	hasChar  bool
 
 	// ack is the latest view tick the client confirmed, recorded by readLoop
-	// and consumed by the tick goroutine. Guarded by the instance mutex.
+	// and consumed by the tick goroutine. Guarded by mu.
 	ack      uint64
 	ackDirty bool
 
@@ -226,6 +253,15 @@ type client struct {
 // default 10Hz send rate). A client acking something older just gets a
 // keyframe.
 const maxUnackedViews = 32
+
+// socialWant is one client's harvested social verbs for a tick, handed to
+// the lobby after the world steps.
+type socialWant struct {
+	c               *client
+	invite          string
+	accept, decline bool
+	leave           bool
+}
 
 func New(db *core.ContentDB, cfg Config) (*Instance, error) {
 	if cfg.TickInterval <= 0 {
@@ -359,6 +395,13 @@ func (in *Instance) ListenAndServe(ctx context.Context) error {
 		go in.serveAdmin(ctx)
 	}
 
+	in.runLoop(ctx)
+	return ctx.Err()
+}
+
+// run drives the tick loop until ctx ends — the whole life of an instance
+// in lobby mode, where the lobby owns all listeners.
+func (in *Instance) runLoop(ctx context.Context) {
 	ticker := time.NewTicker(in.cfg.TickInterval)
 	defer ticker.Stop()
 	for {
@@ -367,11 +410,57 @@ func (in *Instance) ListenAndServe(ctx context.Context) error {
 			for _, c := range in.clients {
 				c.tr.Close()
 			}
-			return ctx.Err()
+			return
 		case <-ticker.C:
 			in.tick()
 		}
 	}
+}
+
+// publishParty snapshots the named-client list for lobby goroutines, and
+// keeps the occupancy telemetry the reaper reads. Tick goroutine only.
+func (in *Instance) publishParty() {
+	names := []string{}
+	for _, c := range in.clients {
+		if c.name != "" {
+			names = append(names, c.name)
+		}
+	}
+	in.partyNames.Store(names)
+	in.clientN.Store(int32(len(in.clients)))
+	if len(in.clients) == 0 {
+		if in.emptyAt.Load() == 0 {
+			in.emptyAt.Store(time.Now().UnixNano())
+		}
+	} else {
+		in.emptyAt.Store(0)
+	}
+}
+
+// releaseClient hands a client off for a party transfer: out of the client
+// list and the world (character extracted like any zone transfer), but the
+// socket stays open and the identity stays online. Tick goroutine only;
+// reports false if the client isn't actually here.
+func (in *Instance) releaseClient(c *client) bool {
+	found := false
+	for i, cc := range in.clients {
+		if cc == c {
+			in.clients = append(in.clients[:i], in.clients[i+1:]...)
+			found = true
+			break
+		}
+	}
+	if !found {
+		return false
+	}
+	if a := in.sim.W.ActorByID(c.actor); a != nil {
+		if !a.Dead {
+			c.lastChar, c.hasChar = core.ExtractCharacter(a), true
+		}
+		a.Dead = true
+	}
+	in.publishParty()
+	return true
 }
 
 func (in *Instance) acceptLoop(ctx context.Context, ln net.Listener) {
@@ -380,20 +469,24 @@ func (in *Instance) acceptLoop(ctx context.Context, ln net.Listener) {
 		if err != nil {
 			return // listener closed
 		}
-		c := &client{tr: newTCPTransport(conn), mode: modeJSONWorld}
+		c := &client{tr: newTCPTransport(conn), mode: modeJSONWorld, inst: in}
 		in.mu.Lock()
 		in.joins = append(in.joins, c)
 		in.mu.Unlock()
-		go in.readLoop(ctx, c)
+		go readLoop(ctx, c)
 	}
 }
 
 // readLoop decodes one client's command lines. The actor field is always
 // overwritten with the client's assigned actor — clients command only
-// themselves, whatever they claim.
-func (in *Instance) readLoop(ctx context.Context, c *client) {
+// themselves, whatever they claim. Commands route to the client's current
+// instance, which a party transfer may swap mid-stream.
+func readLoop(ctx context.Context, c *client) {
 	defer func() {
 		c.tr.Close()
+		c.mu.Lock()
+		in := c.inst
+		c.mu.Unlock()
 		in.mu.Lock()
 		in.leaves = append(in.leaves, c)
 		in.mu.Unlock()
@@ -413,15 +506,17 @@ func (in *Instance) readLoop(ctx context.Context, c *client) {
 			// any tick we no longer hold) resets to keyframes. An ack from a
 			// previous welcome generation references a world this client no
 			// longer sees — dropped.
-			in.mu.Lock()
+			c.mu.Lock()
 			if wc.Gen == c.gen {
 				c.ack, c.ackDirty = wc.Tick, true
 			}
-			in.mu.Unlock()
+			c.mu.Unlock()
 			continue
-		case "descend", "plant_portal", "enter_portal":
-			// Run verbs are host-layer, like ack — the sim never sees them.
-			in.mu.Lock()
+		case "descend", "plant_portal", "enter_portal",
+			"invite", "accept_invite", "decline_invite", "leave_party":
+			// Run and social verbs are host-layer, like ack — the sim never
+			// sees them.
+			c.mu.Lock()
 			switch wc.Kind {
 			case "descend":
 				c.wantDescend = true
@@ -429,22 +524,37 @@ func (in *Instance) readLoop(ctx context.Context, c *client) {
 				c.wantPlant = true
 			case "enter_portal":
 				c.wantPortal = true
+			case "invite":
+				c.wantInvite = wc.Name
+			case "accept_invite":
+				c.wantAccept = true
+			case "decline_invite":
+				c.wantDecline = true
+			case "leave_party":
+				c.wantLeave = true
 			}
-			in.mu.Unlock()
+			c.mu.Unlock()
 			continue
 		}
 		cmd, err := sim.DecodeCommand(wc)
 		if err != nil {
 			continue
 		}
-		in.mu.Lock()
+		// The spawned check and the early append share one critical section:
+		// a spawn between them would flush the early buffer under our feet
+		// and strand this command.
+		c.mu.Lock()
 		if c.actor != 0 {
 			cmd.Actor = c.actor
+			in := c.inst
+			c.mu.Unlock()
+			in.mu.Lock()
 			in.pending = append(in.pending, cmd)
+			in.mu.Unlock()
 		} else {
 			c.early = append(c.early, cmd)
+			c.mu.Unlock()
 		}
-		in.mu.Unlock()
 	}
 }
 
@@ -457,8 +567,11 @@ func (in *Instance) tick() {
 	cmds := in.pending
 	ops := in.adminOps
 	in.joins, in.leaves, in.pending, in.adminOps = nil, nil, nil, nil
+	in.mu.Unlock()
 	var descends, portals, plants []*client
+	var social []socialWant
 	for _, c := range in.clients {
+		c.mu.Lock()
 		if c.wantDescend {
 			c.wantDescend = false
 			descends = append(descends, c)
@@ -471,8 +584,15 @@ func (in *Instance) tick() {
 			c.wantPlant = false
 			plants = append(plants, c)
 		}
+		if c.wantInvite != "" || c.wantAccept || c.wantDecline || c.wantLeave {
+			social = append(social, socialWant{
+				c: c, invite: c.wantInvite,
+				accept: c.wantAccept, decline: c.wantDecline, leave: c.wantLeave,
+			})
+			c.wantInvite, c.wantAccept, c.wantDecline, c.wantLeave = "", false, false, false
+		}
+		c.mu.Unlock()
 	}
-	in.mu.Unlock()
 
 	// Admin ops run here, where world and client-list access is safe. They
 	// drain even while paused — that's how resume arrives.
@@ -490,16 +610,19 @@ func (in *Instance) tick() {
 		in.tickTimes = in.tickTimes[1:]
 	}
 
+	// Joins before leaves: a client that connected and dropped inside one
+	// tick window spawns and is removed in order, instead of its leave
+	// no-opping first and the join then spawning a zombie.
 	rosterChanged := false
-	for _, c := range leaves {
-		rosterChanged = in.removeClient(c) || rosterChanged
-	}
 	var welcomes []*client
 	for _, c := range joins {
 		if in.spawnClient(c) {
 			welcomes = append(welcomes, c)
 			rosterChanged = rosterChanged || c.name != ""
 		}
+	}
+	for _, c := range leaves {
+		rosterChanged = in.removeClient(c) || rosterChanged
 	}
 
 	if !in.paused {
@@ -539,6 +662,15 @@ func (in *Instance) tick() {
 	if rosterChanged {
 		// Welcomes already carry the roster; this catches everyone else.
 		in.broadcastRoster()
+	}
+	if in.lobby != nil {
+		if rosterChanged || len(joins) > 0 || len(leaves) > 0 {
+			in.publishParty()
+			in.lobby.partyChanged(in)
+		}
+		if len(social) > 0 {
+			in.lobby.processSocial(in, social)
+		}
 	}
 
 	// Character banking: periodically copy every named client's live
@@ -605,10 +737,10 @@ func (in *Instance) frameFor(c *client, events []protocol.EventSnap) (frame []by
 		return frame, false
 	}
 
-	in.mu.Lock()
+	c.mu.Lock()
 	ack, dirty := c.ack, c.ackDirty
 	c.ackDirty = false
-	in.mu.Unlock()
+	c.mu.Unlock()
 	if dirty {
 		if v, ok := c.sent[ack]; ok {
 			c.baseline = v
@@ -648,8 +780,11 @@ func (in *Instance) frameFor(c *client, events []protocol.EventSnap) (frame []by
 // generation, actor, cadence, terrain — and, on descent worlds, the stairs
 // position and run state. Any welcome is a full client reset.
 func (in *Instance) welcomeFrame(c *client) []byte {
+	c.mu.Lock()
+	gen, actor := c.gen, c.actor
+	c.mu.Unlock()
 	msg := protocol.ServerMsg{
-		Type: "welcome", V: protocol.Version, Gen: c.gen, Actor: uint64(c.actor),
+		Type: "welcome", V: protocol.Version, Gen: gen, Actor: uint64(actor),
 		TickHz: core.TicksPerSecond, SendEvery: in.cfg.SendEvery,
 		Map: in.mapSnap,
 	}
@@ -720,28 +855,42 @@ func (in *Instance) spawnClient(c *client) bool {
 		}
 	}
 	in.joinCount++
-	in.mu.Lock()
+	c.mu.Lock()
 	c.actor = id
-	c.gen = 1
-	for _, cmd := range c.early {
-		cmd.Actor = id
-		in.pending = append(in.pending, cmd)
-	}
+	c.gen++ // monotonic per client: a party transfer must outrun old acks
+	c.ack, c.ackDirty = 0, false
+	early := c.early
 	c.early = nil
-	in.mu.Unlock()
+	c.mu.Unlock()
+	if len(early) > 0 {
+		in.mu.Lock()
+		for _, cmd := range early {
+			cmd.Actor = id
+			in.pending = append(in.pending, cmd)
+		}
+		in.mu.Unlock()
+	}
+	c.baseline, c.sent, c.sentTicks = nil, nil, nil
 	in.clients = append(in.clients, c)
 	return true
 }
 
 // removeClient despawns a leaver and, for named players, banks their
-// character. Idempotent (a leave can be filed twice); reports whether the
-// visible roster changed.
+// character. Only a client actually in this instance's list is acted on —
+// that makes double-filed leaves idempotent and keeps a leave that raced a
+// party transfer from disconnecting an identity that lives elsewhere now.
+// Reports whether the visible roster changed.
 func (in *Instance) removeClient(c *client) bool {
+	found := false
 	for i, cc := range in.clients {
 		if cc == c {
 			in.clients = append(in.clients[:i], in.clients[i+1:]...)
+			found = true
 			break
 		}
+	}
+	if !found {
+		return false
 	}
 	// Despawn between ticks: tombstone now, the next EndTick compacts.
 	// Named players' characters are banked below; a guest's carried items
@@ -765,6 +914,9 @@ func (in *Instance) removeClient(c *client) bool {
 		live = &c.lastChar
 	}
 	in.ids.Disconnect(c.token, live)
+	if in.lobby != nil {
+		in.lobby.playerLeft(c)
+	}
 	c.token = ""
 	return true
 }
@@ -792,8 +944,8 @@ func (in *Instance) sendPause(cs []*client, paused bool) {
 func (in *Instance) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/ws", in.HandleWS)
-	mux.HandleFunc("/api/claim", in.handleClaim)
-	mux.HandleFunc("/api/whoami", in.handleWhoami)
+	mux.HandleFunc("/api/claim", in.ids.handleClaim)
+	mux.HandleFunc("/api/whoami", in.ids.handleWhoami)
 	if in.cfg.StaticDir != "" {
 		mux.Handle("/", http.FileServer(http.Dir(in.cfg.StaticDir)))
 	}

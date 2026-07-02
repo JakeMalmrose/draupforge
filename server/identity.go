@@ -19,6 +19,7 @@ import (
 	"net/http"
 	"os"
 	"regexp"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -142,6 +143,28 @@ func (st *IdentityStore) Name(token string) string {
 	return ""
 }
 
+// TokenByName resolves a display name (any case) to its token.
+func (st *IdentityStore) TokenByName(name string) string {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	return st.byName[strings.ToLower(name)]
+}
+
+// OnlineNames lists connected named players, sorted — the default-visible
+// "friends list" of multiplayer.md.
+func (st *IdentityStore) OnlineNames() []string {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	var names []string
+	for _, id := range st.byToken {
+		if id.online {
+			names = append(names, id.Name)
+		}
+	}
+	sort.Strings(names)
+	return names
+}
+
 // Connect authenticates a token and marks it online. A token that is
 // unknown or already online doesn't connect; the caller treats the former
 // as a guest-with-stale-cookie and the latter as a duplicate session.
@@ -157,6 +180,20 @@ func (st *IdentityStore) Connect(token string) (name string, char *core.Characte
 	}
 	id.online = true
 	return id.Name, id.Char, true, false
+}
+
+// connectWithGrace is Connect with patience for the reconnect race: a page
+// reload's new socket can beat its old session's leave (which frees the
+// online slot a tick later), so a dup here retries briefly before it is
+// believed. A genuine second session just gets its refusal ~½s late.
+func (st *IdentityStore) connectWithGrace(token string) (name string, char *core.Character, ok, dup bool) {
+	for i := 0; ; i++ {
+		name, char, ok, dup = st.Connect(token)
+		if !dup || i >= 20 {
+			return
+		}
+		time.Sleep(30 * time.Millisecond)
+	}
 }
 
 // Disconnect banks the freshest character and frees the online slot.
@@ -230,7 +267,7 @@ func (st *IdentityStore) saveLocked() {
 // handleClaim is POST /api/claim {"name": "..."}: mint an identity and set
 // its token cookie. A request that already carries a valid token gets its
 // existing name back — reloading the join page never forks an identity.
-func (in *Instance) handleClaim(w http.ResponseWriter, r *http.Request) {
+func (st *IdentityStore) handleClaim(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, `{"error":"POST only"}`, http.StatusMethodNotAllowed)
 		return
@@ -248,13 +285,13 @@ func (in *Instance) handleClaim(w http.ResponseWriter, r *http.Request) {
 	// a different name deliberately starts a fresh identity — the new
 	// cookie replaces the old one, whose character stays banked under it.
 	if tok := cookieToken(r); tok != "" {
-		if name := in.ids.Name(tok); name != "" &&
+		if name := st.Name(tok); name != "" &&
 			strings.EqualFold(name, strings.TrimSpace(body.Name)) {
 			json.NewEncoder(w).Encode(map[string]string{"name": name})
 			return
 		}
 	}
-	tok, err := in.ids.Claim(body.Name)
+	tok, err := st.Claim(body.Name)
 	if err != nil {
 		code := http.StatusBadRequest
 		if err == errNameTaken {
@@ -281,10 +318,10 @@ func (in *Instance) handleClaim(w http.ResponseWriter, r *http.Request) {
 // handleWhoami is GET /api/whoami: {"name":"..."} for a valid token, {}
 // otherwise (including after a server-side wipe — the client then shows
 // the join screen and the stale cookie gets replaced by the next claim).
-func (in *Instance) handleWhoami(w http.ResponseWriter, r *http.Request) {
+func (st *IdentityStore) handleWhoami(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	if tok := cookieToken(r); tok != "" {
-		if name := in.ids.Name(tok); name != "" {
+		if name := st.Name(tok); name != "" {
 			json.NewEncoder(w).Encode(map[string]string{"name": name})
 			return
 		}
