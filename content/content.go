@@ -27,6 +27,20 @@ func DB() *core.ContentDB {
 	for _, b := range baseItemDefs() {
 		db.BaseItems[b.ID] = b
 	}
+	// Per-slot pools must stay deep enough to fill a rare (3 prefixes + 3
+	// suffixes from distinct groups) on every family a base occupies —
+	// starving a pool is a content bug, caught here instead of at drop time.
+	for _, b := range db.BaseItems {
+		groups := [2]map[string]bool{{}, {}}
+		for _, af := range db.Affixes {
+			if af.AllowedOn(b.Slot) {
+				groups[af.Kind][af.Group] = true
+			}
+		}
+		if len(groups[core.Prefix]) < 3 || len(groups[core.Suffix]) < 3 {
+			panic("content: affix pool too shallow for " + b.ID)
+		}
+	}
 	for _, t := range lootTableDefs() {
 		db.LootTables[t.ID] = t
 	}
@@ -320,170 +334,223 @@ func actorDefs() []*core.ActorDef {
 // goldens), so append new affixes at the end of their kind block. Groups
 // with a "_greater" entry are tiered: one group, two rarity-of-roll bands.
 func affixDefs() []*core.AffixDef {
+	// Per-slot pools: which families each affix can roll on, PoE-flavored —
+	// damage lives on weapons (and rings, flat), defences on armour pieces,
+	// movement speed on boots alone. DB() asserts every family keeps at
+	// least 3 prefix and 3 suffix groups, enough to fill a rare.
+	var (
+		flatDmg  = []core.SlotFamily{core.FamilyWeapon, core.FamilyRing}
+		incEle   = []core.SlotFamily{core.FamilyWeapon, core.FamilyAmulet, core.FamilyRing}
+		caster   = []core.SlotFamily{core.FamilyWeapon, core.FamilyAmulet}
+		armours  = []core.SlotFamily{core.FamilyOffhand, core.FamilyHelmet, core.FamilyBody, core.FamilyGloves, core.FamilyBoots, core.FamilyBelt}
+		evasions = []core.SlotFamily{core.FamilyOffhand, core.FamilyHelmet, core.FamilyBody, core.FamilyGloves, core.FamilyBoots}
+		esSlots  = []core.SlotFamily{core.FamilyOffhand, core.FamilyHelmet, core.FamilyBody, core.FamilyGloves, core.FamilyBoots, core.FamilyBelt, core.FamilyAmulet}
+		lifes    = []core.SlotFamily{core.FamilyOffhand, core.FamilyHelmet, core.FamilyBody, core.FamilyGloves, core.FamilyBoots, core.FamilyBelt, core.FamilyAmulet, core.FamilyRing}
+		manas    = []core.SlotFamily{core.FamilyOffhand, core.FamilyHelmet, core.FamilyGloves, core.FamilyBoots, core.FamilyAmulet, core.FamilyRing}
+		regens   = []core.SlotFamily{core.FamilyHelmet, core.FamilyBody, core.FamilyAmulet, core.FamilyRing}
+		resists  = []core.SlotFamily{core.FamilyOffhand, core.FamilyHelmet, core.FamilyBody, core.FamilyGloves, core.FamilyBoots, core.FamilyBelt, core.FamilyAmulet, core.FamilyRing}
+		crits    = []core.SlotFamily{core.FamilyWeapon, core.FamilyAmulet}
+		attacks  = []core.SlotFamily{core.FamilyWeapon, core.FamilyGloves}
+		accs     = []core.SlotFamily{core.FamilyWeapon, core.FamilyHelmet, core.FamilyGloves, core.FamilyRing}
+		procs    = []core.SlotFamily{core.FamilyWeapon, core.FamilyGloves, core.FamilyAmulet, core.FamilyRing}
+		boots    = []core.SlotFamily{core.FamilyBoots}
+	)
 	return []*core.AffixDef{
 		// --- prefixes: damage
 		{
 			ID: "flat_fire_damage", Group: "added_fire", Kind: core.Prefix,
 			Stat: stats.Damage, Layer: stats.LayerFlat, Tags: stats.T(stats.TagFire),
 			Min: fm.FromInt(2), Max: fm.FromInt(5), Weight: 100,
+			Families: flatDmg,
 		},
 		{
 			ID: "flat_cold_damage", Group: "added_cold", Kind: core.Prefix,
 			Stat: stats.Damage, Layer: stats.LayerFlat, Tags: stats.T(stats.TagCold),
 			Min: fm.FromInt(2), Max: fm.FromInt(5), Weight: 100,
+			Families: flatDmg,
 		},
 		{
 			ID: "flat_lightning_damage", Group: "added_lightning", Kind: core.Prefix,
 			Stat: stats.Damage, Layer: stats.LayerFlat, Tags: stats.T(stats.TagLightning),
 			Min: fm.FromInt(1), Max: fm.FromInt(7), Weight: 100,
+			Families: flatDmg,
 		},
 		{
 			ID: "flat_phys_damage", Group: "added_phys", Kind: core.Prefix,
 			Stat: stats.Damage, Layer: stats.LayerFlat, Tags: stats.T(stats.TagPhysical),
 			Min: fm.FromInt(2), Max: fm.FromInt(4), Weight: 90,
+			Families: flatDmg,
 		},
 		{
 			ID: "increased_spell_damage", Group: "spell_damage", Kind: core.Prefix,
 			Stat: stats.Damage, Layer: stats.LayerIncreased, Tags: stats.T(stats.TagSpell),
 			Min: fm.FromMilli(80), Max: fm.FromMilli(150), Weight: 70, // 8–15%
+			Families: caster,
 		},
 		{
 			ID: "increased_fire_damage", Group: "fire_damage", Kind: core.Prefix,
 			Stat: stats.Damage, Layer: stats.LayerIncreased, Tags: stats.T(stats.TagFire),
 			Min: fm.FromMilli(100), Max: fm.FromMilli(200), Weight: 60, // 10–20%
+			Families: incEle,
 		},
 		{
 			ID: "increased_cold_damage", Group: "cold_damage", Kind: core.Prefix,
 			Stat: stats.Damage, Layer: stats.LayerIncreased, Tags: stats.T(stats.TagCold),
 			Min: fm.FromMilli(100), Max: fm.FromMilli(200), Weight: 60,
+			Families: incEle,
 		},
 		{
 			ID: "increased_lightning_damage", Group: "lightning_damage", Kind: core.Prefix,
 			Stat: stats.Damage, Layer: stats.LayerIncreased, Tags: stats.T(stats.TagLightning),
 			Min: fm.FromMilli(100), Max: fm.FromMilli(200), Weight: 60,
+			Families: incEle,
 		},
 		// --- prefixes: defences and pools
 		{
 			ID: "flat_life", Group: "life", Kind: core.Prefix,
 			Stat: stats.Life, Layer: stats.LayerFlat,
 			Min: fm.FromInt(10), Max: fm.FromInt(25), Weight: 100,
+			Families: lifes,
 		},
 		{
 			ID: "flat_life_greater", Group: "life", Kind: core.Prefix,
 			Stat: stats.Life, Layer: stats.LayerFlat,
 			Min: fm.FromInt(26), Max: fm.FromInt(45), Weight: 35,
+			Families: lifes,
 		},
 		{
 			ID: "flat_mana", Group: "mana", Kind: core.Prefix,
 			Stat: stats.Mana, Layer: stats.LayerFlat,
 			Min: fm.FromInt(8), Max: fm.FromInt(18), Weight: 90,
+			Families: manas,
 		},
 		{
 			ID: "flat_armour", Group: "armour", Kind: core.Prefix,
 			Stat: stats.Armour, Layer: stats.LayerFlat,
 			Min: fm.FromInt(15), Max: fm.FromInt(40), Weight: 80,
+			Families: armours,
 		},
 		{
 			ID: "flat_armour_greater", Group: "armour", Kind: core.Prefix,
 			Stat: stats.Armour, Layer: stats.LayerFlat,
 			Min: fm.FromInt(41), Max: fm.FromInt(75), Weight: 25,
+			Families: armours,
 		},
 		{
 			ID: "flat_evasion", Group: "evasion", Kind: core.Prefix,
 			Stat: stats.Evasion, Layer: stats.LayerFlat,
 			Min: fm.FromInt(15), Max: fm.FromInt(40), Weight: 80,
+			Families: evasions,
 		},
 		{
 			ID: "flat_energy_shield", Group: "energy_shield", Kind: core.Prefix,
 			Stat: stats.EnergyShield, Layer: stats.LayerFlat,
 			Min: fm.FromInt(10), Max: fm.FromInt(25), Weight: 70,
+			Families: esSlots,
 		},
 		{
 			ID: "life_regen", Group: "life_regen", Kind: core.Prefix,
 			Stat: stats.LifeRegen, Layer: stats.LayerFlat,
 			Min: fm.FromInt(1), Max: fm.FromInt(3), Weight: 60,
+			Families: regens,
 		},
 		{
 			ID: "mana_regen", Group: "mana_regen", Kind: core.Prefix,
 			Stat: stats.ManaRegen, Layer: stats.LayerFlat,
 			Min: fm.FromMilli(500), Max: fm.FromMilli(1500), Weight: 60,
+			Families: regens,
 		},
 		// --- suffixes: resistances
 		{
 			ID: "fire_resistance", Group: "fire_res", Kind: core.Suffix,
 			Stat: stats.FireRes, Layer: stats.LayerFlat,
 			Min: fm.FromMilli(100), Max: fm.FromMilli(200), Weight: 100, // 10–20%
+			Families: resists,
 		},
 		{
 			ID: "fire_resistance_greater", Group: "fire_res", Kind: core.Suffix,
 			Stat: stats.FireRes, Layer: stats.LayerFlat,
 			Min: fm.FromMilli(210), Max: fm.FromMilli(300), Weight: 30, // 21–30%
+			Families: resists,
 		},
 		{
 			ID: "cold_resistance", Group: "cold_res", Kind: core.Suffix,
 			Stat: stats.ColdRes, Layer: stats.LayerFlat,
 			Min: fm.FromMilli(100), Max: fm.FromMilli(200), Weight: 100,
+			Families: resists,
 		},
 		{
 			ID: "cold_resistance_greater", Group: "cold_res", Kind: core.Suffix,
 			Stat: stats.ColdRes, Layer: stats.LayerFlat,
 			Min: fm.FromMilli(210), Max: fm.FromMilli(300), Weight: 30,
+			Families: resists,
 		},
 		{
 			ID: "lightning_resistance", Group: "lightning_res", Kind: core.Suffix,
 			Stat: stats.LightningRes, Layer: stats.LayerFlat,
 			Min: fm.FromMilli(100), Max: fm.FromMilli(200), Weight: 100,
+			Families: resists,
 		},
 		{
 			ID: "lightning_resistance_greater", Group: "lightning_res", Kind: core.Suffix,
 			Stat: stats.LightningRes, Layer: stats.LayerFlat,
 			Min: fm.FromMilli(210), Max: fm.FromMilli(300), Weight: 30,
+			Families: resists,
 		},
 		{
 			ID: "chaos_resistance", Group: "chaos_res", Kind: core.Suffix,
 			Stat: stats.ChaosRes, Layer: stats.LayerFlat,
 			Min: fm.FromMilli(50), Max: fm.FromMilli(150), Weight: 40, // 5–15%
+			Families: resists,
 		},
 		// --- suffixes: offense and utility
 		{
 			ID: "crit_chance", Group: "crit", Kind: core.Suffix,
 			Stat: stats.CritChance, Layer: stats.LayerFlat,
 			Min: fm.FromMilli(10), Max: fm.FromMilli(30), Weight: 60, // 1–3%
+			Families: crits,
 		},
 		{
 			ID: "crit_multi", Group: "crit_multi", Kind: core.Suffix,
 			Stat: stats.CritMulti, Layer: stats.LayerFlat,
 			Min: fm.FromMilli(100), Max: fm.FromMilli(250), Weight: 40, // +10–25%
+			Families: crits,
 		},
 		{
 			ID: "increased_cast_speed", Group: "cast_speed", Kind: core.Suffix,
 			Stat: stats.CastSpeed, Layer: stats.LayerIncreased,
 			Min: fm.FromMilli(50), Max: fm.FromMilli(100), Weight: 60, // 5–10%
+			Families: caster,
 		},
 		{
 			ID: "increased_attack_speed", Group: "attack_speed", Kind: core.Suffix,
 			Stat: stats.AttackSpeed, Layer: stats.LayerIncreased,
 			Min: fm.FromMilli(50), Max: fm.FromMilli(100), Weight: 60,
+			Families: attacks,
 		},
 		{
 			ID: "increased_move_speed", Group: "move_speed", Kind: core.Suffix,
 			Stat: stats.MoveSpeed, Layer: stats.LayerIncreased,
 			Min: fm.FromMilli(40), Max: fm.FromMilli(80), Weight: 40, // 4–8%
+			Families: boots,
 		},
 		{
 			ID: "flat_accuracy", Group: "accuracy", Kind: core.Suffix,
 			Stat: stats.Accuracy, Layer: stats.LayerFlat,
 			Min: fm.FromInt(20), Max: fm.FromInt(50), Weight: 70,
+			Families: accs,
 		},
 		{
 			ID: "ignite_chance", Group: "ignite_chance", Kind: core.Suffix,
 			Stat: stats.IgniteChance, Layer: stats.LayerFlat,
 			Min: fm.FromMilli(50), Max: fm.FromMilli(100), Weight: 40, // 5–10%
+			Families: procs,
 		},
 		{
 			ID: "shock_chance", Group: "shock_chance", Kind: core.Suffix,
 			Stat: stats.ShockChance, Layer: stats.LayerFlat,
 			Min: fm.FromMilli(50), Max: fm.FromMilli(100), Weight: 40,
+			Families: procs,
 		},
 	}
 }

@@ -82,7 +82,7 @@ func RollItem(w *core.World, table *core.LootTableDef) core.Item {
 	usedGroups := make(map[string]bool)
 	kindCounts := [2]int{}
 	for len(item.Affixes) < want {
-		af := pickAffix(w, usedGroups, kindCounts, kindCap)
+		af := pickAffix(w, item.Base.Slot, usedGroups, kindCounts, kindCap)
 		if af == nil {
 			// Pool exhausted under constraints: a starved table is a content
 			// bug, so make it visible instead of silently rolling short.
@@ -126,10 +126,10 @@ func rollRarity(w *core.World, table *core.LootTableDef) core.Rarity {
 
 // pickAffix does a weighted draw over the affixes still legal for this item.
 // Iterates the content slice in order — deterministic by construction.
-func pickAffix(w *core.World, usedGroups map[string]bool, kindCounts [2]int, kindCap int) *core.AffixDef {
+func pickAffix(w *core.World, slot core.SlotFamily, usedGroups map[string]bool, kindCounts [2]int, kindCap int) *core.AffixDef {
 	var total uint64
 	for _, af := range w.Content.Affixes {
-		if legal(af, usedGroups, kindCounts, kindCap) {
+		if legal(af, slot, usedGroups, kindCounts, kindCap) {
 			total += uint64(af.Weight)
 		}
 	}
@@ -138,7 +138,7 @@ func pickAffix(w *core.World, usedGroups map[string]bool, kindCounts [2]int, kin
 	}
 	roll := w.RNGLoot.Uint64n(total)
 	for _, af := range w.Content.Affixes {
-		if !legal(af, usedGroups, kindCounts, kindCap) {
+		if !legal(af, slot, usedGroups, kindCounts, kindCap) {
 			continue
 		}
 		if roll < uint64(af.Weight) {
@@ -149,6 +149,6 @@ func pickAffix(w *core.World, usedGroups map[string]bool, kindCounts [2]int, kin
 	return nil // unreachable
 }
 
-func legal(af *core.AffixDef, usedGroups map[string]bool, kindCounts [2]int, kindCap int) bool {
-	return !usedGroups[af.Group] && kindCounts[af.Kind] < kindCap
+func legal(af *core.AffixDef, slot core.SlotFamily, usedGroups map[string]bool, kindCounts [2]int, kindCap int) bool {
+	return af.AllowedOn(slot) && !usedGroups[af.Group] && kindCounts[af.Kind] < kindCap
 }

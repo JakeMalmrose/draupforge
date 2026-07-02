@@ -198,6 +198,24 @@ type AffixDef struct {
 
 	Min, Max fm.Fixed
 	Weight   uint32
+
+	// Families is the slot families this affix can roll on; nil means any
+	// slot. content.DB() asserts every family keeps a pool deep enough to
+	// fill a rare.
+	Families []SlotFamily
+}
+
+// AllowedOn reports whether the affix can roll on an item of family f.
+func (af *AffixDef) AllowedOn(f SlotFamily) bool {
+	if len(af.Families) == 0 {
+		return true
+	}
+	for _, allowed := range af.Families {
+		if allowed == f {
+			return true
+		}
+	}
+	return false
 }
 
 // SlotFamily is the kind of slot a base item occupies; families with
