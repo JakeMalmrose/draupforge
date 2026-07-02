@@ -11,8 +11,8 @@ tests, and session-log entries older than a few sessions (git history is the
 archive). If this file outgrows ~150 lines, it has stopped being a status doc
 and started being a changelog — cut it back.
 
-**Last updated: 2026-07-01** (session 19: per-slot affix pools — gear
-rolls slot-appropriate affixes, move speed lives on boots alone)
+**Last updated: 2026-07-01** (session 20: eject grace — 2.5s of damage
+immunity on death arrivals, riding the buff machinery)
 
 ## Where things stand
 
@@ -172,10 +172,10 @@ Structural risks live in `RISKS.md` — read it before building anything load-be
   cornered archer stands and fights.
 - Affix tiers are shallow (one "greater" tier on a few groups) and pools
   don't scale with item/monster level yet — depth for later.
-- Spawn-camp pressure got its fix (session 16): territorial aggro means
-  packs no longer converge on the portal room and stay there. Residual
-  risk: a portal planted inside a territory still gets you greeted on
-  eject — invulnerability ticks remain an option if that stings in play.
+- Spawn-camp pressure is fixed twice over: territorial aggro (session
+  16) stops packs converging on the portal room, and death arrivals get
+  2.5s of portal grace (session 20) — a portal planted inside a
+  territory no longer means an instant re-kill.
 - Run state (floor, portals, run seed) is host-layer and NOT in World.Save:
   `-load` resumes the world as floor 1 of a fresh run. Fine until runs are
   worth persisting.
@@ -187,7 +187,8 @@ Structural risks live in `RISKS.md` — read it before building anything load-be
   requirement; packs gain +1 monster and +1 level per floor; monster XP
   scales linearly with level; hideout trips cost 1 use, returns free;
   rarity chances (magic 10% +2%/floor cap 30%, rare 2% +1%/floor cap 12%),
-  XP multipliers (×3/×6), and drop attempts (2/3) per rarity.
+  XP multipliers (×3/×6), and drop attempts (2/3) per rarity; portal
+  grace lasts 2.5s.
 - Cast-on-death portal still deliberately unshipped — it must carry an
   opportunity cost (a gem slot once gems exist), never free.
 
@@ -204,6 +205,15 @@ fun-first counterweight to all of that.
 
 ## Session log
 
+- **2026-07-01 (20)** — Eject grace. `portal_grace` BuffDef (DamageTaken
+  overridden to 0 for 2.5s — zeroed hits also starve ailments, whose
+  magnitudes scale off dealt damage); the host grants it to every client
+  actor after a death eject or run-over arrival via `combat.ApplyBuff`
+  between ticks (no RNG, no pending state — safe at the swap seam).
+  Voluntary travel (stairs, portal trips) stays unshielded. The client's
+  existing buff ring shows it. Server test pins: buff present after
+  eject, slam bounces during grace, hurts after expiry. Goldens
+  untouched.
 - **2026-07-01 (19)** — Per-slot affix pools (ROADMAP phase 3's "an item
   is exciting when it's good *for me*"). `AffixDef.Families` (nil = any)
   + `AllowedOn`; `pickAffix` filters by the base's slot family. All 32

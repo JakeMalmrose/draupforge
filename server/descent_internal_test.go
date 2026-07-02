@@ -12,10 +12,12 @@ import (
 
 	"github.com/JakeMalmrose/draupforge/content"
 	"github.com/JakeMalmrose/draupforge/protocol"
+	"github.com/JakeMalmrose/draupforge/sim/combat"
 	"github.com/JakeMalmrose/draupforge/sim/core"
 	fm "github.com/JakeMalmrose/draupforge/sim/fixmath"
 	"github.com/JakeMalmrose/draupforge/sim/progress"
 	"github.com/JakeMalmrose/draupforge/sim/space"
+	"github.com/JakeMalmrose/draupforge/sim/stats"
 )
 
 // fakeTransport records outbound frames.
@@ -315,5 +317,54 @@ func TestFloorSeedsAreReplayable(t *testing.T) {
 	}
 	if space.Dist(farthestWalkable(s1.W.Grid), s1.W.Grid.Spawn) < fm.FromInt(5) {
 		t.Error("stairs suspiciously close to the spawn room")
+	}
+}
+
+// TestDeathEjectGrantsGrace: a death eject arrives shielded — hits deal
+// nothing until the portal-grace buff runs out, then hurt normally.
+func TestDeathEjectGrantsGrace(t *testing.T) {
+	in, c, _ := descentInstance(t, 3)
+	killActor(in, c)
+	in.handleDeaths([]*client{c})
+
+	w := in.sim.W
+	a := w.ActorByID(c.actor)
+	if a == nil {
+		t.Fatal("no respawned actor")
+	}
+	grace := w.Content.Buffs["portal_grace"]
+	found := false
+	for _, s := range a.Statuses {
+		if s.Buff == grace {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("death eject did not grant portal_grace")
+	}
+
+	zid, err := in.sim.Spawn("zombie", a.Pos)
+	if err != nil {
+		t.Fatal(err)
+	}
+	slam := w.Content.Skills["zombie_slam"]
+	hit := func() {
+		w.QueueHit(core.Hit{
+			Attacker: zid, Defender: a.ID, Skill: slam,
+			Tags: slam.Tags.With(stats.TagHit),
+		})
+		combat.ResolveHits(w)
+	}
+	hit()
+	if a.Life != a.MaxLife() {
+		t.Errorf("hit during grace dealt damage: life %v / %v", a.Life, a.MaxLife())
+	}
+
+	for i := uint32(0); i <= grace.DurationTicks; i++ {
+		combat.TickStatuses(w)
+	}
+	hit()
+	if a.Life == a.MaxLife() {
+		t.Error("hit after grace expiry dealt nothing — grace never ended")
 	}
 }
