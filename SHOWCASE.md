@@ -5,7 +5,7 @@ the *why* and the rules; this is the *look what that bought us*. Everything
 below is built and tested, not aspirational — `STATUS.md` tracks the
 shortcuts and `RISKS.md` the known structural debts.
 
-The whole game is ~a dozen Go packages and three browser files with no build
+The whole game is ~a dozen Go packages and four browser files with no build
 step. The thesis: in a server-authoritative ARPG, **determinism is the
 product** — replays, golden tests, anti-cheat verification, and rollback all
 fall out of one discipline, so the entire stack is shaped around protecting
@@ -106,7 +106,9 @@ perfect determinism. The phase order inside `Step` — commands → AI →
 actions → projectiles → hits → DoTs → deaths/loot → events → compact — is
 the determinism contract, and only the root `sim` package knows it.
 Parallelism is horizontal: many instances, many goroutines (exactly how PoE
-itself scales). The package graph is cycle-free by construction: data types
+itself scales) — literal since the Lobby landed: one process hosts a world
+per party, and moving a player between them is an extract/inject at tick
+boundaries, never shared state. The package graph is cycle-free by construction: data types
 in `sim/core`, logic in leaf packages, `protocol/` imports *nothing*.
 
 The server respects the invariant rather than fighting it: connection
@@ -165,9 +167,10 @@ scene, and unpause.
 
 ## 11. An admin port with zero new locks
 
-`server/admin.go` serves a dashboard + JSON API on its own port: tick health
-(target vs actual Hz), entity/client/bandwidth counts, a live event stream,
-the world hash, pause/resume, spawn, kick. The trick: every handler that
+`server/admin.go` serves a dashboard + JSON API on its own port — the lobby
+serves an instance index, each world's dashboard under `/i/{id}/`: tick
+health (target vs actual Hz), entity/client/bandwidth counts, a live event
+stream, the world hash, pause/resume, spawn, kick, dev cheats. The trick: every handler that
 touches the world enqueues a closure that **the tick goroutine itself runs
 between ticks** and replies over a channel. The single-goroutine invariant
 holds, every response is a consistent between-ticks view, and the admin

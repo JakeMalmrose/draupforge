@@ -25,10 +25,11 @@ draupforge/
 ├── sim/        # Deterministic sim core — pure, no I/O (see DESIGN.md for internals)
 ├── content/    # Game data as typed Go literals: skills, monsters, affix pools
 ├── protocol/   # Command + snapshot wire types, versioned; binary delta view codec
-├── server/     # Hosts the sim over TCP/NDJSON (debug) + WebSocket: per-client delta views
+├── server/     # Lobby of per-party instances, named identities (cookie-token auth),
+│               # TCP/NDJSON (debug) + WebSocket transports, per-client delta views
 ├── web/        # Browser client: canvas renderer + WebSocket, no build step
 ├── scripts/    # Scenario scripts for the headless runner
-└── cmd/        # Entrypoints: headless debug runner, server binary
+└── cmd/        # Entrypoints: headless debug runner, server binary, partybot (fake friend)
 ```
 
 ## Quickstart
@@ -38,18 +39,24 @@ go test ./...                                          # full suite incl. golden
 go run ./cmd/headless -script scripts/slice.json       # watch the vertical slice fight
 go run ./cmd/headless -script scripts/slice.json -hash # per-tick state hashes
 
-go run ./cmd/server -scenario scripts/arena.json       # host an instance
+go run ./cmd/server -scenario scripts/arena.json       # host a lobby
 open http://localhost:8080                             # play it in the browser
 open http://localhost:9090                             # admin dashboard (no auth — keep it private)
+go run ./cmd/partybot -name Botty                      # a fake friend that accepts invites (F panel)
 echo '{"kind":"move","x":5000,"y":0}' | nc localhost 7777   # or be a brave TCP client
 ```
+
+Or just play the deployed build: **https://nuc.tail4b8d48.ts.net** — every
+merge to `main` auto-redeploys it (`.github/workflows/deploy.yml`; setup
+notes in `multiplayer.md`).
 
 Intentional behavior changes re-record the golden trace:
 `DRAUPFORGE_UPDATE_GOLDEN=1 go test ./sim/ -run TestGoldenReplay`
 
 See `DESIGN.md` for the foundational decisions (stat algebra, damage
-pipeline, determinism rules, package layout), and `SHOWCASE.md` for the
-engineering tour — what the determinism discipline actually buys.
+pipeline, determinism rules, package layout), `SHOWCASE.md` for the
+engineering tour — what the determinism discipline actually buys — and
+`multiplayer.md` for the identity/party design and the hosting setup.
 
 ## Conventions
 

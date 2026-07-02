@@ -11,13 +11,25 @@ tests, and session-log entries older than a few sessions (git history is the
 archive). If this file outgrows ~150 lines, it has stopped being a status doc
 and started being a changelog — cut it back.
 
-**Last updated: 2026-07-02** (session 38: multiplayer — lobby of per-party
-instances, friends/invites, on top of session 37's named identities; merged
-with the parallel gems/skill-feel stream, unified wire v18)
+**Last updated: 2026-07-02** (session 40: docs true-up — this file's body now
+reflects the multiplayer lobby, identities, and CI/CD that sessions 36–39
+shipped)
 
 ## Where things stand
 
-The game is a game now: you descend. `cmd/server` hosts one run at a time —
+The game is public and multiplayer: https://nuc.tail4b8d48.ts.net (Tailscale
+Funnel → the nuc; CI redeploys on every merge to main — see the CI/CD row).
+`cmd/server` runs a Lobby of instances. On connect you claim a name or play
+as guest: a claim mints a secret token in an HttpOnly cookie, and the token
+(never the name) resumes your character — banked to the `-identities` JSON on
+disconnect and every 30s. Guests are ephemeral. Every connection gets its own
+world and run; party = instance — the F panel lists all online named players
+(the default friends list), an accepted invite transfers you into the
+inviter's world via the floor-swap machinery, and empty instances reap after
+60s, doubling as reconnect grace back into your run. `cmd/partybot` is a fake
+friend for testing invites solo.
+
+The game is a game now: you descend. Each instance hosts one run at a time —
 floors are whole fresh Worlds seeded from (run seed, floor index); stairs at
 the far end of each floor take everyone a level deeper; packs grow and level
 with depth (and pay leveled XP). Death costs XP (never de-levels) and ejects
@@ -45,10 +57,11 @@ loop still holds: click-to-move with pathing, the full item
 flow, ailments, kiting archers. Run it:
 
 ```sh
-go test ./...                                    # ~55 tests, all green
+go test ./...                                    # full suite, all green
 go run ./cmd/headless -script scripts/slice.json # watch the fight as events
 go run ./cmd/server -scenario scripts/arena.json # then open localhost:8080
                                                  # admin dashboard: localhost:9090
+go run ./cmd/partybot -name Botty                # a friend to invite (F panel)
 ```
 
 All foundational machinery from DESIGN.md is real, not stubbed:
@@ -61,11 +74,11 @@ All foundational machinery from DESIGN.md is real, not stubbed:
 | World/Actor/Hit/defs, RNG, state hashing | `sim/core` | done |
 | Damage pipeline + DoTs + regen | `sim/combat` | done, tested |
 | Statuses: ignite (DoT) + chill/shock (hit-scaled, strongest-wins) + content buffs (`BuffDef` packages, refresh-not-stack, `SkillBuff` skills via pending-buff queue) | `sim/combat/ailments.go`, `buff.go` | done, tested |
-| Persistence: `World.Save`/`LoadWorld` (versioned JSON, content by string ID, bit-exact continuation), admin `POST /api/save`, `cmd/server -load`; descent instances wrap the world in a run envelope (`server/runsave.go`, own version gate) so loads resume mid-run — legacy bare-world files still load as fresh runs | `sim/core/save.go`, `sim/space/save.go`, `server/runsave.go` | done, tested |
+| Persistence: `World.Save`/`LoadWorld` (versioned JSON, content by string ID, bit-exact continuation), admin `POST /api/save`; descent instances wrap the world in a run envelope (`server/runsave.go`, own version gate) — but `-load` is currently refused in lobby mode (see shortcuts) | `sim/core/save.go`, `sim/space/save.go`, `server/runsave.go` | done, tested; `-load` regressed by the lobby |
 | Actions (windup/recovery) + projectiles; skill-feel mechanics: impact explosions with linear distance falloff (`Hit.AreaScale`, events noted `<skill>:aoe`), wall bounce (`SegmentHitN` face normals), heading wiggle (combat-stream draw every `WigglePeriod` ticks), hitscan chain skills (`SkillChain`: aim-point acquisition + shared chain-hop targeting) | `sim/skills` | done, tested |
 | Loot: per-table rarity weights, weighted affixes, group caps, per-slot affix pools (`AffixDef.Families`, DB() asserts 3+3 groups per family), rolled base implicits, starved-pool event | `sim/items` | done, tested |
 | Currency: `Actor.Orbs` wallet (transmute/alch/chaos/jeweller), orbs bank straight to the killer (one loot draw per kill, rates ×2/×3 by dier rarity), `apply_orb` on bag items (transmute normal→magic, alch normal→rare, chaos rerolls rare — shared `fillAffixes`; jewellers go to gems via `add_socket`), durable (save v8, transfers), panel orb strip with apply-mode | `sim/items/loot.go`, `web/` | done, tested |
-| Gems: players cast only from cut gems (`Actor.Gems`; `ActorDef.StartingGems` seeds Fireball, monsters keep `Def.Skills`); uncut gem items drop with a 3-distinct-choice draft rolled at drop time (loot stream; per-table permilles ×2/×3 by rarity), level = dier level capped 20; verbs `cut_skill` (new gem at drop level, replace at the 4-gem cap), `level_gem` (raise-to-drop-level), `cut_support` (tag-gated, socket-addressed, swap destroys), `add_socket` (jeweller, cap 4); supports fold into the socketed skill's queries only (more/less, added flat, cast/attack speed, mana mult, +projectiles fan, chain with LoS retarget, fire/lightning→cold conversion — the pipeline's conversion stage is live, converted portions scale by both types' mods); gem level scales the skill's base roll +10%/level and mana +5%/level; cast contexts bake at use time so in-flight projectiles keep their stats; durable (save v9, transfers, hashed), wire v16 (gem field group + welcome tables), client gem panel/cut dialog/dynamic skill bar | `sim/core/gems.go`, `sim/items/gems.go`, `sim/combat/pipeline.go`, `content/supports.go`, `web/` | done, tested (13 gem tests), verified live in the browser |
+| Gems: players cast only from cut gems (`Actor.Gems`; `ActorDef.StartingGems` seeds Fireball, monsters keep `Def.Skills`); uncut gem items drop with a 3-distinct-choice draft rolled at drop time (loot stream; per-table permilles ×2/×3 by rarity), level = dier level capped 20; verbs `cut_skill` (new gem at drop level, replace at the 4-gem cap), `level_gem` (raise-to-drop-level), `cut_support` (tag-gated, socket-addressed, swap destroys), `add_socket` (jeweller, cap 4); supports fold into the socketed skill's queries only (more/less, added flat, cast/attack speed, mana mult, +projectiles fan, chain with LoS retarget, fire/lightning→cold conversion — the pipeline's conversion stage is live, converted portions scale by both types' mods); gem level scales the skill's base roll +10%/level and mana +5%/level; cast contexts bake at use time so in-flight projectiles keep their stats; durable (save v9, transfers, hashed), gem field group + welcome tables on the wire, client gem panel/cut dialog/dynamic skill bar | `sim/core/gems.go`, `sim/items/gems.go`, `sim/combat/pipeline.go`, `content/supports.go`, `web/` | done, tested (13 gem tests), verified live in the browser |
 | Progression: XP on kill (scaled by monster level), quadratic curve, level cap 50, PerLevel growth mods under `LevelModSource`, ding heal, HUD level + XP bar | `sim/progress`, `core.Actor.SetLevel` | done, tested |
 | Flasks: `ActorDef.Flasks` (buff IDs) + `Actor.FlaskCharges`, `use_flask` command (charges-gated, applies the flask's regen-burst buff, legal mid-swing), kills feed +10 capped 60 (same reward hook as XP), durable across transfers/saves (v7), charges group on the wire (v14), HUD vials on keys 1/2 | `sim/`, `content/`, `protocol/`, `web/` | done, tested |
 | Passive forks: `PassiveDef` milestones (5/10, 3 forks each), `choose_passive` command (level-gated, one per milestone, permanent under `PassiveModSource`), durable across transfers (`Character.Passives`) and saves (v6), table in the welcome + chosen IDs on actors (protocol v13), client chooser card | `sim/core`, `content/`, `protocol/`, `web/` | done, tested |
@@ -75,11 +88,14 @@ All foundational machinery from DESIGN.md is real, not stubbed:
 | Equipment: 10 slots (weapon…belt), slot-addressed equip command (auto fallback), affix→sheet | `sim/items/equip.go` | done, tested |
 | Inventory: pickup/unequip/drop_item, capacity | `sim/items/equip.go` | done, tested |
 | Server: TCP + WS transports, joins/leaves, send-rate decoupling, interest culling, binary deltas + acks, pause | `server/` | done, race-tested |
-| Admin dashboard: observe (tick health, counts, bandwidth, events, world hash, run/floor/portals line) + poke (pause/resume, spawn, kick), dev-cheat panel with buttons (`/api/gem` force-cuts a gem, `/api/god` toggles DamageTaken-zero, `/api/orbs` grants currency; actor field defaults to the first client, per-client "cheat" prefill) — cheats are zone-local sheet/wallet pokes | `server/admin.go` | done, tested; NO AUTH — localhost/tailnet only |
-| Web client: canvas, input, terrain render (walls/floor), drag-drop inventory grid (icons, tooltips), delta decoding, tick-timeline interpolation, fade-in/out, cast/impact VFX + ailment rings, floating damage numbers (crit/self emphasis), hit flashes, death pops (rarity-scaled), PoE2-style HUD (life/mana globes, clickable skill bar with mana-gating, `SKILL_BAR` as the single keybind source) | `web/` | working, no build step |
+| Identity: name claim mints a 32-byte secret token (HttpOnly cookie); the token, never the name, resumes the character — banked on disconnect + 30s debounced flush to the `-identities` JSON; one session per name; guests skip it all; actor→name on welcome/roster frames | `server/identity.go` | done, tested |
+| Lobby: many instances per process, party = instance (every connection starts in its own world/run, derived seed); invite/accept/decline/leave transfer clients via the floor-swap machinery; F-panel friends list = all online named players; empty instances reap after 60s = reconnect grace; TCP debug conns get solo worlds | `server/lobby.go`, `cmd/partybot` | done, race-tested (10 identity/lobby tests), verified live |
+| Hosting + CI/CD: public at https://nuc.tail4b8d48.ts.net (Tailscale Funnel → nuc, systemd `draupforge`, `-addr "" -admin ""` so only HTTP/WS is exposed); every push to main builds `cmd/server` on a self-hosted runner, swaps the binary (`playserver.prev` kept for rollback), syncs `web/`+`scripts/`, restarts, health-checks — `identities.json` is never touched | `.github/workflows/deploy.yml` | done, verified end-to-end |
+| Admin dashboard: observe (tick health, counts, bandwidth, events, world hash, run/floor/portals line) + poke (pause/resume, spawn, kick), dev-cheat panel with buttons (`/api/gem` force-cuts a gem, `/api/god` toggles DamageTaken-zero, `/api/orbs` grants currency; actor field defaults to the first client, per-client "cheat" prefill) — cheats are zone-local sheet/wallet pokes; the lobby serves an instance index, each dashboard under `/i/{id}/` | `server/admin.go`, `server/lobby.go` | done, tested; NO AUTH — localhost/tailnet only (the public deploy runs `-admin ""`) |
+| Web client: canvas, input, terrain render (walls/floor), drag-drop inventory grid (icons, tooltips), delta decoding, tick-timeline interpolation, fade-in/out, cast/impact VFX + ailment rings, floating damage numbers (crit/self emphasis), hit flashes, death pops (rarity-scaled), PoE2-style HUD (life/mana globes, clickable skill bar with mana-gating, `SKILL_BAR` as the single keybind source), WASD + click movement, minimap, procedural WebAudio stingers (M mutes), join screen (claim name / play as guest), F party panel + invite toast, ws/wss by page protocol | `web/` | working, no build step |
 | AI: behavior registry — `melee_chaser`, `ranged_kiter` (LoS-gated shooting, retreat band), `boss_brute` (stateless two-skill selection by range); territorial aggro: LoS/hearing acquisition, leash to `Actor.Home`, return-home (SaveVersion 4) | `sim/ai` | real, tested |
 | Phase order + command validation | `sim/sim.go` | done — this IS the determinism contract |
-| Wire types: versioned welcome, JSON snapshots, binary delta view codec | `protocol/` | done, tested |
+| Wire types: versioned welcome (currently v18), JSON snapshots, binary delta view codec | `protocol/` | done, tested |
 | Content tables | `content/` | 11 skills (6 cuttable: fireball, frost_nova, spark, adrenaline, arc, bone_arrow — arc_bolt went monster-only), 10 support gems (`content/supports.go`), 7 actors, 32 affixes (tiered groups, per-slot pools), 9 bases (rolled implicits), 6 drop tables (each with gem permilles), 4 monster rarity mods, 4 buffs |
 | Debug client | `cmd/headless` | done |
 | Determinism + golden replay tests | `sim/sim_test.go` | done |
@@ -144,6 +160,14 @@ All foundational machinery from DESIGN.md is real, not stubbed:
   rolled at drop time (exactly three loot-stream draws); cutting itself
   consumes no RNG. `content.Supports` and `ContentDB.Cuttable` are ordered
   tables — reordering is replay-relevant, same rule as affixes.
+- Lock ordering above the sim: `lobby.mu` → `instance.mu` → (never both
+  with) `client.mu`, and `lobby.mu` → `IdentityStore.mu`. The lobby never
+  touches a world — it moves clients between join queues and lets each tick
+  goroutine do the world work. Never call the identity store while holding
+  an instance mutex.
+- The token, never the name, is the auth: knowing a name steals nothing.
+  One session per name (a duplicate gets an error frame); guests get no
+  cookie and no store entry.
 
 Structural risks live in `RISKS.md` — read it before building anything load-bearing (top entry: the action model is still one-thing-at-a-time — no channelling/stun/interrupt).
 
@@ -166,15 +190,26 @@ Structural risks live in `RISKS.md` — read it before building anything load-be
 - Item icons are hand-drawn inline SVGs keyed by base id; unknown bases
   fall back to a diamond. The client's `BASE_SLOTS` map mirrors the
   server's slot families by hand — new base items must update both.
-- Server: no auth, no persistence (disconnect deletes the actor and its
-  items), one instance per process, and a slow client can stall a tick for
-  up to 1s (no per-client send queues). Fine for now; on the list.
+- Named characters persist (identity store); guests are ephemeral by
+  design — disconnect deletes the actor and its items. The admin port has
+  no auth (public deploy disables it); a slow client can still stall its
+  instance's tick for up to 1s (no per-client send queues) — now a real
+  concern, since strangers can reach the public URL.
+- `-load` is refused in lobby mode ("run saves predate parties"): the admin
+  `/api/save` still writes run envelopes, but nothing can load them until
+  the lobby learns to adopt a saved instance. This regressed session 31's
+  feature when the lobby shipped — on the list.
+- Claiming a new name while an identity cookie is set orphans the old
+  identity (no rename or list-my-characters yet). `identities.json` is one
+  plaintext JSON blob, tokens included — a character store, not an account
+  system.
 - No client prediction — input feels its latency. Prediction is the thing
   that would justify compiling sim/ to wasm (DESIGN.md §13's optional layer).
 - Projectiles are excluded from the entity fade-in/out (too short-lived to
   read as anything but mush); they still pop at interest-range edges.
-- WS endpoint accepts any origin (LAN-dev convenience); static files come
-  from -web dir at runtime, not embedded.
+- WS endpoint accepts any origin (LAN-dev convenience — and now the public
+  Funnel deploy inherits it); static files come from -web dir at runtime,
+  not embedded.
 - Live server play is not replay-deterministic (network timing decides
   command arrival ticks); determinism holds within a tick via stable command
   sort. A replay log (seed + per-tick commands) would restore full replays —
@@ -226,17 +261,29 @@ Structural risks live in `RISKS.md` — read it before building anything load-be
 
 ## Feature plan
 
-The descent shipped (session 15). The natural queue, unchanged: a boss
+The descent shipped (session 15); the character store + sessions shipped
+(sessions 37–38 — DESIGN.md §14 is fully real). The queue now: a boss
 with telegraphed multi-stage attacks at floor milestones (forces
 deliberate action-model growth, RISKS.md #1 — design the state machine
-first), then the character store + sessions (characters survive
-disconnects; pulls connection ownership above the instance — DESIGN.md
-§14 phase 2), then server hardening (replay log, per-client send queues)
-when strangers connect. ROADMAP.md phase 2 (pack variety, juice) is the
-fun-first counterweight to all of that.
+first); run saves under the lobby (un-regress `-load`); then server
+hardening (replay log, per-client send queues, rate limiting) — strangers
+*can* connect now, so this graduates from "someday" to "when players show
+up". ROADMAP.md phase 4's remainder (town hub, stash, uniques) is the
+fun-first counterweight.
 
 ## Session log
 
+- **2026-07-02 (40)** — Docs true-up. STATUS.md's body (prose, systems
+  table, invariants, shortcuts, feature plan) caught up with sessions
+  36–39, which had only logged themselves; README/DESIGN §14/RISKS/
+  ROADMAP/multiplayer.md/SHOWCASE aligned with main. No code.
+- **2026-07-02 (39)** — CI/CD (parallel branch, merged after 38). Every
+  push to main auto-deploys the nuc: self-hosted runner `nuc-draupforge`
+  builds `cmd/server`, swaps the binary (old kept as `playserver.prev`),
+  syncs `web/` + `scripts/`, restarts systemd, health-checks :8080.
+  `identities.json` never touched. Verified end-to-end, then the live
+  build restored byte-for-byte. Consequence: never hand-deploy — merging
+  to main IS deploying.
 - **2026-07-02 (38)** — Parties + friends (multiplayer.md phase 2).
   `server/lobby.go`: cmd/server now runs a Lobby of instances — party =
   instance, every connection gets a solo world (own derived seed),
@@ -266,64 +313,4 @@ fun-first counterweight to all of that.
   -admin ""` so only HTTP/WS is exposed) behind Tailscale Funnel at
   https://nuc.tail4b8d48.ts.net. `multiplayer.md` added: plan for named
   identities (secret-cookie auth), guests, friends, per-party instances.
-- **2026-07-02 (35)** — Skill feel (Jake: "not just blue fireball").
-  Arc: new cuttable `SkillChain` hitscan — strikes the enemy nearest
-  the cursor (12u reach, LoS), chains to 2 more (supports add), one
-  full hit each, no projectile; client draws a jagged bolt through
-  the strike positions from the hit events alone (no wire change).
-  arc_bolt stays as the mage's dodgeable projectile, no longer
-  cuttable. Fireball explodes on impact: 2u splash re-hits bystanders
-  scaled 1→0 linearly by distance (`Hit.AreaScale`; events noted
-  `fireball:aoe`), explosion-ring VFX. Spark bounces off walls
-  (`SegmentHitN` returns the crossed face's normal) and wiggles ±24°
-  every 12 ticks (combat-stream draw per nudge) until its 1.5s TTL.
-  All projectile TTLs cut to real ranges (fireball 14u, arrows/bolts
-  16–17u — were 26–40u). Uncut gem permilles ×1.5 across all tables.
-  Five new sim tests, both goldens re-recorded (wiggle/TTL/loot
-  shifts). Verified live in Chrome: 3-target arc chains (log + bolt
-  polyline instrumentation), `:aoe` splash numbers with falloff,
-  spark position trace showing two wall reflections + drift; zero
-  console errors. Jake confirmed the bounce in-session. Follow-up:
-  the admin dashboard grew a cheats panel (god-mode toggle,
-  force-cut gem, orb grants — buttons defaulting to the first
-  client) and a run/floor/portals line; endpoints black-box tested
-  (`TestAdminCheats`), buttons verified live from the dashboard.
-- **2026-07-02 (34)** — Skill & support gems (the loot-driven skill
-  system; four design calls from Jake: gems-only skills, draft-of-3
-  cutting, sockets start 1 / cap 4, level-to-drop-level). Sim: gem/
-  support/uncut types in `core/gems.go`, verbs in `items/gems.go`, the
-  reserved conversion stage went live (per-portion multipliers query
-  with both source and destination type tags), projectile fans
-  (hardcoded fixed-point rotation table), chain (retarget nearest
-  unhit enemy, wall-LoS-gated), jeweller orb. Save v9, wire v16 (gem
-  field group carries server-computed mana costs; welcome carries
-  support/cuttable tables with precomputed legality), 13 new sim
-  tests, both goldens re-recorded (gem loot draws shift the stream).
-  Client: dynamic gem skill bar, gem panel row with socket pips, the
-  cut dialog (draft → replace-at-cap / level-up / support-target
-  flows), gem drop shafts. Verified live in Chrome over the binary
-  wire: farm → shafted drops → cut (duplicate greyed) → socket GMP
-  (Frost Nova gated "incompatible", mana ×1.35 on the bar) → 5-way
-  fan (3 survive the corridor on screen; exact server-side check),
-  and a mid-session death eject carried gems + uncut items across
-  the world swap. Zero console errors.
-- **2026-07-02 (33)** — WASD movement (client-only, the PoE2 GUI
-  signature). A held-key set sends a short move command every 100ms
-  toward the combined direction (~4 units ahead — the repath is cheap
-  at that range); releasing the last key sends stop, window blur
-  clears the set. Click-to-move coexists: both are just move commands,
-  last input wins. Verified live: held S+D walks the spawn corridor.
-- **2026-07-02 (32)** — Monster separation. New `skills.Separate` phase
-  right after movement: overlapping monster pairs (closer than 80% of
-  summed radii) ease apart at ≤0.06 u/tick each, wall-guarded, pure
-  position math in slice order — no RNG. Players are untouched.
-  Phase-order addition documented in sim.go; both goldens happened to
-  stand (their monsters never overlap), pinned by the suite.
-- **2026-07-02 (31)** — Run persistence. Descent saves wrap World.Save
-  in a host-layer envelope (`runSave`: run/seed/floor/portal
-  anchor+budget/best, own version gate) — `-load` resumes mid-run,
-  including hideout visits; legacy bare-world files still load as
-  floor 1 of a fresh run. Plain arenas keep the bare format. Closed
-  the STATUS shortcut. Verified live: admin save → restart with -load
-  → instance ticking with the full roster.
 - (older sessions pruned — git history is the archive)

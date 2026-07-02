@@ -216,8 +216,10 @@ Four words, four layers — don't let them collapse back into each other:
   outside itself. A dungeon floor is a whole World; "three floors on one
   map joined by teleporters" is explicitly rejected.
 - **An instance is a running zone**: World + tick loop + the clients
-  currently inside. Today `server.Instance` is also the listener and the
-  whole process; that's circumstance, not design.
+  currently inside. (Originally `server.Instance` was also the listener and
+  the whole process; since session 38 the Lobby owns the listeners and
+  routes connections to many instances — the circumstance caught up with
+  the design.)
 - **A character is durable, server-owned, and lives outside every world**:
   identity, level, XP, bag, equipment (later: skills, passives). The actor
   in a World is a *projection* of the character, minted at zone entry and
@@ -226,9 +228,10 @@ Four words, four layers — don't let them collapse back into each other:
   transfer; the stat sheet rebuilds from def + level + equipment at
   injection. The persistence players care about is the character store;
   `World.Save` remains for whole-instance snapshots and rollback.
-- **The server owns sessions, the character store, and (eventually) an
-  instance manager.** All transfers happen at the host layer between
-  ticks; the sim never participates.
+- **The server owns sessions, the character store, and an instance
+  manager.** All transfers happen at the host layer between ticks; the sim
+  never participates. (All three are real now: `server/identity.go` is the
+  session + character store, `server/lobby.go` the instance manager.)
 
 Decisions that follow:
 
@@ -245,7 +248,8 @@ Decisions that follow:
 - **Sequence the build single-instance-first**: one Instance that swaps
   its Sim underneath connected clients is the whole descent feature. An
   instance manager (town hub, concurrent floors, connections owned above
-  the instance) comes only when something needs it.
+  the instance) comes only when something needs it. (Parties needed it —
+  the Lobby arrived in session 38, on exactly this schedule.)
 
 ## Package layout
 
@@ -261,7 +265,7 @@ sim/         # package sim: Step (the phase order), command validation, snapshot
   fixmath/   # Fixed arithmetic, sqrt
 content/     # typed Go data: skills, monsters, base items, affix pools
 protocol/    # Command + Snapshot wire types (imports nothing from sim/)
-server/      # later: sessions, transport, tick driver per instance
+server/      # identity/sessions, lobby of instances, transports, tick driver per instance
 cmd/
   headless/  # script-driven runner: feed commands, print events/snapshots
 ```
