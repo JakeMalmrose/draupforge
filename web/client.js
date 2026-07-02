@@ -213,6 +213,10 @@ function onView(view) {
       const dier = findEnt(ev.actor);
       if (dier) spawnDeathPop(dier.pos, view.tick * tickMs, dier);
     }
+    if (ev.kind === "drop") {
+      const d = view.drops.get(ev.other);
+      if (d) spawnDropLanding(d.pos, view.tick * tickMs, d.item.rarity);
+    }
   }
   // Flash entries expire by clock; sweep the map so dead IDs don't pile up.
   for (const [id, until] of flashes) {
@@ -627,17 +631,36 @@ function drawProjectile(p, pos) {
   ctx.fill();
 }
 
+const DROP_RARITY_COLORS = { normal: "#cfc9bf", magic: "#8888ff", rare: "#ffff77" };
+
 function drawDrop(d) {
   const p = worldToScreen(d.pos.x, d.pos.y);
+  const color = DROP_RARITY_COLORS[d.item.rarity] || DROP_RARITY_COLORS.normal;
+
+  // Magic/rare drops throw a pulsing light shaft, readable across a room —
+  // a rare monster's triple drop should look like an event on the floor.
+  if (d.item.rarity === "magic" || d.item.rarity === "rare") {
+    const pulse = 0.55 + 0.25 * Math.sin(renderClock / 280 + d.id);
+    const h = d.item.rarity === "rare" ? 52 : 38;
+    const grad = ctx.createLinearGradient(p.x, p.y, p.x, p.y - h);
+    grad.addColorStop(0, color + "cc");
+    grad.addColorStop(1, color + "00");
+    const prev = ctx.globalAlpha;
+    ctx.globalAlpha = prev * pulse;
+    ctx.fillStyle = grad;
+    ctx.fillRect(p.x - 3, p.y - h, 6, h);
+    ctx.globalAlpha = prev;
+  }
+
   ctx.save();
   ctx.translate(p.x, p.y);
   ctx.rotate(Math.PI / 4);
-  ctx.fillStyle = { normal: "#cfc9bf", magic: "#8888ff", rare: "#ffff77" }[d.item.rarity] || "#cfc9bf";
+  ctx.fillStyle = color;
   ctx.fillRect(-6, -6, 12, 12);
   ctx.strokeStyle = "#000000aa";
   ctx.strokeRect(-6, -6, 12, 12);
   ctx.restore();
-  ctx.fillStyle = "#b8a44a";
+  ctx.fillStyle = d.item.rarity === "normal" ? "#b8a44a" : color;
   ctx.font = "11px Georgia";
   ctx.textAlign = "center";
   ctx.fillText(d.item.base.replace("_", " "), p.x, p.y - 12);
@@ -809,6 +832,23 @@ function spawnDamageNumber(pos, st, amount, crit, onMe) {
 function fmtDamage(amount) {
   const d = amount / 1000;
   return d >= 10 ? String(Math.round(d)) : d.toFixed(1);
+}
+
+// Drop landing: a ground ring where loot hits the floor — a blink for
+// normal items, wider and rarity-colored for magic/rare.
+function spawnDropLanding(pos, st, rarity) {
+  const color = DROP_RARITY_COLORS[rarity] || DROP_RARITY_COLORS.normal;
+  const big = rarity === "rare" ? 1.6 : rarity === "magic" ? 1.2 : 0.7;
+  spawnEffect(st, rarity === "normal" ? 250 : 450, (t) => {
+    const p = worldToScreen(pos.x, pos.y);
+    const r = big * easeOut(t) * SCALE * 0.8;
+    ctx.globalAlpha = (1 - t) * 0.8;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.ellipse(p.x, p.y, r, r * 0.45, 0, 0, Math.PI * 2);
+    ctx.stroke();
+  });
 }
 
 // Death pop: a bursting ring plus shards where something died — larger
