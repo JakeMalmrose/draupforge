@@ -175,3 +175,27 @@ func TestBossBrutePicksByRange(t *testing.T) {
 		t.Fatalf("boss in reach: action %v skill %v, want colossus_slam windup", b2.Action.Kind, b2.Action.Skill)
 	}
 }
+
+// TestMonsterSeparation: two monsters converging on one spot ease apart;
+// players are never pushed.
+func TestMonsterSeparation(t *testing.T) {
+	s := simWithGrid(openHall(), 91)
+	z1 := mustSpawn(t, s, "training_dummy", 10500, 5500)
+	z2 := mustSpawn(t, s, "training_dummy", 10500, 5500) // same tile
+	player := mustSpawn(t, s, "player", 10500, 5500)     // standing in the pile
+
+	pp := s.W.ActorByID(player).Pos
+	for i := 0; i < 30; i++ {
+		s.Step(nil)
+	}
+	a, b := s.W.ActorByID(z1), s.W.ActorByID(z2)
+	// Fixed-point halving stalls a milli short of the threshold — close
+	// enough that packs read as individuals.
+	want := fm.Mul(a.Def.Radius+b.Def.Radius, fm.FromMilli(800)) - fm.FromMilli(2)
+	if d := space.Dist(a.Pos, b.Pos); d < want {
+		t.Errorf("stacked monsters still %v apart after 1s, want >= %v", d, want)
+	}
+	if s.W.ActorByID(player).Pos != pp {
+		t.Error("separation moved a player")
+	}
+}

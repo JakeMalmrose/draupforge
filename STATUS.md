@@ -11,8 +11,8 @@ tests, and session-log entries older than a few sessions (git history is the
 archive). If this file outgrows ~150 lines, it has stopped being a status doc
 and started being a changelog — cut it back.
 
-**Last updated: 2026-07-02** (session 31: run persistence — saves carry
-the descent; -load resumes mid-run)
+**Last updated: 2026-07-02** (session 32: monster separation — packs
+stop collapsing into one blob)
 
 ## Where things stand
 
@@ -161,7 +161,9 @@ Structural risks live in `RISKS.md` — read it before building anything load-be
   command arrival ticks); determinism holds within a tick via stable command
   sort. A replay log (seed + per-tick commands) would restore full replays —
   cheap to add when wanted.
-- No actor-actor collision (archers can stack on one tile).
+- Actor collision is soft separation between monsters only (players
+  neither push nor get pushed — body-blocking is a deliberate
+  non-feature). Pairwise O(n²) per tick; spatial grid when density hurts.
 - Aggro is LoS-gated with a hearing fallback (half aggro radius, through
   walls) — a monster that loses you at range walks home rather than
   haunting a corner. No aggro memory: break LoS beyond hearing range and
@@ -205,6 +207,12 @@ fun-first counterweight to all of that.
 
 ## Session log
 
+- **2026-07-02 (32)** — Monster separation. New `skills.Separate` phase
+  right after movement: overlapping monster pairs (closer than 80% of
+  summed radii) ease apart at ≤0.06 u/tick each, wall-guarded, pure
+  position math in slice order — no RNG. Players are untouched.
+  Phase-order addition documented in sim.go; both goldens happened to
+  stand (their monsters never overlap), pinned by the suite.
 - **2026-07-02 (31)** — Run persistence. Descent saves wrap World.Save
   in a host-layer envelope (`runSave`: run/seed/floor/portal
   anchor+budget/best, own version gate) — `-load` resumes mid-run,
