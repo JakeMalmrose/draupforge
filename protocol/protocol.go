@@ -8,7 +8,7 @@ package protocol
 // it on any change a deployed client could misread — renamed/removed JSON
 // fields (omitempty makes those fail silently) or any binary frame layout
 // change. Clients hard-fail on mismatch instead of limping.
-const Version = 10 // v10: descent — welcome gen/stairs/run, "run" frames, gen-tagged acks
+const Version = 11 // v11: monster rarity + mods in the actor identity group (v10: descent)
 
 // Command is the wire form of player intent. Kind is one of "move",
 // "use_skill", "stop", the item verbs "pickup", "equip", "unequip",
@@ -56,6 +56,10 @@ type ActorSnap struct {
 	// InvSize is the bag capacity (0 = carries nothing). Static per def;
 	// travels in the identity field group on the binary wire.
 	InvSize int `json:"inv_size,omitempty"`
+	// Rarity ("" = normal) and Mods (modifier display names) mark magic
+	// and rare monsters. Static per actor life; identity field group.
+	Rarity string   `json:"rarity,omitempty"`
+	Mods   []string `json:"mods,omitempty"`
 	// Progression: Level for everyone (nameplates someday), XP/XPNext as
 	// progress into the current level (the HUD bar divides them). XPNext 0
 	// means no further progression (max level).

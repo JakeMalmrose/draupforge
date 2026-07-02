@@ -22,7 +22,7 @@ import (
 // SaveVersion gates restores: a format change bumps it, and old files fail
 // loudly instead of misloading. Saves are durable state — unlike replays,
 // they must never depend on re-execution of the code that wrote them.
-const SaveVersion = 4 // v4: actor home anchor (v3: actor level + xp)
+const SaveVersion = 5 // v5: monster rarity + mods (v4: actor home anchor)
 
 type saveFile struct {
 	Version     int              `json:"version"`
@@ -97,6 +97,8 @@ type actorSave struct {
 	ES        fm.Fixed     `json:"es"`
 	Level     int          `json:"level"`
 	XP        int64        `json:"xp,omitempty"`
+	Rarity    uint8        `json:"rarity,omitempty"`
+	MonMods   []string     `json:"mon_mods,omitempty"` // MonsterModDef IDs
 	Base      []fm.Fixed   `json:"base"` // sheet base values, StatID order
 	Mods      []modSave    `json:"mods,omitempty"`
 	Action    actionSave   `json:"action"`
@@ -171,7 +173,7 @@ func encodeActor(a *Actor) actorSave {
 	as := actorSave{
 		ID: uint64(a.ID), Def: a.Def.ID, Team: uint8(a.Team), Pos: a.Pos, Home: a.Home,
 		Life: a.Life, Mana: a.Mana, ES: a.ES,
-		Level: a.Level, XP: a.XP,
+		Level: a.Level, XP: a.XP, Rarity: uint8(a.Rarity),
 		Base: make([]fm.Fixed, stats.StatCount),
 		Action: actionSave{
 			Kind:       uint8(a.Action.Kind),
@@ -189,6 +191,9 @@ func encodeActor(a *Actor) actorSave {
 	}
 	if a.Action.Skill != nil {
 		as.Action.Skill = a.Action.Skill.ID
+	}
+	for _, md := range a.Mods {
+		as.MonMods = append(as.MonMods, md.ID)
 	}
 	for st := stats.StatID(0); st < stats.StatCount; st++ {
 		as.Base[st] = a.Sheet.Base(st)
@@ -333,6 +338,7 @@ func decodeActor(db *ContentDB, affixes map[string]*AffixDef, as actorSave) (*Ac
 		Sheet: stats.RestoreSheet(base, mods),
 		Life:  as.Life, Mana: as.Mana, ES: as.ES,
 		Level: level, XP: as.XP,
+		Rarity: Rarity(as.Rarity),
 		Action: Action{
 			Kind:          ActionKind(as.Action.Kind),
 			MoveTarget:    as.Action.MoveTarget,
@@ -351,6 +357,15 @@ func decodeActor(db *ContentDB, affixes map[string]*AffixDef, as actorSave) (*Ac
 			return nil, fmt.Errorf("core: save references unknown skill %q", as.Action.Skill)
 		}
 		a.Action.Skill = sk
+	}
+	// The mods' stat packages are already in the saved modifier list (under
+	// MonsterModSource); the defs are resolved only so snapshots can name them.
+	for _, id := range as.MonMods {
+		md := db.MonsterMod(id)
+		if md == nil {
+			return nil, fmt.Errorf("core: save references unknown monster mod %q", id)
+		}
+		a.Mods = append(a.Mods, md)
 	}
 	for _, ds := range as.DoTs {
 		a.DoTs = append(a.DoTs, DoT{

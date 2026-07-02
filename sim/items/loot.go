@@ -29,12 +29,28 @@ func RollLoot(w *core.World) {
 			continue
 		}
 		table := w.Content.LootTables[a.Def.LootTable]
-		if table == nil || !w.RNGLoot.Chance(table.DropChance) {
+		if table == nil {
 			continue
 		}
-		item := RollItem(w, table)
-		d := w.SpawnDrop(a.Pos, item)
-		w.Emit(core.Event{Kind: core.EvDrop, Actor: a.ID, Other: d.ID, Note: item.Base.ID})
+		// Rarity pays in drop attempts — magic 2, rare 3 — each gated by
+		// the table's chance independently. Consumption is keyed off the
+		// dier's rarity (world state, hashed), so replays stay aligned;
+		// normal monsters consume exactly what they always did.
+		rolls := 1
+		switch a.Rarity {
+		case core.RarityMagic:
+			rolls = 2
+		case core.RarityRare:
+			rolls = 3
+		}
+		for i := 0; i < rolls; i++ {
+			if !w.RNGLoot.Chance(table.DropChance) {
+				continue
+			}
+			item := RollItem(w, table)
+			d := w.SpawnDrop(a.Pos, item)
+			w.Emit(core.Event{Kind: core.EvDrop, Actor: a.ID, Other: d.ID, Note: item.Base.ID})
+		}
 	}
 }
 

@@ -11,8 +11,8 @@ tests, and session-log entries older than a few sessions (git history is the
 archive). If this file outgrows ~150 lines, it has stopped being a status doc
 and started being a changelog — cut it back.
 
-**Last updated: 2026-07-01** (session 16: territorial aggro — LoS/hearing
-acquisition, leashing, return-home; the spawn-camp death spiral fix)
+**Last updated: 2026-07-01** (session 17: magic/rare monsters — modifier
+packages, rarity XP/loot payouts, floor-scaled spawn chances, protocol v11)
 
 ## Where things stand
 
@@ -58,6 +58,7 @@ All foundational machinery from DESIGN.md is real, not stubbed:
 | Progression: XP on kill (scaled by monster level), quadratic curve, level cap 50, PerLevel growth mods under `LevelModSource`, ding heal, HUD level + XP bar | `sim/progress`, `core.Actor.SetLevel` | done, tested |
 | Character extract/inject: portable struct (def/level/XP/pools/gear), IDs re-minted at injection, sheet rebuilt, walkable-clamped | `sim/core/character.go` | done, tested |
 | The descent: floor swap (build → extract → inject → re-welcome), run rules (portal economy, XP death penalty, run-over → new run), hideout, leveled+thickened packs, stairs/portal/run on the wire | `server/descent.go`, protocol v10 | done, unit + e2e tested, verified live in the browser |
+| Monster rarity: `ScatterSpawnPack` rolls magic (1 mod) / rare (2 distinct mods) off RNGMap; `MonsterModDef` packages under `MonsterModSource`; XP ×3/×6, drop attempts 2/3; floor-scaled chances in `buildFloor`; rarity+mod names in the actor identity group (protocol v11), client rings + nameplates | `sim/sim.go`, `content/`, `protocol/`, `web/` | done, tested (incl. Go→net.js codec parity) |
 | Equipment: 10 slots (weapon…belt), slot-addressed equip command (auto fallback), affix→sheet | `sim/items/equip.go` | done, tested |
 | Inventory: pickup/unequip/drop_item, capacity | `sim/items/equip.go` | done, tested |
 | Server: TCP + WS transports, joins/leaves, send-rate decoupling, interest culling, binary deltas + acks, pause | `server/` | done, race-tested |
@@ -182,7 +183,9 @@ Structural risks live in `RISKS.md` — read it before building anything load-be
   portal use however many died that tick.
 - Numbers all open for tuning (Jake): death costs 1/5 of the level's XP
   requirement; packs gain +1 monster and +1 level per floor; monster XP
-  scales linearly with level; hideout trips cost 1 use, returns free.
+  scales linearly with level; hideout trips cost 1 use, returns free;
+  rarity chances (magic 10% +2%/floor cap 30%, rare 2% +1%/floor cap 12%),
+  XP multipliers (×3/×6), and drop attempts (2/3) per rarity.
 - Cast-on-death portal still deliberately unshipped — it must carry an
   opportunity cost (a gem slot once gems exist), never free.
 
@@ -199,6 +202,17 @@ fun-first counterweight to all of that.
 
 ## Session log
 
+- **2026-07-01 (17)** — Magic/rare monsters. `MonsterModDef` (4 mods:
+  Fleet/Brawny/Deadly/Stalwart) as permanent sheet packages under
+  `MonsterModSource` (bits 63+61); `ScatterSpawnPack` rolls rarity + mods
+  off RNGMap — zero chances are stream-identical to `ScatterSpawnLeveled`
+  (test-pinned), so goldens stand un-re-recorded, and rarity hashes only
+  when rolled (nil-grid trick). Rare pays ×6 XP and 3 drop attempts,
+  magic ×3 and 2. `buildFloor` scales chances with depth. Wire: rarity +
+  mod names in the actor identity group, protocol v11 + net.js; client
+  draws rarity rings and colored nameplates. SaveVersion 5. Verified
+  live: 60-zombie world spawned 5 magic + 1 rare over the TCP wire, and
+  a Go-encoded frame decodes correctly through net.js in node.
 - **2026-07-01 (16)** — Territorial aggro (the spawn-camp fix). Monsters
   now acquire targets by line of sight, or hearing (AggroRadius/2)
   through walls; a leashed monster (`ActorDef.LeashRadius`, zombie 20 /

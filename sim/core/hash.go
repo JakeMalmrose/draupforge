@@ -62,6 +62,15 @@ func (w *World) Hash() uint64 {
 		s.i64(a.ES.Milli())
 		s.u64(uint64(a.Level))
 		s.i64(a.XP)
+		// Rarity hashes only when rolled — normal actors keep the
+		// pre-rarity hash stream, same trick as the nil-grid skip above.
+		if a.Rarity != RarityNormal {
+			s.u64(uint64(a.Rarity))
+			s.u64(uint64(len(a.Mods)))
+			for _, md := range a.Mods {
+				s.str(md.ID)
+			}
+		}
 		s.u64(uint64(a.Action.Kind))
 		s.u64(uint64(a.Action.Phase))
 		s.u64(uint64(a.Action.TicksLeft))
