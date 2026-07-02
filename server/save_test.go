@@ -43,7 +43,7 @@ func savedWorldWithPlayer(t *testing.T) []byte {
 // TestLoadReclaimsOrphanPlayers: a server started from a save removes
 // player actors it has no session for, dropping their gear where they stood.
 func TestLoadReclaimsOrphanPlayers(t *testing.T) {
-	in, err := New(content.DB(), Config{Addr: "127.0.0.1:0", Load: savedWorldWithPlayer(t)})
+	in, err := New(content.DB(), Config{Addr: "127.0.0.1:0", Seed: 1, Load: savedWorldWithPlayer(t)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -63,7 +63,7 @@ func TestLoadReclaimsOrphanPlayers(t *testing.T) {
 
 // TestLoadRejectsBadSave: a corrupt save fails server construction loudly.
 func TestLoadRejectsBadSave(t *testing.T) {
-	if _, err := New(content.DB(), Config{Addr: "127.0.0.1:0", Load: []byte("not json")}); err == nil {
+	if _, err := New(content.DB(), Config{Addr: "127.0.0.1:0", Seed: 1, Load: []byte("not json")}); err == nil {
 		t.Error("server started from a corrupt save")
 	}
 }

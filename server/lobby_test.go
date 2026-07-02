@@ -26,6 +26,7 @@ func startLobby(t *testing.T) string {
 	t.Helper()
 	lb, err := server.NewLobby(content.DB(), server.Config{
 		Addr:         "127.0.0.1:0",
+		Seed:         7,
 		TickInterval: 2 * time.Millisecond,
 		IdentityPath: filepath.Join(t.TempDir(), "ids.json"),
 	})

@@ -56,15 +56,23 @@ func (f *fakeTransport) lastWelcome(t *testing.T) *protocol.ServerMsg {
 	return nil
 }
 
-// descentInstance builds a descent world and joins one fake client at pos
-// (or the spawn room when pos is zero), mirroring what spawnClient does.
+// descentInstance builds a descent world starting directly on floor 1 (the
+// run rules under test don't care where the run began) and joins one fake
+// client at the spawn room, mirroring what spawnClient does.
 func descentInstance(t *testing.T, portals int) (*Instance, *client, *fakeTransport) {
+	return descentInstanceAt(t, portals, 1)
+}
+
+// descentInstanceAt is descentInstance with an explicit start floor —
+// 0 exercises the default hideout start.
+func descentInstanceAt(t *testing.T, portals, startFloor int) (*Instance, *client, *fakeTransport) {
 	t.Helper()
 	in, err := New(content.DB(), Config{
-		Seed:    9,
-		Map:     &protocol.MapSpec{Width: 20, Height: 20, Rooms: 4},
-		Scatter: []protocol.Scatter{{Def: "training_dummy", Count: 2}},
-		Portals: portals,
+		Seed:       9,
+		Map:        &protocol.MapSpec{Width: 20, Height: 20, Rooms: 4},
+		Scatter:    []protocol.Scatter{{Def: "training_dummy", Count: 2}},
+		Portals:    portals,
+		StartFloor: startFloor,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -427,7 +435,7 @@ func TestRunSaveRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	in2, err := New(content.DB(), Config{Load: blob, Portals: 3})
+	in2, err := New(content.DB(), Config{Seed: 9, Load: blob, Portals: 3})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -435,15 +443,15 @@ func TestRunSaveRoundTrip(t *testing.T) {
 		t.Errorf("restored run = floor %d portals %d best %d run %d, want 3/1/3/%d",
 			in2.floor, in2.portalsLeft, in2.best, in2.run, in.run)
 	}
-	if in2.portalFloor != 3 || in2.portalPos != in.portalPos {
-		t.Errorf("restored portal anchor = %d %v", in2.portalFloor, in2.portalPos)
+	if in2.portalFloor != 3 || in2.portalPos != in.portalPos || !in2.portalPlaced {
+		t.Errorf("restored portal anchor = %d %v (placed %v)", in2.portalFloor, in2.portalPos, in2.portalPlaced)
 	}
 	if in2.stairs == (space.Vec2{}) {
 		t.Error("restored instance has no stairs")
 	}
 
 	// Legacy path: a bare world file resumes as a fresh run.
-	in3, err := New(content.DB(), Config{Load: world, Portals: 3})
+	in3, err := New(content.DB(), Config{Seed: 9, Load: world, Portals: 3})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -454,5 +462,80 @@ func TestRunSaveRoundTrip(t *testing.T) {
 	// so the worlds themselves must match bit for bit.
 	if in2.sim.W.Hash() != in3.sim.W.Hash() {
 		t.Error("envelope and legacy loads produced different worlds")
+	}
+}
+
+// TestRunStartsInHideout: the default run begins at home — floor 0, safe,
+// no portal use spent going down, the anchor landing on floor 1's spawn.
+func TestRunStartsInHideout(t *testing.T) {
+	in, c, tr := descentInstanceAt(t, 3, 0)
+
+	if in.floor != 0 {
+		t.Fatalf("floor = %d, want 0 (the hideout)", in.floor)
+	}
+	if in.portalPlaced {
+		t.Error("fresh run already has a placed portal anchor")
+	}
+	if in.best != 0 {
+		t.Errorf("best = %d before any descent, want 0", in.best)
+	}
+	if n := len(in.sim.W.Actors); n != 1 { // just the joined player
+		t.Errorf("hideout holds %d actors, want 1 (it is safe)", n)
+	}
+
+	// The player joins standing on the home portal; entering it begins the
+	// run on floor 1 — free, arriving at the floor's spawn.
+	in.runTick(nil, nil, []*client{c}, nil)
+	if in.floor != 1 || in.best != 1 {
+		t.Fatalf("floor/best = %d/%d after the home portal, want 1/1", in.floor, in.best)
+	}
+	if in.portalsLeft != 3 {
+		t.Errorf("portalsLeft = %d, want 3 (leaving home is free)", in.portalsLeft)
+	}
+	if !in.portalPlaced || in.portalFloor != 1 || in.portalPos != in.sim.W.Grid.Spawn {
+		t.Errorf("portal anchor = floor %d at %v (placed %v), want floor 1 at its spawn",
+			in.portalFloor, in.portalPos, in.portalPlaced)
+	}
+	w := tr.lastWelcome(t)
+	if w.Run == nil || w.Run.Floor != 1 || w.Stairs == nil {
+		t.Errorf("floor-1 welcome = run %+v stairs %v, want floor 1 with stairs", w.Run, w.Stairs)
+	}
+
+	// And back through: a hideout trip still costs one.
+	in.runTick(nil, nil, []*client{c}, nil)
+	if in.floor != 0 || in.portalsLeft != 2 {
+		t.Errorf("floor/portals = %d/%d after retreating home, want 0/2", in.floor, in.portalsLeft)
+	}
+}
+
+// TestRunOverReturnsHome: with no portal budget, death ends the run and the
+// next one starts back in the hideout with a fresh, unplaced anchor.
+func TestRunOverReturnsHome(t *testing.T) {
+	in, c, _ := descentInstanceAt(t, 0, 0)
+	in.runTick(nil, nil, []*client{c}, nil) // step through the home portal
+	if in.floor != 1 {
+		t.Fatalf("floor = %d, want 1", in.floor)
+	}
+
+	killActor(in, c)
+	in.handleDeaths([]*client{c})
+
+	if in.run != 2 {
+		t.Errorf("run = %d, want 2 (a fresh run began)", in.run)
+	}
+	if in.floor != 0 {
+		t.Errorf("floor = %d, want 0 (a new run starts at home)", in.floor)
+	}
+	if in.portalPlaced {
+		t.Error("new run's portal anchor should wait for the first trip down")
+	}
+	if in.best != 1 {
+		t.Errorf("best = %d, want the old depth 1 kept", in.best)
+	}
+
+	// The new run's portal works: down to floor 1 of run 2.
+	in.runTick(nil, nil, []*client{c}, nil)
+	if in.floor != 1 {
+		t.Errorf("floor = %d after the new run's portal, want 1", in.floor)
 	}
 }
