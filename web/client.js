@@ -61,7 +61,8 @@ const ctx = canvas.getContext("2d");
 // ------------------------------------------------------------- network
 
 function connect() {
-  ws = new WebSocket(`ws://${location.host}/ws${location.search}`);
+  const wsProto = location.protocol === "https:" ? "wss" : "ws";
+  ws = new WebSocket(`${wsProto}://${location.host}/ws${location.search}`);
   ws.binaryType = "arraybuffer";
   ws.onmessage = (e) => {
     if (typeof e.data === "string") {

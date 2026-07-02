@@ -207,6 +207,12 @@ fun-first counterweight to all of that.
 
 ## Session log
 
+- **2026-07-02 (34)** — Public hosting. `web/client.js` picks ws/wss by
+  page protocol (was hardcoded ws://, which HTTPS blocks). Deployed to
+  the nuc (Ubuntu, `~/draupforge`, systemd unit `draupforge`, `-addr ""
+  -admin ""` so only HTTP/WS is exposed) behind Tailscale Funnel at
+  https://nuc.tail4b8d48.ts.net. `multiplayer.md` added: plan for named
+  identities (secret-cookie auth), guests, friends, per-party instances.
 - **2026-07-02 (33)** — WASD movement (client-only, the PoE2 GUI
   signature). A held-key set sends a short move command every 100ms
   toward the combined direction (~4 units ahead — the repath is cheap
