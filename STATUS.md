@@ -11,8 +11,8 @@ tests, and session-log entries older than a few sessions (git history is the
 archive). If this file outgrows ~150 lines, it has stopped being a status doc
 and started being a changelog — cut it back.
 
-**Last updated: 2026-07-01** (session 28: minimap — baked terrain radar
-with stairs/portal/entity dots)
+**Last updated: 2026-07-01** (session 29: equip-compare tooltips —
+hovering a bag item shows what it would replace)
 
 ## Where things stand
 
@@ -208,6 +208,10 @@ fun-first counterweight to all of that.
 
 ## Session log
 
+- **2026-07-01 (29)** — Equip-compare tooltips (client-only). Hovering
+  a bag item appends "— equipped (slot) —" blocks for whatever its
+  legal slots currently hold (both rings, for rings), PoE-style — the
+  upgrade decision without cross-referencing the equipment row.
 - **2026-07-01 (28)** — Minimap (client-only). Terrain baked once per
   welcome onto an offscreen canvas (3px/tile), live dots each frame:
   self white, other players blue, monsters red (rarity-colored for

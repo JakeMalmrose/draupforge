@@ -340,3 +340,11 @@ body {
 .orb-dot { width: 10px; height: 10px; border-radius: 50%; box-shadow: 0 0 6px currentColor; }
 #panel.orb-armed .inv-grid .slot.filled { border-color: #b8a44a66; cursor: cell; }
 #log .ev-orb { color: #d97b4a; }
+
+#tooltip .tt-compare {
+  display: block;
+  margin-top: 6px; padding-top: 4px;
+  border-top: 1px solid #3a362e;
+  font-size: 10px; color: #6a6455;
+  text-transform: uppercase; letter-spacing: 0.5px;
+}

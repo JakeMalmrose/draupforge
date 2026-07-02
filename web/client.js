@@ -1160,7 +1160,7 @@ const prettify = (id) => id.replace(/_/g, " ");
 // --- tooltip (item names and affix ids come from our own content tables,
 // never from other players, so innerHTML is safe here)
 
-function showTooltip(item, where, e) {
+function itemLines(item, where) {
   const lines = [
     `<span class="tt-name rarity-${item.rarity}">${prettify(item.base)}</span>`,
     `<span class="tt-kind">${item.rarity}${where ? " · " + where : ""}</span>`,
@@ -1172,6 +1172,24 @@ function showTooltip(item, where, e) {
     lines.push(`<span class="tt-affix">${prettify(af.id)}: ${af.value / 1000}</span>`);
   }
   if (!(item.affixes || []).length) lines.push('<span class="tt-plain">no affixes</span>');
+  return lines;
+}
+
+function showTooltip(item, where, e, compare) {
+  const lines = itemLines(item, where);
+  // Hovering a bag item: show what it would replace, PoE-style — the
+  // upgrade decision without cross-referencing the equipment row.
+  if (compare) {
+    const self = me();
+    const bySlot = new Map();
+    for (const eq of (self && self.equipment) || []) bySlot.set(eq.slot, eq.item);
+    for (const slot of legalEquipSlots(item.base)) {
+      const worn = bySlot.get(slot);
+      if (!worn || worn.id === item.id) continue;
+      lines.push(`<span class="tt-compare">— equipped (${slot}) —</span>`);
+      lines.push(...itemLines(worn, ""));
+    }
+  }
   tooltipEl.innerHTML = lines.join("");
   tooltipEl.classList.remove("hidden");
   moveTooltip(e);
@@ -1350,7 +1368,7 @@ function fillSlot(div, item, from, where) {
   div.dataset.base = item.base;
   div.insertAdjacentHTML("afterbegin", ICONS[item.base] || ICON_FALLBACK);
   makeDraggable(div, item, from);
-  div.addEventListener("mouseenter", (e) => showTooltip(item, where, e));
+  div.addEventListener("mouseenter", (e) => showTooltip(item, where, e, from === "inv"));
   div.addEventListener("mousemove", moveTooltip);
   div.addEventListener("mouseleave", hideTooltip);
 }
