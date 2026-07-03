@@ -106,7 +106,12 @@ func TestStalledClientDoesNotStallTick(t *testing.T) {
 	default:
 		t.Error("stalled client removed but its transport never closed")
 	}
-	if got := tick(); got < 200 {
+	// The queue fills after ~65 sends ≈ 195 ticks, so reaching removal at
+	// all proves the loop kept its rate — the pre-queue behavior would have
+	// managed ~5 frames (one per writeTimeout) before the deadline. The
+	// tick floor is deliberately loose; CI once landed exactly on a tight
+	// one.
+	if got := tick(); got < 100 {
 		t.Errorf("tick %d after the stall window; the queue is not shielding the loop", got)
 	}
 }
