@@ -75,9 +75,9 @@ If only one thing ships this year, it's this.
 *The dopamine layer and the reason to come back.* DESIGN §14 phase 2 shipped
 (sessions 37–38): named characters survive logout via the identity store.
 
-- **A town hub + persistent stash.** ✅ *a character that survives logout*;
-  the hub and stash remain — without them every good drop still lives or
-  dies with one character's bag.
+- ✅ **A town hub + persistent stash.** The hideout is the hub; the stash
+  (session 48) is a 60-slot per-identity bank on the identity store — a
+  good drop no longer lives or dies with one character's bag.
 - ✅ **Currency / crafting-lite** — transmute/alch/chaos (+ jeweller for gem
   sockets), banked straight to the killer.
 - **Uniques with build-defining mods** — the chase items that make a player say

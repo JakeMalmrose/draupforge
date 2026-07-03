@@ -101,6 +101,9 @@ function connect() {
       } else if (msg.type === "social") {
         social = msg.social || null;
         renderSocial();
+      } else if (msg.type === "stash") {
+        stash = msg.stash || null;
+        if (!panel.classList.contains("hidden")) renderPanel(me(), true);
       } else if (msg.type === "error") {
         // Refused (duplicate session, say). Back to the join screen, which
         // offers the ways forward: another name, or guest mode.
@@ -159,6 +162,7 @@ function resetWorld(msg) {
   autoCutShown = false;
   actorMotion.clear();
   telegraphMax.clear();
+  stash = msg.stash || null;
   runState = msg.run || null;
   snap = null;
   seenSelf = false;
@@ -1934,6 +1938,7 @@ function makeDraggable(el, item, from) {
       for (const s of equipmentEl.children) {
         if (legalEquipSlots(item.base).includes(s.dataset.slot)) s.classList.add("drop-ok");
       }
+      for (const s of document.getElementById("stash").children) s.classList.add("drop-ok");
     }
     for (const s of inventoryEl.children) s.classList.add("drop-ok");
   });
@@ -1945,7 +1950,8 @@ function makeDraggable(el, item, from) {
 }
 
 function clearDropHighlights() {
-  for (const s of [...equipmentEl.children, ...inventoryEl.children]) {
+  const stashCells = document.getElementById("stash").children;
+  for (const s of [...equipmentEl.children, ...inventoryEl.children, ...stashCells]) {
     s.classList.remove("drop-ok");
   }
 }
@@ -1983,6 +1989,8 @@ function bagCellZone(div, idx) {
     e.stopPropagation();
     if (drag.from === "inv") {
       moveBagItem(drag.id, idx);
+    } else if (drag.from === "stash") {
+      send({ kind: "stash_take", choice: drag.id });
     } else {
       bagLayout.set(drag.id, idx);
       send({ kind: "unequip", target: drag.id });
@@ -2010,6 +2018,10 @@ function makeDropZone(el, accepts, action) {
 makeDropZone(equipmentEl, "inv", (id) => send({ kind: "equip", target: id }));
 makeDropZone(inventoryEl, "equip", (id) => send({ kind: "unequip", target: id }));
 makeDropZone(canvas, "inv", (id) => send({ kind: "drop_item", target: id }));
+// The stash (a hidden section outside the hideout, so these can't misfire
+// elsewhere): bag → stash banks, stash → bag withdraws.
+makeDropZone(document.getElementById("stash"), "inv", (id) => send({ kind: "stash_put", target: id }));
+makeDropZone(inventoryEl, "stash", (id) => send({ kind: "stash_take", choice: id }));
 
 // --- bag layout: which cell each item sits in. Client-side only — the
 // server's bag is an ordered list; the arrangement is presentation state,
@@ -2092,6 +2104,7 @@ function renderPanel(self, force) {
     self.inv_size,
     self.orbs || [],
     self.gems || [],
+    stashAvailable() ? (stash.items || []).map((i) => [i.base, i.rarity]) : null,
   ]);
   if (!force && key === panelKey) return;
   panelKey = key;
@@ -2141,6 +2154,42 @@ function renderPanel(self, force) {
       });
     }
     inventoryEl.appendChild(div);
+  }
+
+  renderStash();
+}
+
+// --- stash: the hideout bank. Named players only, hideout only — the
+// server enforces both; the panel just doesn't offer it elsewhere. Items
+// render like bag items (their wire ids are stash indices) and move by
+// the same drag gestures.
+
+let stash = null; // StashSnap from the welcome / "stash" frames
+
+const stashSectionEl = document.getElementById("stash-section");
+const stashEl = document.getElementById("stash");
+const stashCountEl = document.getElementById("stash-count");
+
+function stashAvailable() {
+  return stash && myName && runState && runState.floor === 0;
+}
+
+function renderStash() {
+  stashEl.replaceChildren();
+  if (!stashAvailable()) {
+    stashSectionEl.classList.add("hidden");
+    return;
+  }
+  stashSectionEl.classList.remove("hidden");
+  const items = stash.items || [];
+  stashCountEl.textContent = `(${items.length}/${stash.cap})`;
+  // Enough rows for the contents plus a drop row; the cap is the truth,
+  // sixty empty cells is just noise.
+  const shown = Math.min(stash.cap, Math.max(10, (Math.floor(items.length / 10) + 1) * 10));
+  for (let i = 0; i < shown; i++) {
+    const div = slotDiv();
+    if (items[i]) fillSlot(div, items[i], "stash", "stash");
+    stashEl.appendChild(div);
   }
 }
 

@@ -247,6 +247,8 @@ type client struct {
 	wantAccept  bool
 	wantDecline bool
 	wantLeave   bool
+	// stashOps buffers stash verbs in arrival order (hideout bank; stash.go).
+	stashOps []stashOp
 
 	// lastChar is the freshest character extraction for this client's
 	// actor, taken after every step — death compacts the actor away before
@@ -600,9 +602,10 @@ func readLoop(ctx context.Context, c *client) {
 			c.mu.Unlock()
 			continue
 		case "descend", "plant_portal", "enter_portal",
-			"invite", "accept_invite", "decline_invite", "leave_party":
-			// Run and social verbs are host-layer, like ack — the sim never
-			// sees them.
+			"invite", "accept_invite", "decline_invite", "leave_party",
+			"stash_put", "stash_take":
+			// Run, social, and stash verbs are host-layer, like ack — the
+			// sim never sees them.
 			c.mu.Lock()
 			switch wc.Kind {
 			case "descend":
@@ -619,6 +622,10 @@ func readLoop(ctx context.Context, c *client) {
 				c.wantDecline = true
 			case "leave_party":
 				c.wantLeave = true
+			case "stash_put":
+				c.stashOps = append(c.stashOps, stashOp{item: core.EntityID(wc.Target)})
+			case "stash_take":
+				c.stashOps = append(c.stashOps, stashOp{take: true, idx: wc.Choice})
 			}
 			c.mu.Unlock()
 			continue
@@ -657,6 +664,7 @@ func (in *Instance) tick() {
 	in.mu.Unlock()
 	var descends, portals, plants []*client
 	var social []socialWant
+	var stashes []stashWant
 	for _, c := range in.clients {
 		c.mu.Lock()
 		if c.wantDescend {
@@ -677,6 +685,10 @@ func (in *Instance) tick() {
 				accept: c.wantAccept, decline: c.wantDecline, leave: c.wantLeave,
 			})
 			c.wantInvite, c.wantAccept, c.wantDecline, c.wantLeave = "", false, false, false
+		}
+		if len(c.stashOps) > 0 {
+			stashes = append(stashes, stashWant{c: c, ops: c.stashOps})
+			c.stashOps = nil
 		}
 		c.mu.Unlock()
 	}
@@ -732,6 +744,11 @@ func (in *Instance) tick() {
 		if len(in.recentEvents) > adminEventCap {
 			in.recentEvents = in.recentEvents[len(in.recentEvents)-adminEventCap:]
 		}
+
+		// Stash verbs before run logic: runTick refreshes each client's
+		// banked character copy, and a just-stashed item must not linger in
+		// that copy's bag (put + crash would otherwise duplicate it).
+		in.processStash(stashes)
 
 		// The descent: deaths, stairs, portals — may swap the world and
 		// re-welcome everyone (descent.go).
@@ -900,6 +917,7 @@ func (in *Instance) welcomeFrame(c *client) []byte {
 	}
 	msg.Name = c.name
 	msg.Roster = in.roster()
+	msg.Stash = in.stashSnap(c) // nil for guests — no identity, no bank
 	frame, _ := json.Marshal(msg)
 	return frame
 }
