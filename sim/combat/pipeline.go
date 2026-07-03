@@ -256,6 +256,7 @@ func applyDamage(w *core.World, att, def *core.Actor, total fm.Fixed, note strin
 	absorbed := fm.Min(def.ES, total)
 	def.ES -= absorbed
 	def.Life -= total - absorbed
+	MarkHit(def) // any damage taken resets ES recharge
 	w.Emit(core.Event{Kind: core.EvHit, Actor: att.ID, Other: def.ID, Amount: total, Note: note, Crit: crit})
 	if def.Life <= 0 && !def.Dead {
 		kill(w, def, att.ID)
