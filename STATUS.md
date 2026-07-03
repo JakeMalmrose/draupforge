@@ -11,8 +11,8 @@ tests, and session-log entries older than a few sessions (git history is the
 archive). If this file outgrows ~150 lines, it has stopped being a status doc
 and started being a changelog — cut it back.
 
-**Last updated: 2026-07-03** (session 52: Summon Skeleton — the first
-minion skill, with owner attribution and heel AI)
+**Last updated: 2026-07-03** (session 53: Sweep — the first cuttable melee
+skill — and Bonelord's Mark, the +1-minion unique)
 
 ## Where things stand
 
@@ -94,7 +94,7 @@ All foundational machinery from DESIGN.md is real, not stubbed:
 | Minions: `Actor.Owner` (zone-local, saved+hashed), kill attribution up the chain (`World.CreditFor` — XP/flasks/orbs pay the summoner), `minion_melee` heel AI (mobile leash on the owner), `SkillSummon` w/ cap-despawns-oldest; Summon Skeleton cuttable gem (cap 3, minions at gem level); save v12 | `sim/core`, `sim/ai`, `sim/skills`, `content/`, `web/` | done, tested, verified live |
 | Phase order + command validation | `sim/sim.go` | done — this IS the determinism contract |
 | Wire types: versioned welcome (v18), JSON snapshots, binary delta codec | `protocol/` | done, tested |
-| Content tables | `content/` | 14 skills (6 cuttable, 3 staged), 10 supports, 8 actors, 32 affixes, 9 bases, 4 uniques, 7 drop tables, 4 monster mods, 4 buffs |
+| Content tables | `content/` | 16 skills (8 cuttable incl. melee Sweep + Summon Skeleton, 3 staged), 10 supports, 10 actors, 32 affixes, 9 bases, 5 uniques, 7 drop tables, 4 monster mods, 4 buffs |
 | Debug client + determinism/golden replay tests | `cmd/headless`, `sim/sim_test.go` | done |
 
 ## Invariants the code currently honors (don't break casually)
@@ -211,6 +211,16 @@ dictates.
 
 ## Session log
 
+- **2026-07-03 (53)** — Content pass: Sweep + Bonelord's Mark. Sweep is
+  the first cuttable melee skill (the pool had none — melee builds
+  couldn't exist): a full-circle weapon-scaled spin on the nova machinery,
+  attack/melee/physical tags, 1.1× effectiveness so flat weapon damage
+  matters most there. Bonelord's Mark (bone_amulet unique) grants +1
+  summon capacity via `stats.ExtraMinions` — the third unique-only shape
+  stat, read at the summon cap site — for a fourth skeleton, at the price
+  of 10% cast speed. Cuttable pool grew → goldens re-recorded. Pinned:
+  the raised cap; verified live: sweep kills logged in Chrome, zero
+  console errors.
 - **2026-07-03 (52)** — Summon Skeleton: the first minion skill, the spawn
   queue's second act. `Actor.Owner` links a minion to its summoner
   (zone-local — minions die with the zone; saved + hashed conditionally,

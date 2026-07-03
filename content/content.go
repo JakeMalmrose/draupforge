@@ -224,6 +224,16 @@ func uniqueDefs() []*core.UniqueDef {
 			ModLines: []string{"+120 armour", "+40 life", "10% reduced move speed"},
 		},
 		{
+			ID: "bonelords_mark", Name: "Bonelord's Mark", Base: "bone_amulet",
+			Desc: "The dead keep no count. He does.",
+			Mods: []core.BuffMod{
+				{Stat: stats.ExtraMinions, Layer: stats.LayerFlat, Value: fm.One},
+				{Stat: stats.Life, Layer: stats.LayerFlat, Value: fm.FromInt(20)},
+				{Stat: stats.CastSpeed, Layer: stats.LayerIncreased, Value: fm.FromMilli(-100)},
+			},
+			ModLines: []string{"+1 to summon capacity", "+20 life", "10% reduced cast speed"},
+		},
+		{
 			ID: "windrunner_treads", Name: "Windrunner Treads", Base: "leather_boots",
 			Desc: "Outrun the ground and the grave both.",
 			Mods: []core.BuffMod{
@@ -640,7 +650,26 @@ func skillDefs() []*core.SkillDef {
 		SummonCap:     3,
 	}
 
-	return []*core.SkillDef{fireball, slam, frostNova, spark, boneArrow, adrenaline, claws, arcBolt, arc, colossusSlam, boneVolley, barrowSlam, graveVolley, graveStorm, summonSkeleton}
+	// The melee build's bread and butter — without it, the cuttable pool
+	// had no melee at all. A spin in place: every enemy in reach takes a
+	// full weapon-scaled hit.
+	sweep := &core.SkillDef{
+		ID:            "sweep",
+		Name:          "Sweep",
+		Cuttable:      true,
+		Kind:          core.SkillNova,
+		Tags:          stats.T(stats.TagAttack, stats.TagMelee, stats.TagPhysical),
+		Effectiveness: fm.FromMilli(1100), // melee premium: flat adds hit harder here
+		ManaCost:      fm.FromInt(7),
+		WindupTicks:   11, // ~0.37s swing
+		RecoveryTicks: 7,
+		SpeedStat:     stats.AttackSpeed,
+		AoERadius:     fm.FromMilli(2700),
+	}
+	sweep.BaseMin[core.Physical] = fm.FromInt(9)
+	sweep.BaseMax[core.Physical] = fm.FromInt(14)
+
+	return []*core.SkillDef{fireball, slam, frostNova, spark, boneArrow, adrenaline, claws, arcBolt, arc, colossusSlam, boneVolley, barrowSlam, graveVolley, graveStorm, summonSkeleton, sweep}
 }
 
 func baseStats(pairs map[stats.StatID]fm.Fixed) [stats.StatCount]fm.Fixed {

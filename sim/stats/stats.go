@@ -43,6 +43,7 @@ const (
 	// fires, not just how hard.
 	ExtraProjectiles // additional projectiles per cast (fans like LMP)
 	ExtraChains      // additional chain-skill targets
+	ExtraMinions     // additional summon capacity per summon skill
 
 	StatCount
 )

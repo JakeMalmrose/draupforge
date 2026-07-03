@@ -14,6 +14,7 @@ import (
 	"github.com/JakeMalmrose/draupforge/sim/core"
 	fm "github.com/JakeMalmrose/draupforge/sim/fixmath"
 	"github.com/JakeMalmrose/draupforge/sim/space"
+	"github.com/JakeMalmrose/draupforge/sim/stats"
 )
 
 // summonOnce casts summon_skeleton and steps through the windup.
@@ -184,5 +185,28 @@ func TestMinionSaveRoundTrip(t *testing.T) {
 		if s.W.Hash() != restored.W.Hash() {
 			t.Fatalf("hash diverged %d ticks after restore", i+1)
 		}
+	}
+}
+
+// TestBonelordRaisesTheCap: the ExtraMinions sheet stat (unique-only, read
+// at the cap site) lets a fourth skeleton stand.
+func TestBonelordRaisesTheCap(t *testing.T) {
+	s := sim.New(content.DB(), 7)
+	player := mustSpawn(t, s, "player", 0, 0)
+	grantGems(t, s, player, "summon_skeleton")
+	p := s.W.ActorByID(player)
+	p.Sheet.Add(stats.Modifier{
+		Stat: stats.ExtraMinions, Layer: stats.LayerFlat,
+		Value: fm.One, Source: 909090,
+	})
+	for i := 0; i < 5; i++ {
+		p.Mana = fm.FromInt(50)
+		summonOnce(t, s, player)
+		for p.Action.Kind == core.ActionSkill {
+			s.Step(nil)
+		}
+	}
+	if got := len(minionsOf(s, player)); got != 4 {
+		t.Fatalf("%d minions with Bonelord's cap, want 4", got)
 	}
 }

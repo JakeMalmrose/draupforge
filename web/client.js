@@ -1363,6 +1363,7 @@ const IMPACT_VFX = {
   barrow_slam: { core: "#f2e0ff", glow: "#6b5a7e", r: 1.3 },
   grave_volley: { core: "#e8d8f2", glow: "#5a4468", r: 0.8 },
   grave_storm: { core: "#f2e0c8", glow: "#7e3a2e", r: 0.8 },
+  sweep: { core: "#ffe8c8", glow: "#c98a4a", r: 0.8 },
 };
 
 // Skills whose projectile impacts detonate: radius mirrors the server's
@@ -1597,6 +1598,8 @@ const SKILL_META = {
     desc: "A swift physical arrow — long reach, and it scales with your weapon." },
   summon_skeleton: { color: "#e8dfc8", aimed: false, kind: "Summon",
     desc: "Raise a skeleton warrior that fights at your side. Keep up to three." },
+  sweep: { color: "#c98a4a", aimed: false, kind: "Attack",
+    desc: "Spin your weapon in a full circle — everything in reach takes the hit." },
 };
 
 // gemIconSVG is the one gem glyph, colored per skill: draft cards, the gem
