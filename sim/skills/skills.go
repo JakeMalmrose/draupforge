@@ -302,9 +302,11 @@ func fire(w *core.World, a *core.Actor) {
 		}
 		// Enforce the cap first: despawn the oldest of this def (slice
 		// order IS age order) until the new batch fits. A despawn is not a
-		// death — no event, no loot, no XP; compaction sweeps it.
+		// death — no event, no loot, no XP; compaction sweeps it. The
+		// caster's sheet can raise the cap (ExtraMinions — unique items).
 		if sk.SummonCap > 0 {
-			over := livingMinions(w, a.ID, sk.SummonDef) + sk.SummonCount - sk.SummonCap
+			cap := sk.SummonCap + int(a.Sheet.Eval(stats.ExtraMinions, sk.Tags).Int())
+			over := livingMinions(w, a.ID, sk.SummonDef) + sk.SummonCount - cap
 			for _, m := range w.Actors {
 				if over <= 0 {
 					break
