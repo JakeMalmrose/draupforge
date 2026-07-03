@@ -30,12 +30,13 @@ func main() {
 	interest := flag.Int64("interest", 60, "interest radius in world units for WS clients (0 = whole world)")
 	portals := flag.Int("portals", 3, "portal uses per descent run (deaths and hideout trips consume them)")
 	identities := flag.String("identities", "identities.json", "named-player store; \"\" keeps identities in memory only")
+	startFloor := flag.Int("startfloor", 0, "floor runs begin on (0 = the hideout) — a dev shortcut to deep floors")
 	flag.Parse()
 
 	cfg := server.Config{
 		Addr: *addr, HTTPAddr: *httpAddr, AdminAddr: *adminAddr, StaticDir: *webDir,
 		Seed: *seed, SendEvery: *sendEvery, InterestRadius: *interest * 1000,
-		Portals: *portals, IdentityPath: *identities,
+		Portals: *portals, IdentityPath: *identities, StartFloor: *startFloor,
 	}
 	if *load != "" {
 		raw, err := os.ReadFile(*load)

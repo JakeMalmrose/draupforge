@@ -126,6 +126,16 @@ func (w *World) Hash() uint64 {
 		s.u64(uint64(a.Action.Kind))
 		s.u64(uint64(a.Action.Phase))
 		s.u64(uint64(a.Action.TicksLeft))
+		// Staged state: conditional like passives, so legacy actions keep
+		// their pre-stage hash stream.
+		if len(a.Action.StageTicks) > 0 {
+			s.u64(uint64(a.Action.Stage))
+			s.i64(a.Action.StageAim.X.Milli())
+			s.i64(a.Action.StageAim.Y.Milli())
+			for _, t := range a.Action.StageTicks {
+				s.u64(uint64(t))
+			}
+		}
 		s.u64(uint64(len(a.DoTs)))
 		for _, d := range a.DoTs {
 			s.u64(uint64(d.Type))

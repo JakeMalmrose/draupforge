@@ -251,6 +251,34 @@ Decisions that follow:
   the instance) comes only when something needs it. (Parties needed it —
   the Lobby arrived in session 38, on exactly this schedule.)
 
+## 15. Staged skills (decided 2026-07-03)
+
+The action model's first deliberate growth (risk register #1): a skill is no
+longer forced into the windup → one effect → recovery arc. A `SkillStaged`
+skill is a **scripted sequence of stages** — each stage a tick countdown
+ending in an effect at an aim point **locked when the stage begins**:
+
+- **Stage effects** are composable primitives (`StageBlast` — full-damage
+  AoE at the locked point, `StageRing` — a projectile circle from the
+  caster, `StageNone` — a pause; recovery is just a trailing effect-less
+  stage). New boss attacks are authored by sequencing these, not by growing
+  a switch.
+- **Aim modes** (`Target` / `Self` / `Point`) resolve at stage start and
+  pin. The telegraph the client renders IS the hitbox; dodging means
+  leaving the zone during the countdown, so telegraphed blasts skip the
+  accuracy/evasion roll entirely — their dodge is spatial.
+- **Durations bind at use time** (like recovery ticks): chill mid-sequence
+  can't stretch a committed attack. The caster is committed for the whole
+  sequence — one action at a time still holds.
+- Telegraphs travel on the wire per actor (`TelegraphSnap`: center, radius,
+  countdown), so clients render exact danger zones instead of inferring
+  them from skill metadata.
+
+Still deliberately absent (grow on purpose, not by accretion): channelling,
+cast-while-moving, stun/interrupt semantics, and mid-tick entity creation
+(risk register #2 — rings spawn projectiles, which pools allow; minions
+would not be).
+
 ## Package layout
 
 ```

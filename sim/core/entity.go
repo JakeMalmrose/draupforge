@@ -45,6 +45,15 @@ type Action struct {
 	TicksLeft     uint32
 	RecoveryTicks uint32 // precomputed at use time with speed applied
 
+	// Staged skills (Skill.Kind == SkillStaged): Stage indexes
+	// Skill.Stages, StageTicks holds every stage's duration bound at use
+	// time (speed applies once, like RecoveryTicks), and StageAim is the
+	// current stage's aim, locked when the stage began. TicksLeft is the
+	// current stage's countdown; Phase and RecoveryTicks stay zero.
+	Stage      int
+	StageTicks []uint32
+	StageAim   space.Vec2
+
 	// Gem is the level/support context baked at use time; zero for
 	// monsters and gem-less casts.
 	Gem GemCtx
@@ -489,6 +498,11 @@ type Hit struct {
 	// multiplied by it — distance falloff. Zero means a direct hit at full
 	// damage, so plain Hit literals keep their old meaning.
 	AreaScale fm.Fixed
+
+	// Telegraphed marks a hit from a telegraphed zone (staged blasts): it
+	// skips the accuracy/evasion roll entirely — the dodge already happened
+	// in space, and a zone that catches you should always mean something.
+	Telegraphed bool
 
 	// Outcomes, populated by the pipeline.
 	Damage  [DamageTypeCount]fm.Fixed

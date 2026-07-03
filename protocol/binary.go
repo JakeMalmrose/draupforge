@@ -46,6 +46,7 @@ const (
 	actorFlasks
 	actorOrbs
 	actorGems
+	actorTelegraph
 )
 
 // Projectile field-mask bits.
@@ -247,6 +248,18 @@ func encodeActors(w *bwriter, base, view []ActorSnap) {
 				w.sv(g.ManaCost)
 			}
 		}
+		if c.mask&actorTelegraph != 0 {
+			if t := a.Telegraph; t != nil {
+				w.u8(1)
+				w.sv(t.X)
+				w.sv(t.Y)
+				w.sv(t.Radius)
+				w.uv(uint64(t.Left))
+				w.uv(uint64(t.Total))
+			} else {
+				w.u8(0)
+			}
+		}
 	}
 }
 
@@ -255,7 +268,7 @@ func actorMask(b, a *ActorSnap) uint64 {
 		return actorIdentity | actorPos | actorLife | actorMaxLife | actorMana |
 			actorMaxMana | actorES | actorAction | actorEquipment | actorInventory |
 			actorAilments | actorProgress | actorPassives | actorFlasks | actorOrbs |
-			actorGems
+			actorGems | actorTelegraph
 	}
 	var mask uint64
 	if b.Def != a.Def || b.Team != a.Team || b.Radius != a.Radius || b.InvSize != a.InvSize ||
@@ -306,6 +319,9 @@ func actorMask(b, a *ActorSnap) uint64 {
 	}
 	if !reflect.DeepEqual(b.Gems, a.Gems) {
 		mask |= actorGems
+	}
+	if !reflect.DeepEqual(b.Telegraph, a.Telegraph) {
+		mask |= actorTelegraph
 	}
 	return mask
 }
@@ -399,6 +415,14 @@ func decodeActors(r *breader, base []ActorSnap) []ActorSnap {
 				a.Gems = append(a.Gems, g)
 			}
 		}
+		if mask&actorTelegraph != 0 {
+			if r.u8() == 1 {
+				a.Telegraph = &TelegraphSnap{
+					X: r.sv(), Y: r.sv(), Radius: r.sv(),
+					Left: uint32(r.uv()), Total: uint32(r.uv()),
+				}
+			}
+		}
 		changed[id] = actorDelta{a, mask}
 		order = append(order, id)
 	}
@@ -481,6 +505,9 @@ func mergeActor(b ActorSnap, d actorDelta) ActorSnap {
 	}
 	if d.mask&actorGems != 0 {
 		a.Gems = n.Gems
+	}
+	if d.mask&actorTelegraph != 0 {
+		a.Telegraph = n.Telegraph
 	}
 	return a
 }

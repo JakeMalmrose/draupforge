@@ -157,6 +157,7 @@ func (s *Sim) BuildSnapshotFor(viewer core.EntityID, radius fm.Fixed, events []p
 			XPNext:    xpNext(a.Level),
 			Equipment: equipment,
 			Inventory: inventory,
+			Telegraph: telegraphFor(a),
 		})
 	}
 	for _, p := range w.Projectiles {
@@ -245,6 +246,14 @@ func actionString(a core.Action) string {
 	case core.ActionMove:
 		return "move"
 	case core.ActionSkill:
+		if a.Skill.Kind == core.SkillStaged {
+			// Effect stages read as windup, trailing pauses as recovery —
+			// clients need no staged-specific vocabulary.
+			if a.Skill.Stages[a.Stage].Effect != core.StageNone {
+				return "windup:" + a.Skill.ID
+			}
+			return "recovery:" + a.Skill.ID
+		}
 		if a.Phase == core.PhaseWindup {
 			return "windup:" + a.Skill.ID
 		}
@@ -252,6 +261,42 @@ func actionString(a core.Action) string {
 	default:
 		return "idle"
 	}
+}
+
+// telegraphFor is the wire's danger zone for an actor's pending effect: a
+// staged skill's current blast/ring stage (exact lock point and countdown),
+// or a legacy self-centered nova wind-up (Total unknown — it was scaled
+// away at use time; clients infer it from the first Left they see).
+func telegraphFor(a *core.Actor) *protocol.TelegraphSnap {
+	if a.Action.Kind != core.ActionSkill {
+		return nil
+	}
+	sk := a.Action.Skill
+	if sk.Kind == core.SkillStaged {
+		st := sk.Stages[a.Action.Stage]
+		if st.Effect == core.StageNone || st.Radius <= 0 {
+			return nil
+		}
+		// A blast lands on its locked aim; a ring's danger emanates from
+		// the caster (Radius is authored as the "get clear" zone).
+		center := a.Action.StageAim
+		if st.Effect == core.StageRing {
+			center = a.Pos
+		}
+		return &protocol.TelegraphSnap{
+			X: center.X.Milli(), Y: center.Y.Milli(),
+			Radius: st.Radius.Milli(),
+			Left:   a.Action.TicksLeft, Total: a.Action.StageTicks[a.Action.Stage],
+		}
+	}
+	if sk.Kind == core.SkillNova && a.Action.Phase == core.PhaseWindup && sk.AoERadius > 0 {
+		return &protocol.TelegraphSnap{
+			X: a.Pos.X.Milli(), Y: a.Pos.Y.Milli(),
+			Radius: sk.AoERadius.Milli(),
+			Left:   a.Action.TicksLeft,
+		}
+	}
+	return nil
 }
 
 // DecodeCommand converts a wire command to the sim's internal form.

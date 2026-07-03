@@ -22,7 +22,7 @@ import (
 // SaveVersion gates restores: a format change bumps it, and old files fail
 // loudly instead of misloading. Saves are durable state — unlike replays,
 // they must never depend on re-execution of the code that wrote them.
-const SaveVersion = 9 // v9: gems — cut gems, uncut gem items, cast contexts (v8: orb wallet)
+const SaveVersion = 10 // v10: staged skill actions (v9: gems)
 
 type saveFile struct {
 	Version     int              `json:"version"`
@@ -86,6 +86,10 @@ type actionSave struct {
 	Phase         uint8        `json:"phase"`
 	TicksLeft     uint32       `json:"ticks_left"`
 	RecoveryTicks uint32       `json:"recovery_ticks"`
+	// Staged skill state (empty for legacy windup/recovery actions).
+	Stage      int        `json:"stage,omitempty"`
+	StageTicks []uint32   `json:"stage_ticks,omitempty"`
+	StageAim   space.Vec2 `json:"stage_aim"`
 	// The cast's baked gem context (players; zero for monsters).
 	GemLevel    int      `json:"gem_level,omitempty"`
 	GemSupports []string `json:"gem_supports,omitempty"`
@@ -221,6 +225,9 @@ func encodeActor(a *Actor) actorSave {
 			TicksLeft:  a.Action.TicksLeft,
 
 			RecoveryTicks: a.Action.RecoveryTicks,
+			Stage:         a.Action.Stage,
+			StageTicks:    a.Action.StageTicks,
+			StageAim:      a.Action.StageAim,
 		},
 		Equipment: make([]*itemSave, EquipSlotCount),
 	}
@@ -431,6 +438,9 @@ func decodeActor(db *ContentDB, affixes map[string]*AffixDef, as actorSave) (*Ac
 			Phase:         ActionPhase(as.Action.Phase),
 			TicksLeft:     as.Action.TicksLeft,
 			RecoveryTicks: as.Action.RecoveryTicks,
+			Stage:         as.Action.Stage,
+			StageTicks:    as.Action.StageTicks,
+			StageAim:      as.Action.StageAim,
 		},
 	}
 	if as.Action.Skill != "" {
@@ -439,6 +449,13 @@ func decodeActor(db *ContentDB, affixes map[string]*AffixDef, as actorSave) (*Ac
 			return nil, fmt.Errorf("core: save references unknown skill %q", as.Action.Skill)
 		}
 		a.Action.Skill = sk
+		// A staged action must still index a stage the (possibly edited)
+		// def actually has — a mismatch would panic ticks later.
+		if sk.Kind == SkillStaged && a.Action.Kind == ActionSkill &&
+			(a.Action.Stage < 0 || a.Action.Stage >= len(sk.Stages) ||
+				len(a.Action.StageTicks) != len(sk.Stages)) {
+			return nil, fmt.Errorf("core: actor %d staged action doesn't fit skill %q", as.ID, sk.ID)
+		}
 	}
 	ctx, err := decodeGemCtx(db, as.Action.GemLevel, as.Action.GemSupports)
 	if err != nil {

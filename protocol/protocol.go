@@ -11,7 +11,7 @@ package protocol
 // v18 unifies two parallel branches that both claimed v16 (gems on main,
 // identity on the multiplayer branch; parties took v17) — jumping past all
 // of them so no deployed client can match a wrong meaning.
-const Version = 18 // v18: gems + identity + parties (v15: currency)
+const Version = 19 // v19: actor telegraphs (v18: gems + identity + parties)
 
 // Command is the wire form of player intent. Kind is one of "move",
 // "use_skill", "stop", the item verbs "pickup", "equip", "unequip",
@@ -98,6 +98,21 @@ type ActorSnap struct {
 	XPNext    int64          `json:"xp_next,omitempty"`
 	Equipment []EquippedSnap `json:"equipment,omitempty"`
 	Inventory []ItemSnap     `json:"inventory,omitempty"`
+	// Telegraph marks where this actor's pending skill effect will land —
+	// the danger zone a client renders on the ground. Present only while a
+	// telegraphed effect is winding up.
+	Telegraph *TelegraphSnap `json:"telegraph,omitempty"`
+}
+
+// TelegraphSnap is one pending skill effect's danger zone: center, radius,
+// and the countdown (Left of Total ticks; Total 0 when the wind-up length
+// isn't on the wire — clients infer it from the first Left they see).
+type TelegraphSnap struct {
+	X      int64  `json:"x"`
+	Y      int64  `json:"y"`
+	Radius int64  `json:"radius"`
+	Left   uint32 `json:"left"`
+	Total  uint32 `json:"total,omitempty"`
 }
 
 // Ailment bits for ActorSnap.Ail.
