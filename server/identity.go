@@ -47,14 +47,20 @@ var (
 )
 
 // Identity is one named player. Char is the character as of the last save
-// point (disconnect or periodic flush); online is runtime-only.
+// point (disconnect or periodic flush); Stash is the hideout bank — items
+// in durable character form, updated synchronously by stash verbs (and
+// flushed on the same schedule as everything else); online is runtime-only.
 type Identity struct {
 	Name    string          `json:"name"`
 	Char    *core.Character `json:"char,omitempty"`
+	Stash   []core.CharItem `json:"stash,omitempty"`
 	Created time.Time       `json:"created"`
 
 	online bool
 }
+
+// StashCap bounds the per-identity stash — triple the bag, open for tuning.
+const StashCap = 60
 
 // IdentityStore maps secret tokens to identities, with case-insensitive
 // name uniqueness. path == "" keeps it memory-only (tests, throwaway runs).
@@ -223,6 +229,49 @@ func (st *IdentityStore) Bank(token string, char *core.Character) {
 		id.Char = char
 		st.dirty = true
 	}
+}
+
+// StashAdd banks one item into a token's stash; false when the token is
+// unknown or the stash is full. Persists on the usual flush schedule.
+func (st *IdentityStore) StashAdd(token string, item core.CharItem) bool {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	id := st.byToken[token]
+	if id == nil || len(id.Stash) >= StashCap {
+		return false
+	}
+	id.Stash = append(id.Stash, item)
+	st.dirty = true
+	return true
+}
+
+// StashTake removes and returns the stash item at idx; false when the
+// token is unknown or idx is out of range.
+func (st *IdentityStore) StashTake(token string, idx int) (core.CharItem, bool) {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	id := st.byToken[token]
+	if id == nil || idx < 0 || idx >= len(id.Stash) {
+		return core.CharItem{}, false
+	}
+	item := id.Stash[idx]
+	id.Stash = append(id.Stash[:idx], id.Stash[idx+1:]...)
+	st.dirty = true
+	return item, true
+}
+
+// StashList copies a token's stash for snapshot building (nil for guests
+// and unknown tokens).
+func (st *IdentityStore) StashList(token string) []core.CharItem {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	id := st.byToken[token]
+	if id == nil || len(id.Stash) == 0 {
+		return nil
+	}
+	out := make([]core.CharItem, len(id.Stash))
+	copy(out, id.Stash)
+	return out
 }
 
 // SaveIfDue flushes a dirty store at most every saveInterval. Called every

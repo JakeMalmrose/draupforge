@@ -120,6 +120,22 @@ func ExtractCharacter(a *Actor) Character {
 	return ch
 }
 
+// CharItemOf converts one live item to its durable character form — the
+// same shape ExtractCharacter uses; host-layer storage (the stash) stores
+// items this way.
+func CharItemOf(item Item) CharItem { return charItem(item) }
+
+// ItemFromChar resolves a durable item back to a live one against a content
+// registry. The entity ID is left zero — the destination world mints it,
+// same rule as injection.
+func ItemFromChar(db *ContentDB, ci CharItem) (Item, error) {
+	affixes := make(map[string]*AffixDef, len(db.Affixes))
+	for _, af := range db.Affixes {
+		affixes[af.ID] = af
+	}
+	return decodeCharItem(db, affixes, ci)
+}
+
 func charItem(item Item) CharItem {
 	if item.Gem != nil {
 		return CharItem{Gem: &CharUncut{

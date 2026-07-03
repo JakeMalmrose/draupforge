@@ -84,6 +84,7 @@ All foundational machinery from DESIGN.md is real, not stubbed:
 | Equipment + inventory: 10 slots, slot-addressed equip, pickup/unequip/drop, capacity | `sim/items/equip.go` | done, tested |
 | Server: TCP + WS transports, send-rate decoupling, interest culling, binary deltas + acks, pause, per-client send queues (a stalled socket dies alone; the tick never blocks on I/O) | `server/` | done, race-tested |
 | Identity: name claim mints a 32-byte cookie token; the token resumes the character (banked on disconnect + 30s flush); one session per name; guests skip it all | `server/identity.go` | done, tested |
+| Stash: per-identity hideout bank (60 items, durable CharItem form on the identity); stash_put/stash_take verbs, hideout-only, processed at the host layer between ticks; drag between bag and stash in the panel | `server/stash.go`, `server/identity.go`, `web/` | done, tested, verified live |
 | Lobby: many instances per process, party = instance, invite/leave transfers via floor-swap machinery, 60s empty reap = reconnect grace | `server/lobby.go`, `cmd/partybot` | done, race-tested, verified live |
 | Hosting + CI/CD: public via Tailscale Funnel; every push to main builds, swaps (prev kept), restarts, health-checks; `identities.json` never touched. CI gates every PR and main push: `go vet`, race-tested suite, JS syntax | `.github/workflows/deploy.yml`, `ci.yml` | done, verified e2e |
 | Admin dashboard: observe (tick health, counts, events, hash, run line) + poke (pause, spawn, kick, save) + dev cheats (god/gem/orbs); lobby index at `/i/{id}/` | `server/admin.go` | done, tested; NO AUTH — on the nuc it binds loopback, tailnet-only via `tailscale serve` at http://nuc:9090 (see multiplayer.md) |
@@ -200,13 +201,26 @@ load-bearing (top entry: the action model is one-thing-at-a-time).
 The descent shipped (session 15); the character store + sessions shipped
 (37–38 — DESIGN §14 is fully real); the telegraphed multi-stage boss shipped
 (45 — staged skills, DESIGN §15); `-load` works under the lobby again (46);
-per-client send queues shipped (47). The queue: remaining server hardening
-(replay log, rate limiting, WS origin check) — strangers *can* connect now.
-ROADMAP phase 4's remainder (town hub, stash, uniques) is the fun-first
-counterweight.
+per-client send queues shipped (47); the stash shipped (48 — the hideout is
+the town hub now in every way that matters). The queue: remaining server
+hardening (replay log, rate limiting, WS origin check) — strangers *can*
+connect now — and ROADMAP phase 4's last fun item: uniques with
+build-defining mods.
 
 ## Session log
 
+- **2026-07-03 (48)** — The stash (ROADMAP phase 4). A per-identity hideout
+  bank: 60 items in durable `core.CharItem` form living on the Identity —
+  outside every world and every bag, flushed with the same store writes as
+  characters. Host-layer like the descent (the sim never knows): stash_put/
+  stash_take verbs buffer on the client and move items between the actor's
+  bag and the identity store between ticks, hideout-only, named players
+  only; withdrawn items re-mint entity IDs like injection. The panel grows
+  a stash grid in the hideout — drag bag↔stash, same gestures as equipment.
+  Exported `core.CharItemOf`/`ItemFromChar` for the item↔durable
+  conversions. Unit-pinned (put/take round trip, guest/floor/cap guards,
+  store reload) and verified live in Chrome: bank, reload the page, the gem
+  is still banked; withdraw works; zero console errors.
 - **2026-07-03 (47)** — Per-client send queues. Every connection gets a
   buffered outbound queue (64 frames ≈ 6s of views) drained by its own
   writer goroutine; `client.send` is a non-blocking enqueue, so the tick

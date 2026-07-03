@@ -287,6 +287,17 @@ type ServerMsg struct {
 	// Social rides "social" frames — pushed to named players whenever the
 	// online list, their party, or their pending invite changes.
 	Social *SocialSnap `json:"social,omitempty"`
+	// Stash is the receiving client's hideout bank: on welcomes (named
+	// players only) and its own "stash" frames after every stash verb.
+	Stash *StashSnap `json:"stash,omitempty"`
+}
+
+// StashSnap is one identity's stash as the client sees it. Item IDs are
+// stash indices (stash items have no entity); "stash_take" sends one back
+// as Choice, "stash_put" targets a bag item's entity ID.
+type StashSnap struct {
+	Cap   int        `json:"cap"`
+	Items []ItemSnap `json:"items"`
 }
 
 // SocialSnap is one named player's view of the social layer. Party is the
