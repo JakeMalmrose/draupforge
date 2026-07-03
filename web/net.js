@@ -9,7 +9,7 @@
 
 "use strict";
 
-const PROTOCOL_VERSION = 19;
+const PROTOCOL_VERSION = 20;
 
 const FRAME_VIEW = 1;
 
@@ -84,6 +84,11 @@ function readItem(r) {
     const gem = { support: r.u8() === 1, level: r.uv(), choices: [] };
     for (let m = r.uv(); m > 0; m--) gem.choices.push(r.str());
     item.gem = gem;
+  }
+  if (r.u8() === 1) {
+    const unique = { name: r.str(), desc: r.str(), mods: [] };
+    for (let m = r.uv(); m > 0; m--) unique.mods.push(r.str());
+    item.unique = unique;
   }
   return item;
 }

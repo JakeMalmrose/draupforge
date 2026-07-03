@@ -73,6 +73,7 @@ All foundational machinery from DESIGN.md is real, not stubbed:
 | Actions (windup/recovery) + projectiles; skill feel: splash w/ falloff, wall bounce, heading wiggle, hitscan chains | `sim/skills` | done, tested |
 | Staged skills (DESIGN §15): stage sequences w/ per-stage locked aims, blast/ring effects, telegraphs on the wire (v19); telegraphed blasts skip evasion; the Barrow King (boss_king AI, floors %5, rare, stateless enrage <50%) + boss bar + ground-telegraph rendering | `sim/skills`, `sim/ai`, `content/`, `server/descent.go`, `web/` | done, tested, verified live |
 | Loot: rarity weights, weighted affixes, group caps, per-slot pools (depth asserted at DB()), rolled implicits | `sim/items` | done, tested |
+| Uniques: fixed-identity chase items (4 in content) with shape stats nothing else rolls (ExtraProjectiles/ExtraChains — the skill system reads them off the sheet); UniquePermille per table, orange styling + authored mod lines on the wire (v20); orbs refuse them; save v11 | `sim/items`, `sim/stats`, `content/`, `web/` | done, tested, verified live |
 | Currency: orb wallet (transmute/alch/chaos/jeweller) banked straight to the killer; `apply_orb` crafts bag items | `sim/items`, `web/` | done, tested |
 | Gems: cast only from cut gems; a fresh character spawns with `StartingUncut` draft-of-3 gems instead of a fixed starter; uncut drops carry a draft of 3 at the dier's level (cap 20); supports fold into the socketed skill's queries only (more/less, added flat, speed, mana, fans, chain, conversion); cast contexts bake at use; save v9 | `sim/core/gems.go`, `sim/items/gems.go`, `content/supports.go`, `web/` | done, tested, verified live |
 | Progression: leveled XP on kill, quadratic curve, cap 50, PerLevel mods, ding heal | `sim/progress` | done, tested |
@@ -92,7 +93,7 @@ All foundational machinery from DESIGN.md is real, not stubbed:
 | AI: behavior registry (`melee_chaser`, `ranged_kiter`, `boss_brute`); territorial aggro: LoS/hearing, leash to `Actor.Home`, return-home | `sim/ai` | real, tested |
 | Phase order + command validation | `sim/sim.go` | done — this IS the determinism contract |
 | Wire types: versioned welcome (v18), JSON snapshots, binary delta codec | `protocol/` | done, tested |
-| Content tables | `content/` | 14 skills (6 cuttable, 3 staged), 10 supports, 8 actors, 32 affixes, 9 bases, 7 drop tables, 4 monster mods, 4 buffs |
+| Content tables | `content/` | 14 skills (6 cuttable, 3 staged), 10 supports, 8 actors, 32 affixes, 9 bases, 4 uniques, 7 drop tables, 4 monster mods, 4 buffs |
 | Debug client + determinism/golden replay tests | `cmd/headless`, `sim/sim_test.go` | done |
 
 ## Invariants the code currently honors (don't break casually)
@@ -201,12 +202,27 @@ The descent shipped (session 15); the character store + sessions shipped
 (37–38 — DESIGN §14 is fully real); the telegraphed multi-stage boss shipped
 (45 — staged skills, DESIGN §15); `-load` works under the lobby again (46);
 per-client send queues shipped (47); the stash shipped (48); origin checks
-and rate limiting shipped (49). The queue: ROADMAP phase 4's last fun item
-— uniques with build-defining mods — then a replay log when postmortems
-want one.
+and rate limiting shipped (49); uniques shipped (50) — ROADMAP's phases
+are all ✅ now. The queue is open: a replay log when postmortems want one,
+more uniques/skills/bosses as content appetite dictates, and RISKS #2
+(mid-tick spawns) before any minion skill.
 
 ## Session log
 
+- **2026-07-03 (50)** — Uniques (ROADMAP phase 4 finale — every phase ✅).
+  Chase items: fixed identity, fixed base, fixed mod package, no affixes
+  (orbs refuse them via the rarity gates). What makes them build-defining:
+  two new sheet stats nothing else rolls — ExtraProjectiles and ExtraChains
+  — that the skill system now reads at the fan/chain sites, so Stormweaver
+  Band turns every cast into a two-bolt fan and Coil of the Hydra makes arc
+  strike five. Four uniques shipped, each with a downside. Drop path: one
+  conditional loot draw per table (`UniquePermille`; goldens re-recorded) +
+  a uniform pick; the unique dictates its base, implicit still rolls. Save
+  v11, wire v20 (authored mod lines + flavor ride the item snap), orange
+  styling. Pinned: drop shape, RNG consumption, fan and chain counts, orb
+  refusal, save/transfer round trip. Verified live: a Band dropped off a
+  dummy, picked up, equipped (orange slot, correct wire mods), fan
+  confirmed by probe in the exact live config.
 - **2026-07-03 (49)** — Hardening for strangers. WS origins default to
   same-origin (`-origins` adds patterns; an Origin matching
   X-Forwarded-Host passes, so Host-rewriting proxies keep working —

@@ -127,6 +127,20 @@ func DB() *core.ContentDB {
 			}
 		}
 	}
+	db.Uniques = uniqueDefs()
+	seenUnique := map[string]bool{}
+	for _, u := range db.Uniques {
+		if u.ID == "" || u.Name == "" || len(u.Mods) == 0 || len(u.ModLines) == 0 {
+			panic("content: unique " + u.ID + " is malformed")
+		}
+		if db.BaseItems[u.Base] == nil {
+			panic("content: unique " + u.ID + " references unknown base " + u.Base)
+		}
+		if seenUnique[u.ID] {
+			panic("content: duplicate unique " + u.ID)
+		}
+		seenUnique[u.ID] = true
+	}
 	db.Passives = passiveDefs()
 	seenPassive := map[string]bool{}
 	milestoneForks := map[int]int{}
@@ -146,6 +160,54 @@ func DB() *core.ContentDB {
 		}
 	}
 	return db
+}
+
+// uniqueDefs is the chase-item table. Slice order feeds unique-drop picks —
+// reordering is a replay-relevant change, same as the affix table. Every
+// unique should bend a build around itself: the shape stats
+// (ExtraProjectiles/ExtraChains) exist for these and nothing else rolls
+// them, and the downside is what makes wearing one a decision.
+func uniqueDefs() []*core.UniqueDef {
+	return []*core.UniqueDef{
+		{
+			ID: "stormweaver_band", Name: "Stormweaver Band", Base: "iron_ring",
+			Desc: "The storm never asks where its bolts land.",
+			Mods: []core.BuffMod{
+				{Stat: stats.ExtraProjectiles, Layer: stats.LayerFlat, Value: fm.One},
+				{Stat: stats.Damage, Layer: stats.LayerMore, Value: fm.FromMilli(-150)},
+			},
+			ModLines: []string{"+1 projectile", "15% less damage"},
+		},
+		{
+			ID: "coil_of_the_hydra", Name: "Coil of the Hydra", Base: "bone_amulet",
+			Desc: "Cut one head from a current and two more arc back.",
+			Mods: []core.BuffMod{
+				{Stat: stats.ExtraChains, Layer: stats.LayerFlat, Value: fm.FromInt(2)},
+				{Stat: stats.Damage, Layer: stats.LayerIncreased, Tags: stats.T(stats.TagLightning), Value: fm.FromMilli(150)},
+			},
+			ModLines: []string{"+2 chain targets", "15% increased lightning damage"},
+		},
+		{
+			ID: "juggernauts_wall", Name: "Juggernaut's Wall", Base: "wooden_shield",
+			Desc: "It has never moved for anyone. Neither will you.",
+			Mods: []core.BuffMod{
+				{Stat: stats.Armour, Layer: stats.LayerFlat, Value: fm.FromInt(120)},
+				{Stat: stats.Life, Layer: stats.LayerFlat, Value: fm.FromInt(40)},
+				{Stat: stats.MoveSpeed, Layer: stats.LayerIncreased, Value: fm.FromMilli(-100)},
+			},
+			ModLines: []string{"+120 armour", "+40 life", "10% reduced move speed"},
+		},
+		{
+			ID: "windrunner_treads", Name: "Windrunner Treads", Base: "leather_boots",
+			Desc: "Outrun the ground and the grave both.",
+			Mods: []core.BuffMod{
+				{Stat: stats.MoveSpeed, Layer: stats.LayerIncreased, Value: fm.FromMilli(250)},
+				{Stat: stats.Evasion, Layer: stats.LayerFlat, Value: fm.FromInt(30)},
+				{Stat: stats.Life, Layer: stats.LayerMore, Value: fm.FromMilli(-100)},
+			},
+			ModLines: []string{"25% increased move speed", "+30 evasion", "10% less life"},
+		},
+	}
 }
 
 // passiveDefs is the milestone-choice table: at each milestone level the
@@ -1041,6 +1103,7 @@ func lootTableDefs() []*core.LootTableDef {
 			RarityWeights:      [3]uint32{60, 32, 8},
 			SkillGemPermille:   27,
 			SupportGemPermille: 15,
+			UniquePermille:     4,
 			Bases: []string{
 				"rusty_sword", "wooden_shield", "leather_cap", "leather_vest",
 				"leather_gloves", "leather_boots", "leather_belt",
@@ -1054,6 +1117,7 @@ func lootTableDefs() []*core.LootTableDef {
 			RarityWeights:      [3]uint32{45, 40, 15},
 			SkillGemPermille:   33,
 			SupportGemPermille: 21,
+			UniquePermille:     5,
 			Bases: []string{
 				"rusty_sword", "bone_amulet", "iron_ring", "leather_cap",
 				"leather_gloves", "leather_boots",
@@ -1067,6 +1131,7 @@ func lootTableDefs() []*core.LootTableDef {
 			RarityWeights:      [3]uint32{50, 35, 15},
 			SkillGemPermille:   300, // test target: gem flows stay easy to exercise
 			SupportGemPermille: 300,
+			UniquePermille:     100,
 			Bases: []string{
 				"rusty_sword", "wooden_shield", "leather_cap", "leather_vest",
 				"leather_gloves", "leather_boots", "bone_amulet", "iron_ring",
@@ -1081,6 +1146,7 @@ func lootTableDefs() []*core.LootTableDef {
 			RarityWeights:      [3]uint32{65, 30, 5},
 			SkillGemPermille:   18,
 			SupportGemPermille: 12,
+			UniquePermille:     3,
 			Bases: []string{
 				"rusty_sword", "leather_boots", "leather_gloves", "leather_belt",
 			},
@@ -1095,6 +1161,7 @@ func lootTableDefs() []*core.LootTableDef {
 			RarityWeights:      [3]uint32{10, 45, 45},
 			SkillGemPermille:   450,
 			SupportGemPermille: 300,
+			UniquePermille:     45,
 			Bases: []string{
 				"rusty_sword", "wooden_shield", "leather_cap", "leather_vest",
 				"leather_gloves", "leather_boots", "bone_amulet", "iron_ring",
@@ -1111,6 +1178,7 @@ func lootTableDefs() []*core.LootTableDef {
 			RarityWeights:      [3]uint32{0, 40, 60},
 			SkillGemPermille:   700,
 			SupportGemPermille: 500,
+			UniquePermille:     90,
 			Bases: []string{
 				"rusty_sword", "wooden_shield", "leather_cap", "leather_vest",
 				"leather_gloves", "leather_boots", "bone_amulet", "iron_ring",
@@ -1125,6 +1193,7 @@ func lootTableDefs() []*core.LootTableDef {
 			RarityWeights:      [3]uint32{35, 45, 20},
 			SkillGemPermille:   38,
 			SupportGemPermille: 27,
+			UniquePermille:     6,
 			Bases: []string{
 				"bone_amulet", "iron_ring", "leather_cap", "wooden_shield",
 			},

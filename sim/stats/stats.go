@@ -38,6 +38,12 @@ const (
 	IgniteChance // fraction, added to skill base chance
 	ShockChance  // fraction, added to skill base chance
 
+	// Skill-shape stats — whole numbers the skill system reads (floored).
+	// No affix rolls these; they exist so uniques can change how a skill
+	// fires, not just how hard.
+	ExtraProjectiles // additional projectiles per cast (fans like LMP)
+	ExtraChains      // additional chain-skill targets
+
 	StatCount
 )
 

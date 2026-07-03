@@ -39,6 +39,10 @@ func (s *hasher) item(item *Item) {
 		s.str(af.Def.ID)
 		s.i64(af.Value.Milli())
 	}
+	// Conditional like everything new: non-unique items keep their stream.
+	if item.Unique != nil {
+		s.str(item.Unique.ID)
+	}
 }
 func (s *hasher) str(v string) {
 	for i := 0; i < len(v); i++ {

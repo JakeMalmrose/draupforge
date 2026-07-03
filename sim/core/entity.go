@@ -281,9 +281,9 @@ func (a *Actor) SetLevel(level int) {
 	}
 }
 
-// AddItemMods grants an equipped item's implicit and affix modifiers on the
-// actor's sheet, sourced by the item's ID so a later unequip (or zone exit)
-// can remove them cleanly with RemoveSource.
+// AddItemMods grants an equipped item's implicit, affix, and unique
+// modifiers on the actor's sheet, sourced by the item's ID so a later
+// unequip (or zone exit) can remove them cleanly with RemoveSource.
 func (a *Actor) AddItemMods(item *Item) {
 	if imp := item.Base.Implicit; imp != nil {
 		a.Sheet.Add(stats.Modifier{
@@ -302,6 +302,17 @@ func (a *Actor) AddItemMods(item *Item) {
 			Tags:   af.Def.Tags,
 			Source: uint64(item.ID),
 		})
+	}
+	if u := item.Unique; u != nil {
+		for _, m := range u.Mods {
+			a.Sheet.Add(stats.Modifier{
+				Stat:   m.Stat,
+				Layer:  m.Layer,
+				Value:  m.Value,
+				Tags:   m.Tags,
+				Source: uint64(item.ID),
+			})
+		}
 	}
 }
 
@@ -365,6 +376,9 @@ const (
 	RarityNormal Rarity = iota
 	RarityMagic
 	RarityRare
+	// RarityUnique is item-only: monsters never roll it, orbs refuse it,
+	// and the item's mods come from its UniqueDef instead of affixes.
+	RarityUnique
 )
 
 func (r Rarity) String() string {
@@ -373,6 +387,8 @@ func (r Rarity) String() string {
 		return "magic"
 	case RarityRare:
 		return "rare"
+	case RarityUnique:
+		return "unique"
 	default:
 		return "normal"
 	}
@@ -398,6 +414,9 @@ type Item struct {
 	Implicit fm.Fixed
 	// Gem marks an uncut gem item; nil for equipment.
 	Gem *UncutGem
+	// Unique is set on unique items (Rarity == RarityUnique): the fixed
+	// modifier package that replaces affixes. The implicit still rolls.
+	Unique *UniqueDef
 }
 
 // Name is the item's display/logging key: the base ID, or the uncut-gem

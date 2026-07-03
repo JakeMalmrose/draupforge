@@ -179,9 +179,11 @@ body {
 .slot.rarity-normal { color: #cfc9bf; }
 .slot.rarity-magic { color: #8888ff; border-color: #50509a; }
 .slot.rarity-rare { color: #ffff77; border-color: #8a8a3a; }
+.slot.rarity-unique { color: #ff9a3d; border-color: #9a5a20; }
 .rarity-normal { color: #cfc9bf; }
 .rarity-magic { color: #8888ff; }
 .rarity-rare { color: #ffff77; }
+.rarity-unique { color: #ff9a3d; }
 
 /* drag feedback: legal targets glow while a drag is in flight */
 .slot.drop-ok { border-color: #b8a44a; background: #221f14; }

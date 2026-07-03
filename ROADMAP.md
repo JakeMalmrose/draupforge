@@ -9,8 +9,9 @@ The foundations are done — and so, now, are most of the phases below: the
 descent (stakes), gems/passives/per-slot affixes (build identity), currency,
 rarity packs, juice, and a public multiplayer server your friends can join.
 The phases keep their original text as the record of *why* each thing was
-built; ✅ marks what shipped. What's genuinely left: phase 4's town hub +
-stash + uniques.
+built; ✅ marks what shipped — as of session 50, all of it did. What's next
+is a content question (more skills, uniques, bosses, floors), not a
+systems one.
 
 ## North star: the loop has to pull
 
@@ -80,8 +81,10 @@ If only one thing ships this year, it's this.
   good drop no longer lives or dies with one character's bag.
 - ✅ **Currency / crafting-lite** — transmute/alch/chaos (+ jeweller for gem
   sockets), banked straight to the killer.
-- **Uniques with build-defining mods** — the chase items that make a player say
-  "I want to build around *that*." Still open.
+- ✅ **Uniques with build-defining mods** — the chase items that make a player
+  say "I want to build around *that*." (Session 50: four uniques on sheet
+  stats nothing else rolls — extra projectiles, extra chains — each with a
+  downside worth arguing about.)
 
 ## Cross-cutting: sprinkle juice continuously
 
