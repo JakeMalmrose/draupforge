@@ -315,6 +315,23 @@ type PendingSpawn struct {
 	Level int
 	// Source is the causing entity (the dier, the summoner) for the event.
 	Source EntityID
+	// Owner marks the newcomer a minion of that actor (0 = independent).
+	Owner EntityID
+}
+
+// CreditFor resolves who a kill pays: the deepest live owner above the
+// killer (a minion's kills are its summoner's), or the killer itself when
+// the chain dead-ends. Hop-capped so a content cycle can't loop.
+func (w *World) CreditFor(killer *Actor) *Actor {
+	credit := killer
+	for hops := 0; hops < 4 && credit.Owner != 0; hops++ {
+		owner := w.ActorByID(credit.Owner)
+		if owner == nil || owner.Dead {
+			break
+		}
+		credit = owner
+	}
+	return credit
 }
 
 func (w *World) QueueSpawn(s PendingSpawn) { w.PendingSpawns = append(w.PendingSpawns, s) }
@@ -334,6 +351,7 @@ func (w *World) DrainSpawns() {
 			}
 		}
 		a := w.SpawnActor(ps.Def, pos)
+		a.Owner = ps.Owner
 		if ps.Level > 0 {
 			a.SetLevel(ps.Level)
 			a.Life, a.Mana, a.ES = a.MaxLife(), a.MaxMana(), a.MaxES()

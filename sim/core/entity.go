@@ -133,6 +133,12 @@ type Actor struct {
 	// per-actor AI state RISKS.md said leashing would need.
 	Home space.Vec2
 
+	// Owner links a minion to its summoner (0 = independent). Kills credit
+	// up the chain (World.CreditFor), minion AI leashes to the owner's
+	// position, and the link is zone-local — minions die with the zone,
+	// never transferring. Saved and hashed (conditionally).
+	Owner EntityID
+
 	// Current resource pools; maxima come from the stat sheet.
 	Life, Mana, ES fm.Fixed
 

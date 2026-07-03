@@ -833,6 +833,25 @@ const MODEL_PAINTERS = {
     }
     eyes(r, ex, ey, "#8a1c1c");
   },
+  skeleton_warrior(r, ex, ey) {
+    const px = -ey, py = ex;
+    bodySphere(r, "#cfc4a8", 0.85); // bone-pale and lean
+    ctx.strokeStyle = "#00000038"; // ribs
+    ctx.lineWidth = 1;
+    for (let i = 0; i <= 1; i++) {
+      ctx.beginPath();
+      ctx.arc(0, r * 0.1 + i * r * 0.28, r * 0.55, Math.PI * 0.2, Math.PI * 0.8);
+      ctx.stroke();
+    }
+    const sx = px * r * 0.75, sy = py * r * 0.75;
+    ctx.strokeStyle = "#b8b0a0"; // a chipped blade at the ready
+    ctx.lineWidth = Math.max(r * 0.14, 1.2);
+    ctx.beginPath();
+    ctx.moveTo(sx, sy);
+    ctx.lineTo(sx + ex * r * 0.85, sy + ey * r * 0.85);
+    ctx.stroke();
+    eyes(r, ex, ey, "#4ad1c8"); // the summoner's spark
+  },
   carrion_husk(r, ex, ey) {
     bodySphere(r, "#7a6a3a", 1.1); // swollen wider than tall
     ctx.fillStyle = "#5f7a2e88"; // the ghouls pressing at the skin
@@ -920,10 +939,12 @@ function drawActor(a, pos) {
 
   ctx.save();
   ctx.translate(p.x, p.y + bob);
-  if (a.team === 1) {
+  // Def painters win over the team fallback: player-team minions
+  // (skeletons) draw as themselves, not as blue exiles.
+  const painter = MODEL_PAINTERS[a.def];
+  if (a.team === 1 && !painter) {
     paintPlayer(r, ex, ey, isMe, roster.has(a.id));
   } else {
-    const painter = MODEL_PAINTERS[a.def];
     if (painter) painter(r, ex, ey);
     else {
       bodySphere(r, DEF_COLORS[a.def] || "#7a2424");
@@ -1574,6 +1595,8 @@ const SKILL_META = {
     desc: "Lightning leaps to the enemy nearest your cursor, then chains onward. Can shock." },
   bone_arrow: { color: "#8d8678", aimed: true, kind: "Attack",
     desc: "A swift physical arrow — long reach, and it scales with your weapon." },
+  summon_skeleton: { color: "#e8dfc8", aimed: false, kind: "Summon",
+    desc: "Raise a skeleton warrior that fights at your side. Keep up to three." },
 };
 
 // gemIconSVG is the one gem glyph, colored per skill: draft cards, the gem

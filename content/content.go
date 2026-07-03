@@ -28,6 +28,10 @@ func DB() *core.ContentDB {
 		if (sk.Kind == core.SkillStaged) != (len(sk.Stages) > 0) {
 			panic("content: skill " + sk.ID + ": Stages and SkillStaged must come together")
 		}
+		if sk.Kind == core.SkillSummon &&
+			(sk.SummonDef == "" || sk.SummonCount < 1 || sk.SummonCap < sk.SummonCount) {
+			panic("content: summon skill " + sk.ID + " is malformed")
+		}
 		if sk.Kind != core.SkillStaged {
 			continue
 		}
@@ -54,6 +58,11 @@ func DB() *core.ContentDB {
 	}
 	for _, a := range actorDefs() {
 		db.Actors[a.ID] = a
+	}
+	for _, sk := range skillDefs() {
+		if sk.Kind == core.SkillSummon && db.Actors[sk.SummonDef] == nil {
+			panic("content: summon skill " + sk.ID + " references unknown def " + sk.SummonDef)
+		}
 	}
 	db.Affixes = affixDefs()
 	for _, b := range baseItemDefs() {
@@ -613,7 +622,25 @@ func skillDefs() []*core.SkillDef {
 	graveStorm.BaseMin[core.Physical] = fm.FromInt(10)
 	graveStorm.BaseMax[core.Physical] = fm.FromInt(16)
 
-	return []*core.SkillDef{fireball, slam, frostNova, spark, boneArrow, adrenaline, claws, arcBolt, arc, colossusSlam, boneVolley, barrowSlam, graveVolley, graveStorm}
+	// The first minion skill — rides the spawn queue. Skeletons fight at
+	// the gem's level, heel to their summoner, and their kills credit the
+	// player (XP, orbs, flask charges).
+	summonSkeleton := &core.SkillDef{
+		ID:            "summon_skeleton",
+		Name:          "Summon Skeleton",
+		Cuttable:      true,
+		Kind:          core.SkillSummon,
+		Tags:          stats.T(stats.TagSpell),
+		ManaCost:      fm.FromInt(25),
+		WindupTicks:   15, // 0.5s rite
+		RecoveryTicks: 9,
+		SpeedStat:     stats.CastSpeed,
+		SummonDef:     "skeleton_warrior",
+		SummonCount:   1,
+		SummonCap:     3,
+	}
+
+	return []*core.SkillDef{fireball, slam, frostNova, spark, boneArrow, adrenaline, claws, arcBolt, arc, colossusSlam, boneVolley, barrowSlam, graveVolley, graveStorm, summonSkeleton}
 }
 
 func baseStats(pairs map[stats.StatID]fm.Fixed) [stats.StatCount]fm.Fixed {
@@ -866,7 +893,32 @@ func actorDefs() []*core.ActorDef {
 		},
 	}
 
-	return []*core.ActorDef{player, zombie, archer, dummy, ghoul, mage, colossus, barrowKing, husk}
+	// The player's skeleton: fast enough to keep up, cheap enough to lose.
+	// TeamPlayers makes every hostility check just work; the Owner link
+	// (set at summon) handles credit and the heel behavior.
+	skeleton := &core.ActorDef{
+		ID:     "skeleton_warrior",
+		Name:   "Skeleton Warrior",
+		Team:   core.TeamPlayers,
+		Radius: fm.FromMilli(450),
+		BaseStats: baseStats(map[stats.StatID]fm.Fixed{
+			stats.Life:       fm.FromInt(45),
+			stats.MoveSpeed:  fm.FromMilli(5200),
+			stats.Accuracy:   fm.FromInt(90),
+			stats.CritChance: fm.FromMilli(50),
+		}),
+		Skills:      []string{"ghoul_claws"},
+		AI:          "minion_melee",
+		AggroRadius: fm.FromInt(9),
+		Level:       1,
+		XPValue:     0, // killing someone's skeleton pays nothing
+		PerLevel: []core.BuffMod{
+			{Stat: stats.Life, Layer: stats.LayerFlat, Value: fm.FromInt(7)},
+			{Stat: stats.Damage, Layer: stats.LayerIncreased, Value: fm.FromMilli(50)},
+		},
+	}
+
+	return []*core.ActorDef{player, zombie, archer, dummy, ghoul, mage, colossus, barrowKing, husk, skeleton}
 }
 
 // affixDefs is the global affix pool. Slice order feeds the weighted roll —

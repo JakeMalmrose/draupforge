@@ -169,6 +169,26 @@ func lockStageAim(w *core.World, a *core.Actor) {
 // ringSteps is a full circle in fan steps (12° each).
 const ringSteps = 30
 
+// summonOffsets fans fresh minions around the caster — fixed pattern, no
+// RNG, clamped to walkable at drain.
+var summonOffsets = []space.Vec2{
+	space.V(fm.FromMilli(1200), 0),
+	space.V(fm.FromMilli(-1200), 0),
+	space.V(0, fm.FromMilli(1200)),
+	space.V(0, fm.FromMilli(-1200)),
+}
+
+// livingMinions counts an owner's live minions of one def.
+func livingMinions(w *core.World, owner core.EntityID, def string) int {
+	n := 0
+	for _, m := range w.Actors {
+		if !m.Dead && m.Owner == owner && m.Def.ID == def {
+			n++
+		}
+	}
+	return n
+}
+
 // fireStage is a staged skill's effect point.
 func fireStage(w *core.World, a *core.Actor, st *core.SkillStage) {
 	sk := a.Action.Skill
@@ -274,6 +294,37 @@ func fire(w *core.World, a *core.Actor) {
 	case core.SkillBuff:
 		if def := w.Content.Buffs[sk.SelfBuff]; def != nil {
 			w.QueueBuff(core.PendingBuff{Target: a.ID, Buff: def, Source: a.ID})
+		}
+	case core.SkillSummon:
+		def := w.Content.Actors[sk.SummonDef]
+		if def == nil {
+			return
+		}
+		// Enforce the cap first: despawn the oldest of this def (slice
+		// order IS age order) until the new batch fits. A despawn is not a
+		// death — no event, no loot, no XP; compaction sweeps it.
+		if sk.SummonCap > 0 {
+			over := livingMinions(w, a.ID, sk.SummonDef) + sk.SummonCount - sk.SummonCap
+			for _, m := range w.Actors {
+				if over <= 0 {
+					break
+				}
+				if !m.Dead && m.Owner == a.ID && m.Def.ID == sk.SummonDef {
+					m.Dead = true
+					over--
+				}
+			}
+		}
+		level := a.Action.Gem.Level
+		if level == 0 {
+			level = a.Level // monsters summon at their own level
+		}
+		for i := 0; i < sk.SummonCount; i++ {
+			off := summonOffsets[i%len(summonOffsets)]
+			w.QueueSpawn(core.PendingSpawn{
+				Def: def, Pos: a.Pos.Add(off), Level: level,
+				Source: a.ID, Owner: a.ID,
+			})
 		}
 	case core.SkillChain:
 		// Hitscan: strike the enemy nearest the aim point (within Range of

@@ -19,6 +19,7 @@ var deciders = map[string]decider{
 	"ranged_kiter": rangedKiter,
 	"boss_brute":   bossBrute,
 	"boss_king":    bossKing,
+	"minion_melee": minionMelee,
 }
 
 // Decide produces this tick's AI commands in actor slice order.
@@ -150,6 +151,56 @@ func bossBrute(w *core.World, a *core.Actor) (core.Command, bool) {
 		}, true
 	}
 	return core.Command{Actor: a.ID, Kind: core.CmdMove, Point: tgt.Pos}, true
+}
+
+// minionFollowGap is how far a minion drifts from its owner before it
+// breaks off to catch up; minionLeash bounds how far from the owner it
+// will engage — the pack fights around its summoner, not across the map.
+var (
+	minionFollowGap = fm.FromInt(4)
+	minionLeash     = fm.FromInt(10)
+)
+
+// minionMelee: fight what threatens the owner, otherwise heel. The leash
+// anchors to the owner's CURRENT position (mobile territory); an orphaned
+// minion (owner gone or dead) fights on unleashed like a plain chaser.
+func minionMelee(w *core.World, a *core.Actor) (core.Command, bool) {
+	if a.Action.Kind == core.ActionSkill {
+		return core.Command{}, false
+	}
+	owner := w.ActorByID(a.Owner)
+	if owner != nil && owner.Dead {
+		owner = nil
+	}
+	var tgt *core.Actor
+	var bestDist fm.Fixed
+	for _, o := range w.Actors {
+		if o.Dead || o.ID == a.ID || o.Team == a.Team || o.Team == core.TeamNone {
+			continue
+		}
+		d := space.Dist(a.Pos, o.Pos)
+		if d > a.Def.AggroRadius {
+			continue
+		}
+		if owner != nil && space.Dist(owner.Pos, o.Pos) > minionLeash {
+			continue // too far from the summoner to be our problem
+		}
+		if tgt == nil || d < bestDist {
+			tgt, bestDist = o, d
+		}
+	}
+	if tgt != nil {
+		skID := a.Def.Skills[0]
+		sk := w.Content.Skills[skID]
+		if space.Dist(a.Pos, tgt.Pos) <= sk.Range+a.Def.Radius+tgt.Def.Radius {
+			return core.Command{Actor: a.ID, Kind: core.CmdUseSkill, Skill: skID, TargetID: tgt.ID}, true
+		}
+		return core.Command{Actor: a.ID, Kind: core.CmdMove, Point: tgt.Pos}, true
+	}
+	if owner != nil && space.Dist(a.Pos, owner.Pos) > minionFollowGap {
+		return core.Command{Actor: a.ID, Kind: core.CmdMove, Point: owner.Pos}, true
+	}
+	return core.Command{}, false
 }
 
 // bossKing: the staged-skill boss. Skills are [slam, volley, storm] — all

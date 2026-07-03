@@ -11,8 +11,8 @@ tests, and session-log entries older than a few sessions (git history is the
 archive). If this file outgrows ~150 lines, it has stopped being a status doc
 and started being a changelog — cut it back.
 
-**Last updated: 2026-07-03** (session 51: the spawn queue — RISKS #2 paid
-down — and the Carrion Husk that proves it)
+**Last updated: 2026-07-03** (session 52: Summon Skeleton — the first
+minion skill, with owner attribution and heel AI)
 
 ## Where things stand
 
@@ -91,6 +91,7 @@ All foundational machinery from DESIGN.md is real, not stubbed:
 | Web client: canvas render, vector actor models (shaded per-archetype bodies, motion-derived facing), drag-drop inventory, delta decoding + tick-timeline interpolation, VFX/damage numbers/audio stingers, PoE2 HUD + gem bar (shared gem-icon SVGs), centered pick-3 draft dialog (auto-opens for gemless characters), WASD + click, minimap, join screen, party panel | `web/` | working, no build step |
 | AI: behavior registry (`melee_chaser`, `ranged_kiter`, `boss_brute`, `boss_king`); territorial aggro: LoS/hearing, leash to `Actor.Home`, return-home | `sim/ai` | real, tested |
 | Spawn queue (RISKS #2): `QueueSpawn`/`DrainSpawns` at a fixed phase — deterministic IDs, birth-tick immunity, save-refused when pending; on-death adds (`ActorDef.DeathSpawn*`, the Carrion Husk splits into ghouls) | `sim/core/world.go`, `sim/sim.go`, `content/` | done, tested, verified live |
+| Minions: `Actor.Owner` (zone-local, saved+hashed), kill attribution up the chain (`World.CreditFor` — XP/flasks/orbs pay the summoner), `minion_melee` heel AI (mobile leash on the owner), `SkillSummon` w/ cap-despawns-oldest; Summon Skeleton cuttable gem (cap 3, minions at gem level); save v12 | `sim/core`, `sim/ai`, `sim/skills`, `content/`, `web/` | done, tested, verified live |
 | Phase order + command validation | `sim/sim.go` | done — this IS the determinism contract |
 | Wire types: versioned welcome (v18), JSON snapshots, binary delta codec | `protocol/` | done, tested |
 | Content tables | `content/` | 14 skills (6 cuttable, 3 staged), 10 supports, 8 actors, 32 affixes, 9 bases, 4 uniques, 7 drop tables, 4 monster mods, 4 buffs |
@@ -210,6 +211,20 @@ dictates.
 
 ## Session log
 
+- **2026-07-03 (52)** — Summon Skeleton: the first minion skill, the spawn
+  queue's second act. `Actor.Owner` links a minion to its summoner
+  (zone-local — minions die with the zone; saved + hashed conditionally,
+  save v12); `World.CreditFor` walks the chain so a minion's kills pay the
+  player's XP, flask charges, and orbs; `minion_melee` heels inside 4u,
+  fights what comes within 10u of the OWNER (mobile leash), and orphans
+  fight on. `SkillSummon`: queue-spawned at the gem's level, per-def cap
+  despawns the oldest quietly (no death/loot/XP). Content: skeleton_warrior
+  (TeamPlayers, so hostility checks just work) + the cuttable
+  summon_skeleton gem (cap 3) — the Cuttable pool grew, so goldens
+  re-recorded. Client: def painters now beat the team fallback (skeletons
+  draw as skeletons, not blue exiles), bone-pale model. Verified live:
+  summoned two, walked into a pack, they heeled, engaged, killed a zombie,
+  and the XP landed on me; zero console errors.
 - **2026-07-03 (51)** — The spawn queue (RISKS #2, designed on purpose
   before the first minion skill needed it in a hurry). `World.QueueSpawn`
   buffers mid-tick actor creations; `DrainSpawns` materializes them in
