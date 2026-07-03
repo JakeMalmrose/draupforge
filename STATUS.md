@@ -82,7 +82,7 @@ All foundational machinery from DESIGN.md is real, not stubbed:
 | The descent: hideout start (`Config.StartFloor`, 0 = home; hideout world derived from the instance seed), floor swaps, portal economy, XP death penalty, run-over → new run at home, leveled+thickened packs, stairs guardian every 3rd floor | `server/descent.go` | done, unit + e2e tested, verified live |
 | Monster rarity: magic/rare rolls with mod packages, XP ×3/×6, extra drops, floor-scaled chances, rings + nameplates | `sim/sim.go`, `content/`, `web/` | done, tested |
 | Equipment + inventory: 10 slots, slot-addressed equip, pickup/unequip/drop, capacity | `sim/items/equip.go` | done, tested |
-| Server: TCP + WS transports, send-rate decoupling, interest culling, binary deltas + acks, pause | `server/` | done, race-tested |
+| Server: TCP + WS transports, send-rate decoupling, interest culling, binary deltas + acks, pause, per-client send queues (a stalled socket dies alone; the tick never blocks on I/O) | `server/` | done, race-tested |
 | Identity: name claim mints a 32-byte cookie token; the token resumes the character (banked on disconnect + 30s flush); one session per name; guests skip it all | `server/identity.go` | done, tested |
 | Lobby: many instances per process, party = instance, invite/leave transfers via floor-swap machinery, 60s empty reap = reconnect grace | `server/lobby.go`, `cmd/partybot` | done, race-tested, verified live |
 | Hosting + CI/CD: public via Tailscale Funnel; every push to main builds, swaps (prev kept), restarts, health-checks; `identities.json` never touched. CI gates every PR and main push: `go vet`, race-tested suite, JS syntax | `.github/workflows/deploy.yml`, `ci.yml` | done, verified e2e |
@@ -160,9 +160,7 @@ load-bearing (top entry: the action model is one-thing-at-a-time).
 - Client hand-mirrors: item-icon SVGs + `BASE_SLOTS` by base id, `SKILL_META`
   per cuttable skill — new content updates them or eats the fallback.
 - Named characters persist (identity store); guests are ephemeral by design.
-  The admin port has no auth (public deploy disables it); a slow client can
-  stall its instance's tick up to 1s (no per-client send queues) — real now
-  that strangers can reach the public URL.
+  The admin port has no auth (public deploy disables it).
 - `-load` under the lobby seeds only the *first* instance created (whoever
   connects first resumes the run); a lobby has no way to aim a save at a
   particular player. Fine for the single-operator rollback story it serves.
@@ -201,13 +199,26 @@ load-bearing (top entry: the action model is one-thing-at-a-time).
 
 The descent shipped (session 15); the character store + sessions shipped
 (37–38 — DESIGN §14 is fully real); the telegraphed multi-stage boss shipped
-(45 — staged skills, DESIGN §15); `-load` works under the lobby again (46).
-The queue: server hardening (replay log, per-client send queues, rate
-limiting) — strangers *can* connect now. ROADMAP phase 4's remainder (town
-hub, stash, uniques) is the fun-first counterweight.
+(45 — staged skills, DESIGN §15); `-load` works under the lobby again (46);
+per-client send queues shipped (47). The queue: remaining server hardening
+(replay log, rate limiting, WS origin check) — strangers *can* connect now.
+ROADMAP phase 4's remainder (town hub, stash, uniques) is the fun-first
+counterweight.
 
 ## Session log
 
+- **2026-07-03 (47)** — Per-client send queues. Every connection gets a
+  buffered outbound queue (64 frames ≈ 6s of views) drained by its own
+  writer goroutine; `client.send` is a non-blocking enqueue, so the tick
+  loop never touches a socket — a stalled client dies alone (queue fills →
+  closed → normal leave path) instead of stalling its instance up to 1s
+  per frame. One writer preserves frame order (the welcome-reset
+  invariant); lobby social pushes stop doing I/O under `lb.mu`; refusal
+  frames (dup session) write synchronously so shutdown can't race them.
+  Pinned by `TestStalledClientDoesNotStallTick` (race-checked). Also fixed
+  a pre-existing test flake: lobby shutdown now waits for instance tick
+  goroutines (they flush the identity store), and the socket-test helpers
+  wait for it — TempDir cleanup can't race the last flush anymore.
 - **2026-07-03 (46)** — `-load` works under the lobby (un-regressed session
   31's feature). Semantics: the boot-time save seeds the first instance
   created — whoever connects first resumes the run; every later instance is

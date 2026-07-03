@@ -40,6 +40,10 @@ type Lobby struct {
 	ids *IdentityStore
 	ctx context.Context // set by ListenAndServe; parents every instance
 
+	// wg tracks instance tick goroutines so shutdown can wait for them —
+	// they write the identity store, and "stopped" must mean stopped.
+	wg sync.WaitGroup
+
 	mu        sync.Mutex
 	instances map[int]*instanceRef
 	nextID    int
@@ -139,6 +143,9 @@ func (lb *Lobby) ListenAndServe(ctx context.Context) error {
 	for {
 		select {
 		case <-ctx.Done():
+			// Instance loops still finishing a tick may write the identity
+			// store; a return that means "stopped" must outlast them.
+			lb.wg.Wait()
 			return ctx.Err()
 		case <-reap.C:
 			lb.reap()
@@ -184,7 +191,11 @@ func (lb *Lobby) newInstanceLocked() (*Instance, error) {
 	in.publishParty() // seed the telemetry before the first tick
 	ictx, cancel := context.WithCancel(lb.ctx)
 	lb.instances[in.id] = &instanceRef{in: in, cancel: cancel}
-	go in.runLoop(ictx)
+	lb.wg.Add(1)
+	go func() {
+		defer lb.wg.Done()
+		in.runLoop(ictx)
+	}()
 	return in, nil
 }
 
@@ -219,7 +230,7 @@ func (lb *Lobby) HandleWS(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	c := &client{tr: &wsTransport{conn: ws}, mode: m}
+	c := newClient(&wsTransport{conn: ws}, m)
 	if tok := cookieToken(r); tok != "" && r.URL.Query().Get("guest") == "" {
 		name, char, ok, dup := lb.ids.connectWithGrace(tok)
 		switch {
@@ -227,7 +238,10 @@ func (lb *Lobby) HandleWS(w http.ResponseWriter, r *http.Request) {
 			frame, _ := json.Marshal(protocol.ServerMsg{
 				Type: "error", Error: fmt.Sprintf("%s is already connected", name),
 			})
-			c.send(frame, false)
+			// Written directly, not queued: the writer is being shut down
+			// and must not race the one frame this client exists to see.
+			c.tr.WriteFrame(frame, false)
+			c.stopWriter()
 			c.tr.Close()
 			return
 		case ok:
@@ -243,6 +257,7 @@ func (lb *Lobby) HandleWS(w http.ResponseWriter, r *http.Request) {
 		if c.token != "" {
 			lb.ids.Disconnect(c.token, nil)
 		}
+		c.stopWriter()
 		c.tr.Close()
 		return
 	}
@@ -275,7 +290,8 @@ func (lb *Lobby) acceptLoop(ctx context.Context, ln net.Listener) {
 			conn.Close()
 			continue
 		}
-		c := &client{tr: newTCPTransport(conn), mode: modeJSONWorld, inst: in}
+		c := newClient(newTCPTransport(conn), modeJSONWorld)
+		c.inst = in
 		in.mu.Lock()
 		in.joins = append(in.joins, c)
 		in.mu.Unlock()

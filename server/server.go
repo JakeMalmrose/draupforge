@@ -39,8 +39,9 @@ const (
 	// maxLineBytes bounds one client command line; snapshots go the other
 	// way, so commands are small.
 	maxLineBytes = 64 * 1024
-	// writeTimeout is how long one client write may stall the tick loop.
-	// Shortcut: no per-client send queues yet; a slow reader gets dropped.
+	// writeTimeout bounds one frame write on a client's writer goroutine —
+	// sends are queued per client (newClient), so a stalled socket stalls
+	// only its own writer, never the tick loop, and dies within a timeout.
 	writeTimeout = time.Second
 )
 
@@ -222,7 +223,15 @@ type client struct {
 	// this client's actor (a fast client races its own welcome); they flush
 	// into the pending queue at spawn.
 	early []core.Command
-	wmu   sync.Mutex
+
+	// out is the outbound frame queue, drained by one writer goroutine per
+	// connection (newClient starts it) — the tick loop never blocks on a
+	// socket. A full queue means the client is hopelessly behind: send
+	// closes it. quit ends the writer when the connection dies; nil out
+	// (hand-built test clients) falls back to writing synchronously.
+	out      chan outFrame
+	quit     chan struct{}
+	quitOnce sync.Once
 
 	// gen is the welcome generation: +1 per welcome (join, floor swap,
 	// party transfer). readLoop drops acks whose gen doesn't match — they
@@ -258,9 +267,55 @@ type client struct {
 	sent      map[uint64]*protocol.Snapshot
 	sentTicks []uint64
 
-	// bytesSent feeds the admin dashboard's bandwidth column. Sends happen
-	// only on the tick goroutine, which is also where admin ops read it.
-	bytesSent uint64
+	// bytesSent feeds the admin dashboard's bandwidth column. Atomic: the
+	// lobby's social pushes enqueue from lobby goroutines while admin ops
+	// read on the tick goroutine.
+	bytesSent atomic.Uint64
+}
+
+// outFrame is one queued outbound frame.
+type outFrame struct {
+	data   []byte
+	binary bool
+}
+
+// sendQueueDepth bounds the per-client outbound backlog: ~6s of views at
+// the default 10Hz send rate. A client that far behind has a busted
+// interpolation buffer anyway — closing it beats stalling anyone.
+const sendQueueDepth = 64
+
+// newClient wires a connection with its send queue and starts the writer
+// goroutine. Every real connection comes through here; tests that hand-
+// build clients leave out nil and send() writes synchronously.
+func newClient(tr transport, m mode) *client {
+	c := &client{
+		tr: tr, mode: m,
+		out:  make(chan outFrame, sendQueueDepth),
+		quit: make(chan struct{}),
+	}
+	go func() {
+		for {
+			select {
+			case f := <-c.out:
+				if c.tr.WriteFrame(f.data, f.binary) != nil {
+					c.tr.Close() // readLoop errors and files the leave
+					return
+				}
+			case <-c.quit:
+				return
+			}
+		}
+	}()
+	return c
+}
+
+// stopWriter ends the client's writer goroutine; safe to call twice, and a
+// no-op for queue-less test clients.
+func (c *client) stopWriter() {
+	if c.quit == nil {
+		return
+	}
+	c.quitOnce.Do(func() { close(c.quit) })
 }
 
 // maxUnackedViews bounds the per-client baseline candidates (~3s at the
@@ -499,7 +554,8 @@ func (in *Instance) acceptLoop(ctx context.Context, ln net.Listener) {
 		if err != nil {
 			return // listener closed
 		}
-		c := &client{tr: newTCPTransport(conn), mode: modeJSONWorld, inst: in}
+		c := newClient(newTCPTransport(conn), modeJSONWorld)
+		c.inst = in
 		in.mu.Lock()
 		in.joins = append(in.joins, c)
 		in.mu.Unlock()
@@ -513,6 +569,7 @@ func (in *Instance) acceptLoop(ctx context.Context, ln net.Listener) {
 // instance, which a party transfer may swap mid-stream.
 func readLoop(ctx context.Context, c *client) {
 	defer func() {
+		c.stopWriter()
 		c.tr.Close()
 		c.mu.Lock()
 		in := c.inst
@@ -964,10 +1021,20 @@ func (in *Instance) removeClient(c *client) bool {
 }
 
 func (c *client) send(frame []byte, binary bool) bool {
-	c.wmu.Lock()
-	defer c.wmu.Unlock()
-	c.bytesSent += uint64(len(frame))
-	return c.tr.WriteFrame(frame, binary) == nil
+	c.bytesSent.Add(uint64(len(frame)))
+	if c.out == nil {
+		return c.tr.WriteFrame(frame, binary) == nil // queue-less test client
+	}
+	select {
+	case c.out <- outFrame{data: frame, binary: binary}:
+		return true
+	default:
+		// The queue is full: the client hasn't drained ~6s of frames. It's
+		// beyond saving — cut it loose rather than let it shed backpressure
+		// onto the tick loop (the whole point of the queue).
+		c.tr.Close()
+		return false
+	}
 }
 
 // sendPause announces a pause state change. Both wires speak this JSON
