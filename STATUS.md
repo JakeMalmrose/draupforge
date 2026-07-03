@@ -11,8 +11,8 @@ tests, and session-log entries older than a few sessions (git history is the
 archive). If this file outgrows ~150 lines, it has stopped being a status doc
 and started being a changelog — cut it back.
 
-**Last updated: 2026-07-03** (session 57: item level + depth-scaled affix
-tiers — deeper floors drop better gear)
+**Last updated: 2026-07-03** (session 58: life leech — sustain from damage
+dealt, the first of the absent defensive mechanics)
 
 ## Where things stand
 
@@ -66,7 +66,7 @@ All foundational machinery from DESIGN.md is real, not stubbed:
 | Space: tile grid (clearance-eroded walkability), DDA raycast, deterministic A* + smoothing, rooms-and-corridors mapgen off RNGMap | `sim/space` | done, tested |
 | Stat algebra (flat/inc/more/override + tags) | `sim/stats` | done, tested, memoized |
 | World/Actor/Hit/defs, RNG, state hashing | `sim/core` | done |
-| Damage pipeline (incl. live conversion stage) + DoTs + regen | `sim/combat` | done, tested |
+| Damage pipeline (incl. live conversion stage) + DoTs + regen + life leech (PostHit: a fraction of hit damage refills the attacker, capped, hits-only, no self-leech) | `sim/combat` | done, tested |
 | Statuses: ignite/chill/shock ailments + content buffs (refresh-not-stack, pending-buff queue) | `sim/combat` | done, tested |
 | Persistence: `World.Save`/`LoadWorld` (versioned JSON, bit-exact), admin `POST /api/save`, descent run envelope (v2); `-load` under the lobby seeds the first instance (validated at boot) | `sim/core/save.go`, `server/runsave.go`, `server/lobby.go` | done, tested, verified e2e |
 | Actions (windup/recovery) + projectiles; skill feel: splash w/ falloff, wall bounce, heading wiggle, hitscan chains | `sim/skills` | done, tested |
@@ -156,7 +156,9 @@ load-bearing (top entry: the action model is one-thing-at-a-time).
 
 ## Known shortcuts (deliberate, fine for now)
 
-- Leech, block, stun, ES recharge: absent. Chill doesn't slow an action
+- Block, stun, ES recharge: absent (life leech shipped session 58 — a
+  sheet stat applied in the pipeline PostHit stage, off a gear suffix).
+  Chill doesn't slow an action
   already in flight (tick counts bind at use time); movement slows now.
 - Corpses compact away at tick end — fine until on-corpse mechanics matter.
 - Inventory is a flat ID-addressed bag, no stacking; bag arrangement is
@@ -212,6 +214,17 @@ dictates, and Jake's balance pass over the numbers.
 
 ## Session log
 
+- **2026-07-03 (58)** — Life leech: the first of the absent sustain
+  mechanics (DESIGN §3 reserved the PostHit slot for it). A `LifeLeech`
+  sheet stat — fraction of a hit's dealt damage returned to the attacker
+  as life, instant, capped at max, hits-only (DoTs run their own path),
+  never from self-damage. Applied in `resolve()` right after the damage
+  lands; no RNG, so goldens didn't move (and the new `life_leech` suffix
+  is ILvl-4 gated, invisible to the level-1 golden scenarios). Content: a
+  2–5% life-leech suffix on weapons/rings/amulets. Pinned at the pipeline
+  level with concrete numbers (40 dmg → 20 leeched, max-life cap,
+  no-stat = no heal). Verified the full content→loot→equip→sheet path with
+  a probe (rolls 2% on a sword at ilvl 6, reaches the sheet on equip).
 - **2026-07-03 (57)** — Item level + depth-scaled affix tiers (the loot
   loop finally rewards depth). Every drop carries an item level = the
   dier's level, which is floor-scaled — so a floor-14 kill drops ilvl-14
