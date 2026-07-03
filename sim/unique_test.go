@@ -28,7 +28,7 @@ func rollUnique(t *testing.T, s *sim.Sim, uniqueID string) core.Item {
 		UniquePermille: 1000,
 	}
 	for i := 0; i < 64; i++ {
-		item := items.RollItem(s.W, table)
+		item := items.RollItem(s.W, table, 20)
 		if item.Unique != nil && item.Unique.ID == uniqueID {
 			return item
 		}
@@ -77,12 +77,12 @@ func TestUniqueRNGConsumption(t *testing.T) {
 	}
 	a := sim.New(content.DB(), 5)
 	b := sim.New(content.DB(), 5)
-	items.RollItem(a.W, table(0))
-	items.RollItem(b.W, table(0))
+	items.RollItem(a.W, table(0), 20)
+	items.RollItem(b.W, table(0), 20)
 	if a.W.RNGLoot.State() != b.W.RNGLoot.State() {
 		t.Fatal("identical zero-permille rolls diverged")
 	}
-	items.RollItem(b.W, table(1)) // one extra draw for the missed unique check
+	items.RollItem(b.W, table(1), 20) // one extra draw for the missed unique check
 	if a.W.RNGLoot.State() == b.W.RNGLoot.State() {
 		t.Fatal("a live permille consumed nothing — the check draw vanished")
 	}

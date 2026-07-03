@@ -418,6 +418,10 @@ type Item struct {
 	// Implicit is the rolled value of Base.Implicit; zero (and meaningless)
 	// when the base has none.
 	Implicit fm.Fixed
+	// ItemLevel is the level the item rolled at (the dier's level) — it
+	// gates which affix tiers could appear. Display + tier context; zero
+	// on gems and pre-item-level saves.
+	ItemLevel int
 	// Gem marks an uncut gem item; nil for equipment.
 	Gem *UncutGem
 	// Unique is set on unique items (Rarity == RarityUnique): the fixed

@@ -11,7 +11,7 @@ package protocol
 // v18 unifies two parallel branches that both claimed v16 (gems on main,
 // identity on the multiplayer branch; parties took v17) — jumping past all
 // of them so no deployed client can match a wrong meaning.
-const Version = 20 // v20: unique items (v19: actor telegraphs)
+const Version = 21 // v21: item level (v20: unique items)
 
 // Command is the wire form of player intent. Kind is one of "move",
 // "use_skill", "stop", the item verbs "pickup", "equip", "unequip",
@@ -147,7 +147,10 @@ type ItemSnap struct {
 	// Implicit is the base type's inherent modifier (rolled per item),
 	// rendered above the affix block; nil when the base has none.
 	Implicit *AffixSnap  `json:"implicit,omitempty"`
-	Affixes  []AffixSnap `json:"affixes,omitempty"`
+	// ItemLevel is the level the item rolled at (gates its affix tiers);
+	// shown on the tooltip. 0 = gems and pre-item-level items.
+	ItemLevel int         `json:"ilvl,omitempty"`
+	Affixes   []AffixSnap `json:"affixes,omitempty"`
 	// Gem marks an uncut gem item: its kind, found-at level, and the
 	// pre-rolled draft the cutting dialog offers.
 	Gem *GemItemSnap `json:"gem,omitempty"`

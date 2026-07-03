@@ -22,7 +22,7 @@ import (
 // SaveVersion gates restores: a format change bumps it, and old files fail
 // loudly instead of misloading. Saves are durable state — unlike replays,
 // they must never depend on re-execution of the code that wrote them.
-const SaveVersion = 12 // v12: minion owners (v11: unique items)
+const SaveVersion = 13 // v13: item level (v12: minion owners)
 
 type saveFile struct {
 	Version     int              `json:"version"`
@@ -51,13 +51,14 @@ type affixSave struct {
 }
 
 type itemSave struct {
-	ID       uint64      `json:"id"`
-	Base     string      `json:"base,omitempty"` // empty for uncut gems
-	Rarity   uint8       `json:"rarity"`
-	Implicit fm.Fixed    `json:"implicit,omitempty"`
-	Affixes  []affixSave `json:"affixes,omitempty"`
-	Gem      *uncutSave  `json:"gem,omitempty"`
-	Unique   string      `json:"unique,omitempty"` // UniqueDef ID
+	ID        uint64      `json:"id"`
+	Base      string      `json:"base,omitempty"` // empty for uncut gems
+	Rarity    uint8       `json:"rarity"`
+	Implicit  fm.Fixed    `json:"implicit,omitempty"`
+	ItemLevel int         `json:"ilvl,omitempty"`
+	Affixes   []affixSave `json:"affixes,omitempty"`
+	Gem       *uncutSave  `json:"gem,omitempty"`
+	Unique    string      `json:"unique,omitempty"` // UniqueDef ID
 }
 
 // uncutSave is an uncut gem item's payload: kind, found-at level, and the
@@ -310,7 +311,7 @@ func encodeItem(item Item) itemSave {
 			Support: item.Gem.Support, Level: item.Gem.Level, Choices: item.Gem.Choices,
 		}}
 	}
-	is := itemSave{ID: uint64(item.ID), Base: item.Base.ID, Rarity: uint8(item.Rarity), Implicit: item.Implicit}
+	is := itemSave{ID: uint64(item.ID), Base: item.Base.ID, Rarity: uint8(item.Rarity), Implicit: item.Implicit, ItemLevel: item.ItemLevel}
 	for _, af := range item.Affixes {
 		is.Affixes = append(is.Affixes, affixSave{ID: af.Def.ID, Value: af.Value})
 	}
@@ -584,7 +585,7 @@ func decodeItem(db *ContentDB, affixes map[string]*AffixDef, is itemSave) (Item,
 	if base == nil {
 		return Item{}, fmt.Errorf("core: save references unknown base item %q", is.Base)
 	}
-	item := Item{ID: EntityID(is.ID), Base: base, Rarity: Rarity(is.Rarity), Implicit: is.Implicit}
+	item := Item{ID: EntityID(is.ID), Base: base, Rarity: Rarity(is.Rarity), Implicit: is.Implicit, ItemLevel: is.ItemLevel}
 	for _, af := range is.Affixes {
 		def := affixes[af.ID]
 		if def == nil {

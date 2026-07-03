@@ -316,6 +316,12 @@ type AffixDef struct {
 	Min, Max fm.Fixed
 	Weight   uint32
 
+	// ILvl is the minimum item level this affix can roll on (0 = always).
+	// Higher tiers of a group carry higher gates, so deeper drops unlock
+	// strictly better affixes. Every group must keep an ILvl-0 base tier
+	// so low-level items never starve (content.DB() asserts the depth).
+	ILvl int
+
 	// Families is the slot families this affix can roll on; nil means any
 	// slot. content.DB() asserts every family keeps a pool deep enough to
 	// fill a rare.

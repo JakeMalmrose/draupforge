@@ -69,7 +69,9 @@ func RollLoot(w *core.World) {
 			if !w.RNGLoot.Chance(table.DropChance) {
 				continue
 			}
-			item := RollItem(w, table)
+			// Item level is the dier's level (floor-scaled), gating which
+			// affix tiers can appear — deeper kills drop better gear.
+			item := RollItem(w, table, a.Level)
 			d := w.SpawnDrop(a.Pos, item)
 			w.Emit(core.Event{Kind: core.EvDrop, Actor: a.ID, Other: d.ID, Note: item.Base.ID})
 		}
@@ -83,13 +85,16 @@ func RollLoot(w *core.World) {
 // implicit, then affixes drawn from the weighted pool with no two from the
 // same group. RNG draw order (unique?, pick?, base, rarity, implicit,
 // affixes) is replay-relevant — don't reorder.
-func RollItem(w *core.World, table *core.LootTableDef) core.Item {
+func RollItem(w *core.World, table *core.LootTableDef, itemLevel int) core.Item {
+	if itemLevel < 1 {
+		itemLevel = 1
+	}
 	if table.UniquePermille > 0 && len(w.Content.Uniques) > 0 &&
 		w.RNGLoot.Uint64n(1000) < uint64(table.UniquePermille) {
 		u := w.Content.Uniques[w.RNGLoot.Uint64n(uint64(len(w.Content.Uniques)))]
 		item := core.Item{
 			ID: w.AllocID(), Base: w.Content.BaseItems[u.Base],
-			Rarity: core.RarityUnique, Unique: u,
+			Rarity: core.RarityUnique, Unique: u, ItemLevel: itemLevel,
 		}
 		if imp := item.Base.Implicit; imp != nil {
 			item.Implicit = w.RNGLoot.Range(imp.Min, imp.Max)
@@ -97,7 +102,7 @@ func RollItem(w *core.World, table *core.LootTableDef) core.Item {
 		return item
 	}
 	baseID := table.Bases[w.RNGLoot.Uint64n(uint64(len(table.Bases)))]
-	item := core.Item{ID: w.AllocID(), Base: w.Content.BaseItems[baseID]}
+	item := core.Item{ID: w.AllocID(), Base: w.Content.BaseItems[baseID], ItemLevel: itemLevel}
 	item.Rarity = rollRarity(w, table)
 	if imp := item.Base.Implicit; imp != nil {
 		item.Implicit = w.RNGLoot.Range(imp.Min, imp.Max)
@@ -128,7 +133,7 @@ func fillAffixes(w *core.World, item *core.Item) {
 	usedGroups := make(map[string]bool)
 	kindCounts := [2]int{}
 	for len(item.Affixes) < want {
-		af := pickAffix(w, item.Base.Slot, usedGroups, kindCounts, kindCap)
+		af := pickAffix(w, item.Base.Slot, item.ItemLevel, usedGroups, kindCounts, kindCap)
 		if af == nil {
 			// Pool exhausted under constraints: a starved table is a content
 			// bug, so make it visible instead of silently rolling short.
@@ -252,12 +257,13 @@ func rollRarity(w *core.World, table *core.LootTableDef) core.Rarity {
 	return core.RarityNormal // unreachable
 }
 
-// pickAffix does a weighted draw over the affixes still legal for this item.
-// Iterates the content slice in order — deterministic by construction.
-func pickAffix(w *core.World, slot core.SlotFamily, usedGroups map[string]bool, kindCounts [2]int, kindCap int) *core.AffixDef {
+// pickAffix does a weighted draw over the affixes still legal for this item
+// at its level. Iterates the content slice in order — deterministic by
+// construction.
+func pickAffix(w *core.World, slot core.SlotFamily, itemLevel int, usedGroups map[string]bool, kindCounts [2]int, kindCap int) *core.AffixDef {
 	var total uint64
 	for _, af := range w.Content.Affixes {
-		if legal(af, slot, usedGroups, kindCounts, kindCap) {
+		if legal(af, slot, itemLevel, usedGroups, kindCounts, kindCap) {
 			total += uint64(af.Weight)
 		}
 	}
@@ -266,7 +272,7 @@ func pickAffix(w *core.World, slot core.SlotFamily, usedGroups map[string]bool, 
 	}
 	roll := w.RNGLoot.Uint64n(total)
 	for _, af := range w.Content.Affixes {
-		if !legal(af, slot, usedGroups, kindCounts, kindCap) {
+		if !legal(af, slot, itemLevel, usedGroups, kindCounts, kindCap) {
 			continue
 		}
 		if roll < uint64(af.Weight) {
@@ -277,6 +283,6 @@ func pickAffix(w *core.World, slot core.SlotFamily, usedGroups map[string]bool, 
 	return nil // unreachable
 }
 
-func legal(af *core.AffixDef, slot core.SlotFamily, usedGroups map[string]bool, kindCounts [2]int, kindCap int) bool {
-	return af.AllowedOn(slot) && !usedGroups[af.Group] && kindCounts[af.Kind] < kindCap
+func legal(af *core.AffixDef, slot core.SlotFamily, itemLevel int, usedGroups map[string]bool, kindCounts [2]int, kindCap int) bool {
+	return af.AllowedOn(slot) && af.ILvl <= itemLevel && !usedGroups[af.Group] && kindCounts[af.Kind] < kindCap
 }

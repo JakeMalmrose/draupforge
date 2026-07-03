@@ -24,7 +24,7 @@ func sampleView() Snapshot {
 				},
 				Equipment: []EquippedSnap{{
 					Slot: "weapon",
-					Item: ItemSnap{ID: 7, Base: "rusty_sword", Rarity: "magic",
+					Item: ItemSnap{ID: 7, Base: "rusty_sword", Rarity: "magic", ItemLevel: 14,
 						Implicit: &AffixSnap{ID: "increased_damage", Value: 80},
 						Affixes:  []AffixSnap{{ID: "added_fire", Value: 3000}}},
 				}},
