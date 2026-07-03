@@ -1312,6 +1312,9 @@ const SFX = {
   drop_good: { min: 250, play: () => blip([880, 1320], 0.12, "triangle", 0.5) },
   flask: { min: 250, play: () => { blip([220, 140], 0.07, "sine", 0.9); blip([180, 120], 0.07, "sine", 0.8, 0.08); } },
   travel: { min: 400, play: () => blip([200, 700], 0.35, "sine", 0.6) },
+  block: { min: 90, play: () => { blip([900, 300], 0.06, "square", 0.5); blip([1400, 600], 0.05, "triangle", 0.4, 0.02); } },
+  stun: { min: 120, play: () => { blip([520, 190], 0.14, "sine", 0.6); blip([300, 440], 0.12, "sine", 0.5, 0.11); } },
+  spawn: { min: 150, play: () => blip([90, 300], 0.28, "sawtooth", 0.5) },
 };
 
 function sfx(kind) {
@@ -1353,6 +1356,18 @@ function sfxForEvent(ev) {
     case "portal":
     case "death_eject":
       sfx("travel");
+      break;
+    case "block":
+      sfx("block");
+      break;
+    case "stun":
+      sfx("stun");
+      // Getting stunned yourself rattles the screen — the loss of control
+      // should feel like a jolt.
+      if (ev.other === myId) shakeUntil = performance.now() + SHAKE_MS * 1.5;
+      break;
+    case "spawn":
+      sfx("spawn");
       break;
   }
 }

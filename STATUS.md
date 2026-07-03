@@ -11,8 +11,8 @@ tests, and session-log entries older than a few sessions (git history is the
 archive). If this file outgrows ~150 lines, it has stopped being a status doc
 and started being a changelog — cut it back.
 
-**Last updated: 2026-07-03** (session 62: support-gem pass — three new
-supports open melee, fire, and projectile directions)
+**Last updated: 2026-07-03** (session 63: audio juice — block/stun/spawn
+SFX + a harder screen shake when the stun is yours)
 
 ## Where things stand
 
@@ -215,6 +215,13 @@ dictates, and Jake's balance pass over the numbers.
 
 ## Session log
 
+- **2026-07-03 (63)** — Audio juice: the three mechanic events that had
+  visuals but no sound (block, stun, spawn) get SFX in `sfxForEvent`, and
+  getting stunned yourself now rattles the screen at 1.5× the hit-shake —
+  the loss of control should feel like a jolt. Pure client, no wire or sim
+  changes. Verified live in Chrome with an sfx spy: mages stunning the
+  player (sound + shake), a fireball stunning a carrion husk, the husk's
+  death-burst ghouls tripping the spawn sting; zero console errors.
 - **2026-07-03 (62)** — Support-gem pass: three new supports, each opening
   a build direction, all on the existing GemCtx fold (zero engine risk).
   Ruthless (40% more melee damage, melee-gated) is the payoff Sweep and the
@@ -262,168 +269,4 @@ dictates, and Jake's balance pass over the numbers.
   and a "blocked" log line. Goldens re-recorded (the shield implicit
   changed). Verified with a probe: a 25%-block shield turned ~31% of real
   zombie swings through the full sim.
-- **2026-07-03 (58)** — Life leech: the first of the absent sustain
-  mechanics (DESIGN §3 reserved the PostHit slot for it). A `LifeLeech`
-  sheet stat — fraction of a hit's dealt damage returned to the attacker
-  as life, instant, capped at max, hits-only (DoTs run their own path),
-  never from self-damage. Applied in `resolve()` right after the damage
-  lands; no RNG, so goldens didn't move (and the new `life_leech` suffix
-  is ILvl-4 gated, invisible to the level-1 golden scenarios). Content: a
-  2–5% life-leech suffix on weapons/rings/amulets. Pinned at the pipeline
-  level with concrete numbers (40 dmg → 20 leeched, max-life cap,
-  no-stat = no heal). Verified the full content→loot→equip→sheet path with
-  a probe (rolls 2% on a sword at ilvl 6, reaches the sheet on equip).
-- **2026-07-03 (57)** — Item level + depth-scaled affix tiers (the loot
-  loop finally rewards depth). Every drop carries an item level = the
-  dier's level, which is floor-scaled — so a floor-14 kill drops ilvl-14
-  gear and a floor-1 kill drops ilvl-1. Affixes gained an `ILvl` gate; the
-  weighted roll only considers tiers the item level unlocks. Content: the
-  `_greater` life/armour/resist tiers moved behind ILvl 5/8, and new
-  `_grand` life/armour tiers unlock at ILvl 12 — deeper drops roll
-  strictly better. Every group keeps an ILvl-0 base tier so a floor-1 item
-  never starves (DB() now asserts base-tier depth). Replay-relevant (new
-  filter + item level in the hash) → goldens re-recorded; save v13, wire
-  v21 (ilvl on the item snap), `ilvl N` on the tooltip. Pinned: ilvl-1
-  never rolls a gated tier, ilvl-20 does. Verified live on floor 14: a
-  level-14 monster dropped ilvl-14, an admin level-1 dummy dropped ilvl-1,
-  the tooltip renders the tier and the level; zero console errors.
-- **2026-07-03 (56)** — The Grave Tyrant: floor-10 apex boss, and the
-  payoff for the whole session's machinery — it's a staged-skill boss
-  (DESIGN §15) that summons through the spawn queue (RISKS #2) minions that
-  credit nobody. Kit: Tyrant's Quake (three expanding self-centered blast
-  rings, 1.4× finisher — the ground is the threat), Raise Thralls (three
-  risen_thralls on the SkillSummon path, cap 6), and bone_volley at range.
-  `boss_tyrant` AI is stateless: keep a pack up first (wanting 6 not 3
-  below half life — a bloodied Tyrant floods the room), quake what's close,
-  lob bones otherwise. Outranks the King (floor 10 is %5 too), spawns rare
-  at floor+3, jackpot `tyrant_drops` (18‰ unique). Non-cuttable skills, so
-  goldens untouched. Client: grave-stone crown model, thrall model, boss
-  bar, quake VFX. Verified live on floor 10: raised its pack, lobbed
-  volleys, quaked when I closed, rings rendered; zero console errors.
-- **2026-07-03 (55)** — Fog of war, client-side (the "fine until fog of
-  war" note finally cashed). Per-world `Uint8Array` reveal tracking: tiles
-  within 9u of you reveal permanently (10Hz, on views), the current light
-  circle draws bright, explored rooms dim, the unexplored is void.
-  Monsters, projectiles, telegraphs, and the boss bar show only inside the
-  light; discovered loot stays marked; stairs and portal render only once
-  found — descending means finding the stairs now. The minimap repaints as
-  fog peels back and keeps enemy dots dark. Pure presentation (resets per
-  welcome), zero sim/wire changes. Verified live across two runs, deaths
-  and re-welcomes included; zero console errors.
-- **2026-07-03 (54)** — The replay log (the last named hardening item).
-  `-replaydir` records every world an instance runs: a segment file holds
-  a full `World.Save` header plus one NDJSON line per commanded tick, in
-  the exact sorted order Step consumed. The subtlety: the world mutates
-  outside Step (joins, leaves, floor swaps, portal grace, admin cheats,
-  stash ops), so any such surgery sets a flag and the recorder rotates to
-  a fresh segment at the next pre-Step boundary — every file spans a pure
-  command-driven stretch. `cmd/headless -replay` re-executes one and
-  prints the hash. Pinned across a floor swap; verified e2e with the real
-  binaries: recorded a TCP session, replayed the segment twice, identical
-  hashes.
-- **2026-07-03 (53)** — Content pass: Sweep + Bonelord's Mark. Sweep is
-  the first cuttable melee skill (the pool had none — melee builds
-  couldn't exist): a full-circle weapon-scaled spin on the nova machinery,
-  attack/melee/physical tags, 1.1× effectiveness so flat weapon damage
-  matters most there. Bonelord's Mark (bone_amulet unique) grants +1
-  summon capacity via `stats.ExtraMinions` — the third unique-only shape
-  stat, read at the summon cap site — for a fourth skeleton, at the price
-  of 10% cast speed. Cuttable pool grew → goldens re-recorded. Pinned:
-  the raised cap; verified live: sweep kills logged in Chrome, zero
-  console errors.
-- **2026-07-03 (52)** — Summon Skeleton: the first minion skill, the spawn
-  queue's second act. `Actor.Owner` links a minion to its summoner
-  (zone-local — minions die with the zone; saved + hashed conditionally,
-  save v12); `World.CreditFor` walks the chain so a minion's kills pay the
-  player's XP, flask charges, and orbs; `minion_melee` heels inside 4u,
-  fights what comes within 10u of the OWNER (mobile leash), and orphans
-  fight on. `SkillSummon`: queue-spawned at the gem's level, per-def cap
-  despawns the oldest quietly (no death/loot/XP). Content: skeleton_warrior
-  (TeamPlayers, so hostility checks just work) + the cuttable
-  summon_skeleton gem (cap 3) — the Cuttable pool grew, so goldens
-  re-recorded. Client: def painters now beat the team fallback (skeletons
-  draw as skeletons, not blue exiles), bone-pale model. Verified live:
-  summoned two, walked into a pack, they heeled, engaged, killed a zombie,
-  and the XP landed on me; zero console errors.
-- **2026-07-03 (51)** — The spawn queue (RISKS #2, designed on purpose
-  before the first minion skill needed it in a hurry). `World.QueueSpawn`
-  buffers mid-tick actor creations; `DrainSpawns` materializes them in
-  queue order at a new fixed phase — after combat/loot/XP, before
-  compaction — so IDs are deterministic, newcomers act and bleed only from
-  their next tick, positions clamp to walkable, and `Save` refuses a
-  pending queue. First consumer: `ActorDef.DeathSpawnDef/Count` — the
-  Carrion Husk, a slow swollen lurcher that bursts into two ghouls at the
-  dier's level (fixed offsets, no RNG anywhere in the path; goldens
-  untouched). DB() rejects death-spawn cycles. EvSpawn narrates births
-  ("a ghoul bursts forth"). In the arena scatter. Verified live: killed a
-  husk in Chrome, two ghouls burst out and attacked, zero console errors.
-- **2026-07-03 (50)** — Uniques (ROADMAP phase 4 finale — every phase ✅).
-  Chase items: fixed identity, fixed base, fixed mod package, no affixes
-  (orbs refuse them via the rarity gates). What makes them build-defining:
-  two new sheet stats nothing else rolls — ExtraProjectiles and ExtraChains
-  — that the skill system now reads at the fan/chain sites, so Stormweaver
-  Band turns every cast into a two-bolt fan and Coil of the Hydra makes arc
-  strike five. Four uniques shipped, each with a downside. Drop path: one
-  conditional loot draw per table (`UniquePermille`; goldens re-recorded) +
-  a uniform pick; the unique dictates its base, implicit still rolls. Save
-  v11, wire v20 (authored mod lines + flavor ride the item snap), orange
-  styling. Pinned: drop shape, RNG consumption, fan and chain counts, orb
-  refusal, save/transfer round trip. Verified live: a Band dropped off a
-  dummy, picked up, equipped (orange slot, correct wire mods), fan
-  confirmed by probe in the exact live config.
-- **2026-07-03 (49)** — Hardening for strangers. WS origins default to
-  same-origin (`-origins` adds patterns; an Origin matching
-  X-Forwarded-Host passes, so Host-rewriting proxies keep working —
-  browsers can't forge WS headers); each connection gets a 60/s command
-  bucket (burst 120) readLoop enforces before commands reach the tick; and
-  `/api/claim` throttles to 3 identities per source per minute — every
-  claim is a permanent store entry. All pinned over real sockets.
-- **2026-07-03 (48)** — The stash (ROADMAP phase 4). A per-identity hideout
-  bank: 60 items in durable `core.CharItem` form living on the Identity —
-  outside every world and every bag, flushed with the same store writes as
-  characters. Host-layer like the descent (the sim never knows): stash_put/
-  stash_take verbs buffer on the client and move items between the actor's
-  bag and the identity store between ticks, hideout-only, named players
-  only; withdrawn items re-mint entity IDs like injection. The panel grows
-  a stash grid in the hideout — drag bag↔stash, same gestures as equipment.
-  Exported `core.CharItemOf`/`ItemFromChar` for the item↔durable
-  conversions. Unit-pinned (put/take round trip, guest/floor/cap guards,
-  store reload) and verified live in Chrome: bank, reload the page, the gem
-  is still banked; withdraw works; zero console errors.
-- **2026-07-03 (47)** — Per-client send queues. Every connection gets a
-  buffered outbound queue (64 frames ≈ 6s of views) drained by its own
-  writer goroutine; `client.send` is a non-blocking enqueue, so the tick
-  loop never touches a socket — a stalled client dies alone (queue fills →
-  closed → normal leave path) instead of stalling its instance up to 1s
-  per frame. One writer preserves frame order (the welcome-reset
-  invariant); lobby social pushes stop doing I/O under `lb.mu`; refusal
-  frames (dup session) write synchronously so shutdown can't race them.
-  Pinned by `TestStalledClientDoesNotStallTick` (race-checked). Also fixed
-  a pre-existing test flake: lobby shutdown now waits for instance tick
-  goroutines (they flush the identity store), and the socket-test helpers
-  wait for it — TempDir cleanup can't race the last flush anymore.
-- **2026-07-03 (46)** — `-load` works under the lobby (un-regressed session
-  31's feature). Semantics: the boot-time save seeds the first instance
-  created — whoever connects first resumes the run; every later instance is
-  fresh. The file is validated at boot (a dry-run `New`), so corruption
-  fails the process, not the first join. Pinned over real sockets
-  (`TestLobbyLoadSeedsFirstInstance`) and verified e2e with the binary:
-  boot on floor 4 → `/api/save` → restart with `-load` on a different seed
-  → status shows floor 4 / best 4 resumed.
-- **2026-07-03 (45)** — Staged skills + the Barrow King. The action model
-  grew on purpose (RISKS #1 → DESIGN §15): `SkillStaged` skills run a
-  scripted stage sequence — countdown, effect (blast/ring/none), aim
-  locked at stage start (target-tracked/self/point), durations bound at
-  use time, recovery just a trailing stage. Telegraphs are wire data now
-  (`TelegraphSnap` center/radius/countdown, v19; legacy nova wind-ups emit
-  them too), telegraphed blasts skip the evasion roll (the dodge is
-  spatial — pinned by test), save v10 carries staged actions, hash covers
-  them conditionally (legacy streams — and goldens — untouched). Content:
-  the Barrow King guards every 5th floor's stairs (outranks the colossus
-  schedule, rare, level floor+2, jackpot loot table): tracked triple slam
-  with a 1.5× finisher, ring volleys, gap-bisecting double storm below
-  half life (stateless `boss_king` decider reads life/distance). Client:
-  ground telegraphs (fill sweeps to impact), on-screen-gated boss bar,
-  crown model, `-startfloor` dev flag. Verified live on floor 5: two king
-  fights, dodge/track/ring all observed, zero console errors.
-- (sessions 38–44 pruned — git history is the archive)
+- (sessions 38–58 pruned — git history is the archive)
