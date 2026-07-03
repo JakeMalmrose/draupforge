@@ -37,6 +37,7 @@ const (
 	ChaosRes
 	IgniteChance // fraction, added to skill base chance
 	ShockChance  // fraction, added to skill base chance
+	LifeLeech    // fraction of hit damage dealt returned to the attacker as life
 
 	// Skill-shape stats — whole numbers the skill system reads (floored).
 	// No affix rolls these; they exist so uniques can change how a skill

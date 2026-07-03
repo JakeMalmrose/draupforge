@@ -236,3 +236,40 @@ func TestCritFlagOnHitEvent(t *testing.T) {
 		}
 	}
 }
+
+// TestLifeLeechRefillsAttacker: an attacker with LifeLeech regains a
+// fraction of the damage it deals, capped at max life, and never from
+// self-damage.
+func TestLifeLeechRefillsAttacker(t *testing.T) {
+	w := testWorld()
+	// Attacker leeches 50% of damage dealt, sitting at half life.
+	att := w.SpawnActor(actorDef(100, map[stats.StatID]fm.Fixed{stats.LifeLeech: fm.Half}), space.V(0, 0))
+	att.Life = fm.FromInt(40)
+	def := w.SpawnActor(actorDef(1000, nil), space.V(fm.One, 0))
+
+	// A fixed 40-damage spell → 20 leeched back.
+	sk := spellDef(40, 40, core.Fire)
+	queueAndResolve(w, att, def, sk)
+	if got := att.Life; got != fm.FromInt(60) {
+		t.Fatalf("attacker life = %v after leech, want 60 (40 + 50%% of 40)", got)
+	}
+
+	// Leech caps at max life: near-full attacker can't overheal.
+	att.Life = fm.FromInt(95)
+	queueAndResolve(w, att, def, sk)
+	if got := att.Life; got != att.MaxLife() {
+		t.Fatalf("attacker life = %v, want the max-life cap %v", got, att.MaxLife())
+	}
+}
+
+// TestNoLeechWithoutStat: a plain attacker gains nothing.
+func TestNoLeechWithoutStat(t *testing.T) {
+	w := testWorld()
+	att := w.SpawnActor(actorDef(100, nil), space.V(0, 0))
+	att.Life = fm.FromInt(50)
+	def := w.SpawnActor(actorDef(1000, nil), space.V(fm.One, 0))
+	queueAndResolve(w, att, def, spellDef(30, 30, core.Fire))
+	if att.Life != fm.FromInt(50) {
+		t.Fatalf("leech-less attacker healed to %v", att.Life)
+	}
+}

@@ -1278,6 +1278,15 @@ func affixDefs() []*core.AffixDef {
 			Min: fm.FromMilli(50), Max: fm.FromMilli(100), Weight: 40,
 			Families: procs,
 		},
+		{
+			// Life leech: a fraction of hit damage refills you. The sustain
+			// stat that makes standing in melee viable — a deeper reward, so
+			// it's ILvl-gated.
+			ID: "life_leech", Group: "life_leech", Kind: core.Suffix,
+			Stat: stats.LifeLeech, Layer: stats.LayerFlat,
+			Min: fm.FromMilli(20), Max: fm.FromMilli(50), Weight: 30, ILvl: 4, // 2–5%
+			Families: []core.SlotFamily{core.FamilyWeapon, core.FamilyRing, core.FamilyAmulet},
+		},
 	}
 }
 

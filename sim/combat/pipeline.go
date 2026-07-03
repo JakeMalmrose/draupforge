@@ -64,6 +64,15 @@ func resolve(w *core.World, h *core.Hit) {
 	}
 	applyDamage(w, att, def, total, note, h.Crit)
 
+	// Stage: life leech — a fraction of the hit's dealt damage refills the
+	// attacker (hits only; DoTs run a separate path). Instant and capped at
+	// max life, no RNG. Self-damage never leeches.
+	if att.ID != def.ID && !att.Dead {
+		if leech := att.Sheet.Eval(stats.LifeLeech, tags); leech > 0 {
+			att.Life = fm.Min(att.Life+fm.Mul(total, leech), att.MaxLife())
+		}
+	}
+
 	// Stage: post-hit effects, fixed order (ignite → chill → shock; the
 	// order is part of the RNG-consumption contract).
 	if !def.Dead {
