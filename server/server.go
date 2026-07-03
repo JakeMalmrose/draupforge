@@ -99,6 +99,10 @@ type Config struct {
 	// identities in memory only — they still work, but a restart forgets
 	// everyone.
 	IdentityPath string
+	// WSOrigins is extra allowed WebSocket origin patterns (host[:port],
+	// * wildcards OK). Empty means same-origin only — browsers on other
+	// hosts are refused; non-browser clients send no Origin and pass.
+	WSOrigins []string
 }
 
 type Instance struct {
@@ -580,10 +584,14 @@ func readLoop(ctx context.Context, c *client) {
 		in.leaves = append(in.leaves, c)
 		in.mu.Unlock()
 	}()
+	bucket := newCmdBucket()
 	for {
 		frame, err := c.tr.ReadFrame()
 		if err != nil || ctx.Err() != nil {
 			return
+		}
+		if !bucket.allow(time.Now()) {
+			continue // command flood: drop on the floor, never reach the tick
 		}
 		var wc protocol.Command
 		if err := json.Unmarshal(frame, &wc); err != nil {

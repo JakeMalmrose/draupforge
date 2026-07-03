@@ -226,7 +226,7 @@ func (lb *Lobby) place(c *client) (*Instance, error) {
 // HandleWS is the lobby's WebSocket door: identity from the token cookie
 // (?guest=1 skips it), then placement and the ordinary read loop.
 func (lb *Lobby) HandleWS(w http.ResponseWriter, r *http.Request) {
-	ws, m, ok := acceptWS(w, r)
+	ws, m, ok := acceptWS(w, r, lb.cfg.WSOrigins)
 	if !ok {
 		return
 	}

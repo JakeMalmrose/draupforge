@@ -169,10 +169,9 @@ load-bearing (top entry: the action model is one-thing-at-a-time).
   rename/list). `identities.json` is one plaintext blob, tokens included.
 - No client prediction — input feels its latency. Prediction is what would
   justify compiling sim/ to wasm (DESIGN §13's optional layer).
-- WS accepts any origin (the public Funnel deploy inherits it); static files
-  come from -web at runtime. Live play is not replay-deterministic (network
-  timing decides arrival ticks); a replay log would fix that — cheap when
-  wanted.
+- Static files come from -web at runtime. Live play is not
+  replay-deterministic (network timing decides arrival ticks); a replay
+  log would fix that — cheap when wanted.
 - Collision is soft separation between monsters only (players never push or
   get pushed); pairwise O(n²). Aggro is LoS + hearing with no memory; AI
   re-issues its chase target every tick (repath throttle keeps it cheap);
@@ -201,14 +200,20 @@ load-bearing (top entry: the action model is one-thing-at-a-time).
 The descent shipped (session 15); the character store + sessions shipped
 (37–38 — DESIGN §14 is fully real); the telegraphed multi-stage boss shipped
 (45 — staged skills, DESIGN §15); `-load` works under the lobby again (46);
-per-client send queues shipped (47); the stash shipped (48 — the hideout is
-the town hub now in every way that matters). The queue: remaining server
-hardening (replay log, rate limiting, WS origin check) — strangers *can*
-connect now — and ROADMAP phase 4's last fun item: uniques with
-build-defining mods.
+per-client send queues shipped (47); the stash shipped (48); origin checks
+and rate limiting shipped (49). The queue: ROADMAP phase 4's last fun item
+— uniques with build-defining mods — then a replay log when postmortems
+want one.
 
 ## Session log
 
+- **2026-07-03 (49)** — Hardening for strangers. WS origins default to
+  same-origin (`-origins` adds patterns; an Origin matching
+  X-Forwarded-Host passes, so Host-rewriting proxies keep working —
+  browsers can't forge WS headers); each connection gets a 60/s command
+  bucket (burst 120) readLoop enforces before commands reach the tick; and
+  `/api/claim` throttles to 3 identities per source per minute — every
+  claim is a permanent store entry. All pinned over real sockets.
 - **2026-07-03 (48)** — The stash (ROADMAP phase 4). A per-identity hideout
   bank: 60 items in durable `core.CharItem` form living on the Identity —
   outside every world and every bag, flushed with the same store writes as

@@ -12,6 +12,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/JakeMalmrose/draupforge/content"
 	"github.com/JakeMalmrose/draupforge/protocol"
@@ -31,12 +32,20 @@ func main() {
 	portals := flag.Int("portals", 3, "portal uses per descent run (deaths and hideout trips consume them)")
 	identities := flag.String("identities", "identities.json", "named-player store; \"\" keeps identities in memory only")
 	startFloor := flag.Int("startfloor", 0, "floor runs begin on (0 = the hideout) — a dev shortcut to deep floors")
+	origins := flag.String("origins", "", "extra allowed WebSocket origins, comma-separated host[:port] patterns (default: same-origin only)")
 	flag.Parse()
 
 	cfg := server.Config{
 		Addr: *addr, HTTPAddr: *httpAddr, AdminAddr: *adminAddr, StaticDir: *webDir,
 		Seed: *seed, SendEvery: *sendEvery, InterestRadius: *interest * 1000,
 		Portals: *portals, IdentityPath: *identities, StartFloor: *startFloor,
+	}
+	if *origins != "" {
+		for _, o := range strings.Split(*origins, ",") {
+			if o = strings.TrimSpace(o); o != "" {
+				cfg.WSOrigins = append(cfg.WSOrigins, o)
+			}
+		}
 	}
 	if *load != "" {
 		raw, err := os.ReadFile(*load)
