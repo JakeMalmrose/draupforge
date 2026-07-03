@@ -101,5 +101,40 @@ func supportDefs() []*core.SupportDef {
 			Desc:     "30% reduced mana cost",
 			ManaMult: fm.FromMilli(700),
 		},
+		{
+			// The melee payoff: a big flat more-multiplier that only a melee
+			// skill can socket. Pairs with Sweep and the melee attacks.
+			ID: "ruthless", Name: "Ruthless",
+			Desc:     "40% more melee damage",
+			Requires: stats.T(stats.TagMelee),
+			ManaMult: fm.FromMilli(1400),
+			Mods: []core.BuffMod{
+				{Stat: stats.Damage, Layer: stats.LayerMore, Value: fm.FromMilli(400)},
+			},
+		},
+		{
+			// Fire specialist: adds flat fire and amps the fire portion, so a
+			// fireball or an added-fire build leans harder into ignite.
+			ID: "immolate", Name: "Immolate",
+			Desc:     "adds 8 fire damage, 25% more fire damage",
+			ManaMult: fm.FromMilli(1300),
+			Mods: []core.BuffMod{
+				{Stat: stats.Damage, Layer: stats.LayerFlat, Tags: stats.T(stats.TagFire), Value: fm.FromInt(8)},
+				{Stat: stats.Damage, Layer: stats.LayerMore, Tags: stats.T(stats.TagFire), Value: fm.FromMilli(250)},
+			},
+		},
+		{
+			// The fan that doesn't cost you damage — one extra projectile and
+			// a small more-multiplier, at a steep mana price. The aggressive
+			// alternative to LMP/GMP's damage penalty.
+			ID: "cannonade", Name: "Cannonade",
+			Desc:     "+1 projectile, 15% more damage",
+			Requires: stats.T(stats.TagProjectile),
+			ManaMult: fm.FromMilli(1600),
+			Mods: []core.BuffMod{
+				{Stat: stats.Damage, Layer: stats.LayerMore, Value: fm.FromMilli(150)},
+			},
+			ExtraProjectiles: 1,
+		},
 	}
 }
