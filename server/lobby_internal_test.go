@@ -15,7 +15,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/coder/websocket"
+
 	"github.com/JakeMalmrose/draupforge/content"
+	"github.com/JakeMalmrose/draupforge/protocol"
 )
 
 // TestLobbyAdminInstanceAPI walks the path a browser takes from the lobby
@@ -120,6 +123,88 @@ func TestLobbyAdminIndex(t *testing.T) {
 	fav.Body.Close()
 	if fav.StatusCode != http.StatusNoContent {
 		t.Errorf("favicon status = %d, want 204", fav.StatusCode)
+	}
+}
+
+// TestLobbyLoadSeedsFirstInstance: -load under the lobby resumes the saved
+// run in the first instance created — whoever connects first continues it —
+// while every later instance is fresh, and a corrupt file fails the boot
+// instead of the first join.
+func TestLobbyLoadSeedsFirstInstance(t *testing.T) {
+	db := content.DB()
+	spec := &protocol.MapSpec{Width: 24, Height: 24, Rooms: 4}
+
+	// A mid-run world worth resuming: floor 3, one portal use already spent.
+	src, err := New(db, Config{Seed: 99, StartFloor: 3, Portals: 2, Map: spec})
+	if err != nil {
+		t.Fatal(err)
+	}
+	src.portalsLeft = 1
+	world, err := src.sim.W.Save()
+	if err != nil {
+		t.Fatal(err)
+	}
+	envelope, err := src.encodeRunSave(world)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := NewLobby(db, Config{Addr: "127.0.0.1:0", Load: []byte("junk")}); err == nil {
+		t.Fatal("a garbage -load booted a lobby; want a boot-time failure")
+	}
+
+	lb, err := NewLobby(db, Config{
+		Addr: "127.0.0.1:0", Seed: 7, TickInterval: 2 * time.Millisecond,
+		Map: spec, Portals: 3, Load: envelope,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	go lb.ListenAndServe(ctx)
+	if lb.Addr() == nil {
+		t.Fatal("lobby failed to listen")
+	}
+	hs := httptest.NewServer(lb.Handler())
+	t.Cleanup(hs.Close)
+
+	welcome := func(which string) *protocol.RunSnap {
+		t.Helper()
+		wctx, wcancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer wcancel()
+		ws, _, err := websocket.Dial(wctx, "ws"+strings.TrimPrefix(hs.URL, "http")+"/ws", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { ws.Close(websocket.StatusNormalClosure, "") })
+		for {
+			kind, data, err := ws.Read(wctx)
+			if err != nil {
+				t.Fatalf("%s: waiting for welcome: %v", which, err)
+			}
+			if kind != websocket.MessageText {
+				continue
+			}
+			var msg protocol.ServerMsg
+			if json.Unmarshal(data, &msg) == nil && msg.Type == "welcome" {
+				if msg.Run == nil {
+					t.Fatalf("%s: welcome carries no run state", which)
+				}
+				return msg.Run
+			}
+		}
+	}
+
+	first := welcome("first client")
+	if first.Floor != 3 || first.Portals != 1 || first.Best != 3 {
+		t.Errorf("first client resumed floor %d, portals %d, best %d; want 3, 1, 3",
+			first.Floor, first.Portals, first.Best)
+	}
+	second := welcome("second client")
+	if second.Floor != 0 || second.Portals != 3 {
+		t.Errorf("second client got floor %d, portals %d; want a fresh hideout (0, 3)",
+			second.Floor, second.Portals)
 	}
 }
 

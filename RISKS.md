@@ -84,9 +84,9 @@ re-records every golden.
 
 - In-process load/rollback without a restart: needs re-welcoming every
   client (terrain and actor IDs change under them) — machinery the floor
-  swap now has, but nothing drives it for loads. Worse, the lobby refuses
-  `-load` outright (run saves predate parties), so save-and-restart isn't
-  even a rollback story right now — STATUS.md tracks the regression.
+  swap now has, but nothing drives it for loads. Save-and-restart works
+  again (session 46: `-load` seeds the lobby's first instance), so there IS
+  a rollback story; it just costs a restart.
 - No auth: the admin port must stay on localhost/tailnet until an auth
   story exists. Adjustable tick rate also still missing.
 

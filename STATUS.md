@@ -69,7 +69,7 @@ All foundational machinery from DESIGN.md is real, not stubbed:
 | World/Actor/Hit/defs, RNG, state hashing | `sim/core` | done |
 | Damage pipeline (incl. live conversion stage) + DoTs + regen | `sim/combat` | done, tested |
 | Statuses: ignite/chill/shock ailments + content buffs (refresh-not-stack, pending-buff queue) | `sim/combat` | done, tested |
-| Persistence: `World.Save`/`LoadWorld` (versioned JSON, bit-exact), admin `POST /api/save`, descent run envelope (v2) — `-load` refused in lobby mode (see shortcuts) | `sim/core/save.go`, `server/runsave.go` | done, tested; `-load` regressed |
+| Persistence: `World.Save`/`LoadWorld` (versioned JSON, bit-exact), admin `POST /api/save`, descent run envelope (v2); `-load` under the lobby seeds the first instance (validated at boot) | `sim/core/save.go`, `server/runsave.go`, `server/lobby.go` | done, tested, verified e2e |
 | Actions (windup/recovery) + projectiles; skill feel: splash w/ falloff, wall bounce, heading wiggle, hitscan chains | `sim/skills` | done, tested |
 | Staged skills (DESIGN §15): stage sequences w/ per-stage locked aims, blast/ring effects, telegraphs on the wire (v19); telegraphed blasts skip evasion; the Barrow King (boss_king AI, floors %5, rare, stateless enrage <50%) + boss bar + ground-telegraph rendering | `sim/skills`, `sim/ai`, `content/`, `server/descent.go`, `web/` | done, tested, verified live |
 | Loot: rarity weights, weighted affixes, group caps, per-slot pools (depth asserted at DB()), rolled implicits | `sim/items` | done, tested |
@@ -163,9 +163,9 @@ load-bearing (top entry: the action model is one-thing-at-a-time).
   The admin port has no auth (public deploy disables it); a slow client can
   stall its instance's tick up to 1s (no per-client send queues) — real now
   that strangers can reach the public URL.
-- `-load` is refused in lobby mode ("run saves predate parties"): `/api/save`
-  still writes envelopes (v2) nothing can load. Regressed session 31's
-  feature when the lobby shipped — on the list.
+- `-load` under the lobby seeds only the *first* instance created (whoever
+  connects first resumes the run); a lobby has no way to aim a save at a
+  particular player. Fine for the single-operator rollback story it serves.
 - Claiming a new name under an existing cookie orphans the old identity (no
   rename/list). `identities.json` is one plaintext blob, tokens included.
 - No client prediction — input feels its latency. Prediction is what would
@@ -201,13 +201,21 @@ load-bearing (top entry: the action model is one-thing-at-a-time).
 
 The descent shipped (session 15); the character store + sessions shipped
 (37–38 — DESIGN §14 is fully real); the telegraphed multi-stage boss shipped
-(45 — staged skills, DESIGN §15). The queue: run saves under the lobby
-(un-regress `-load`); server hardening (replay log, per-client send queues,
-rate limiting) — strangers *can* connect now. ROADMAP phase 4's remainder
-(town hub, stash, uniques) is the fun-first counterweight.
+(45 — staged skills, DESIGN §15); `-load` works under the lobby again (46).
+The queue: server hardening (replay log, per-client send queues, rate
+limiting) — strangers *can* connect now. ROADMAP phase 4's remainder (town
+hub, stash, uniques) is the fun-first counterweight.
 
 ## Session log
 
+- **2026-07-03 (46)** — `-load` works under the lobby (un-regressed session
+  31's feature). Semantics: the boot-time save seeds the first instance
+  created — whoever connects first resumes the run; every later instance is
+  fresh. The file is validated at boot (a dry-run `New`), so corruption
+  fails the process, not the first join. Pinned over real sockets
+  (`TestLobbyLoadSeedsFirstInstance`) and verified e2e with the binary:
+  boot on floor 4 → `/api/save` → restart with `-load` on a different seed
+  → status shows floor 4 / best 4 resumed.
 - **2026-07-03 (45)** — Staged skills + the Barrow King. The action model
   grew on purpose (RISKS #1 → DESIGN §15): `SkillStaged` skills run a
   scripted stage sequence — countdown, effect (blast/ring/none), aim
