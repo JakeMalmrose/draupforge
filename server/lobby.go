@@ -44,6 +44,10 @@ type Lobby struct {
 	instances map[int]*instanceRef
 	nextID    int
 	seedN     uint64
+	// pendingLoad is the boot-time save waiting for its instance; the first
+	// newInstanceLocked consumes it (nil afterwards, and for lobbies booted
+	// without -load).
+	pendingLoad []byte
 	online    map[string]*client   // token → connected client
 	homes     map[string]*Instance // token → last instance, for grace reconnects
 	invites   map[string]string    // invitee token → inviter token
@@ -56,11 +60,18 @@ type instanceRef struct {
 	cancel context.CancelFunc
 }
 
-// NewLobby validates cfg for lobby duty. cfg.Load is a single-world idea
-// and is refused here — run saves predate parties (STATUS.md shortcut).
+// NewLobby validates cfg for lobby duty. cfg.Load seeds the first instance
+// created: whoever connects first resumes the saved run (the save-restart-
+// continue ops story); every instance after that is fresh. The save is
+// validated here so a corrupt file fails the boot, not the first join.
 func NewLobby(db *core.ContentDB, cfg Config) (*Lobby, error) {
 	if cfg.Load != nil {
-		return nil, fmt.Errorf("server: -load is not supported in lobby mode yet")
+		probe := cfg
+		probe.IdentityPath = "" // don't touch the real store for a dry run
+		probe.Seed = 1          // silence the seed-roll log; a load ignores it anyway
+		if _, err := New(db, probe); err != nil {
+			return nil, fmt.Errorf("server: -load: %w", err)
+		}
 	}
 	if cfg.TickInterval <= 0 {
 		cfg.TickInterval = time.Second / core.TicksPerSecond
@@ -77,6 +88,7 @@ func NewLobby(db *core.ContentDB, cfg Config) (*Lobby, error) {
 	}
 	return &Lobby{
 		db: db, cfg: cfg, ids: ids,
+		pendingLoad:  cfg.Load,
 		instances:    map[int]*instanceRef{},
 		online:       map[string]*client{},
 		homes:        map[string]*Instance{},
@@ -157,6 +169,10 @@ func (lb *Lobby) newInstanceLocked() (*Instance, error) {
 		icfg.Seed = 1 // 0 would re-roll randomly in New; keep derivation pure
 	}
 	lb.seedN++
+	// The boot-time save goes to the first instance ever created; everyone
+	// after gets the fresh world the config describes.
+	icfg.Load = lb.pendingLoad
+	lb.pendingLoad = nil
 	in, err := New(lb.db, icfg)
 	if err != nil {
 		return nil, err
