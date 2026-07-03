@@ -11,8 +11,8 @@ tests, and session-log entries older than a few sessions (git history is the
 archive). If this file outgrows ~150 lines, it has stopped being a status doc
 and started being a changelog — cut it back.
 
-**Last updated: 2026-07-03** (session 60: energy shield recharge — the
-defensive trio is complete)
+**Last updated: 2026-07-03** (session 61: stun — big hits interrupt
+actions; the combat mechanics are complete)
 
 ## Where things stand
 
@@ -66,7 +66,7 @@ All foundational machinery from DESIGN.md is real, not stubbed:
 | Space: tile grid (clearance-eroded walkability), DDA raycast, deterministic A* + smoothing, rooms-and-corridors mapgen off RNGMap | `sim/space` | done, tested |
 | Stat algebra (flat/inc/more/override + tags) | `sim/stats` | done, tested, memoized |
 | World/Actor/Hit/defs, RNG, state hashing | `sim/core` | done |
-| Damage pipeline (incl. live conversion stage) + DoTs + regen + life leech (PostHit) + block (post-evasion, conditional RNG pinned) + ES recharge (Upkeep: refills 20%/s after 2s untouched; `Actor.RechargeDelay` saved+hashed, reset on any damage) | `sim/combat` | done, tested |
+| Damage pipeline: conversion, DoTs, regen; the full mechanics set — leech, block, ES recharge, and stun (a hit ≥15% max life clears the action; `Actor.StunTicks` = 0.3s lock + 0.5s immunity, saved+hashed, gated in the command validator; `ActorDef.StunImmune` on bosses) | `sim/combat`, `sim/sim.go` | done, tested |
 | Statuses: ignite/chill/shock ailments + content buffs (refresh-not-stack, pending-buff queue) | `sim/combat` | done, tested |
 | Persistence: `World.Save`/`LoadWorld` (versioned JSON, bit-exact), admin `POST /api/save`, descent run envelope (v2); `-load` under the lobby seeds the first instance (validated at boot) | `sim/core/save.go`, `server/runsave.go`, `server/lobby.go` | done, tested, verified e2e |
 | Actions (windup/recovery) + projectiles; skill feel: splash w/ falloff, wall bounce, heading wiggle, hitscan chains | `sim/skills` | done, tested |
@@ -156,9 +156,10 @@ load-bearing (top entry: the action model is one-thing-at-a-time).
 
 ## Known shortcuts (deliberate, fine for now)
 
-- Stun: absent. The defensive trio shipped — life leech (58), block (59),
-  ES recharge (60: ES refills at 20%/s after 2s untouched, any damage
-  resets the delay). Chill doesn't slow an action
+- The combat mechanics are complete: life leech (58), block (59), ES
+  recharge (60), stun (61: a hit ≥15% of max life interrupts the action,
+  0.3s lock + 0.5s re-stun immunity, bosses immune). Chill doesn't slow an
+  action
   already in flight (tick counts bind at use time); movement slows now.
 - Corpses compact away at tick end — fine until on-corpse mechanics matter.
 - Inventory is a flat ID-addressed bag, no stacking; bag arrangement is
@@ -214,6 +215,20 @@ dictates, and Jake's balance pass over the numbers.
 
 ## Session log
 
+- **2026-07-03 (61)** — Stun: the capstone combat mechanic, and the
+  deliberate action-model interrupt RISKS #1 anticipated. A hit dealing
+  ≥15% of the target's max life clears its current action and locks it out
+  for 0.3s, followed by a 0.5s re-stun immunity tail — both folded into one
+  `Actor.StunTicks` countdown (Stunned = ticks past the immunity window),
+  decremented in Upkeep so the command validator drops a stunned actor's
+  commands the same tick. Deterministic threshold, no RNG. `ActorDef.
+  StunImmune` on all three bosses keeps a lucky crit from cancelling a
+  telegraphed set-piece — their huge life pools would resist most stuns
+  anyway, but the flag makes it certain. Save v14 (StunTicks + last
+  session's Recharge), conditionally hashed; goldens re-recorded (stun
+  now lands on dungeon monsters). Client: circling stun-stars over the
+  reeling target + a log line. Verified in the real sim: fireballs stun
+  zombies, the Grave Tyrant shrugs them off.
 - **2026-07-03 (60)** — Energy shield recharge — the defensive trio (leech,
   block, recharge) is complete, and ES gear finally does more than sit
   there. ES refills in combat Upkeep at 20% of max per second, but only

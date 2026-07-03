@@ -86,6 +86,17 @@ func resolve(w *core.World, h *core.Hit) {
 		}
 	}
 
+	// Stage: stun — a hit landing at least StunThresholdPermille of the
+	// target's max life interrupts its action. Deterministic (no RNG);
+	// TryStun enforces boss immunity and the re-stun window.
+	if !def.Dead && total > 0 {
+		if thresh := fm.Mul(def.MaxLife(), fm.FromMilli(core.StunThresholdPermille)); total >= thresh {
+			if def.TryStun() {
+				w.Emit(core.Event{Kind: core.EvStun, Actor: att.ID, Other: def.ID, Note: h.Skill.ID})
+			}
+		}
+	}
+
 	// Stage: post-hit effects, fixed order (ignite → chill → shock; the
 	// order is part of the RNG-consumption contract).
 	if !def.Dead {

@@ -87,6 +87,9 @@ func (w *World) Hash() uint64 {
 		if a.RechargeDelay != 0 {
 			s.u64(uint64(a.RechargeDelay))
 		}
+		if a.StunTicks != 0 {
+			s.u64(uint64(a.StunTicks))
+		}
 		s.u64(uint64(a.Level))
 		s.i64(a.XP)
 		// Rarity hashes only when rolled — normal actors keep the

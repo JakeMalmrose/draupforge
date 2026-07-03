@@ -64,6 +64,11 @@ func Upkeep(w *core.World) {
 		if a.Dead {
 			continue
 		}
+		// Stun lockout + immunity countdown (Upkeep is the tick's first
+		// phase, so the command gate this tick sees the decremented value).
+		if a.StunTicks > 0 {
+			a.StunTicks--
+		}
 		if regen := a.Sheet.Eval(stats.ManaRegen, stats.TagSet{}); regen > 0 {
 			a.Mana = fm.Min(a.Mana+fm.Div(regen, perTick), a.MaxMana())
 		}

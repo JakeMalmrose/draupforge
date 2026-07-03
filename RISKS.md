@@ -16,10 +16,13 @@ mid-feature.
 The skill half of this got its deliberate design in DESIGN §15 (staged
 skills, session 45): multi-effect sequences compose from stage primitives
 instead of growing the `fire()` switch, and the Barrow King proved it.
-What remains of the risk: the legacy single-effect path still IS a switch
-on `SkillKind`, and every action — staged or not — still owns the actor
-completely. Channel/movement-skill/interrupt each still need the same
-design-first treatment.
+Interrupt landed too (stun, session 61): a big hit clears the current
+action and a lockout gates the command validator — the one-action model
+took an external interrupt cleanly. What remains: the legacy single-effect
+path still IS a switch on `SkillKind`, there's no channelling or
+cast-while-moving, and an action still owns the actor for its whole
+duration (no animation-cancel). Grow those design-first when a skill wants
+them.
 
 ## 2. Mid-tick entity creation — mitigated (session 51), edges remain
 

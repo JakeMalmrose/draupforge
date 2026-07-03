@@ -294,6 +294,9 @@ type ActorDef struct {
 	// content.DB() rejects cyclic chains; the adds grant their own XP.
 	DeathSpawnDef   string
 	DeathSpawnCount int
+	// StunImmune keeps big hits from interrupting this actor's actions —
+	// bosses set it so a crit can't cancel a telegraphed set-piece.
+	StunImmune bool
 }
 
 type AffixKind uint8
