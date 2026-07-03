@@ -76,6 +76,7 @@ func TestArcOutOfRangeFizzles(t *testing.T) {
 func TestFireballSplashes(t *testing.T) {
 	s := sim.New(content.DB(), 92)
 	player := mustSpawn(t, s, "player", 0, 0)
+	grantGems(t, s, player, "fireball")
 	direct := mustSpawn(t, s, "training_dummy", 8000, 0)
 	near := mustSpawn(t, s, "training_dummy", 8000, 1500)
 	far := mustSpawn(t, s, "training_dummy", 8000, 3500)

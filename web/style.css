@@ -102,8 +102,9 @@ body {
 .skill-slot:hover { border-color: #b8a44a; }
 .skill-slot .glyph {
   width: 22px; height: 22px;
-  border-radius: 50%;
-  box-shadow: 0 0 8px currentColor;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 .skill-slot .slot-name { font-size: 8px; letter-spacing: 0.03em; color: #8d8678; }
 .skill-slot .key {
@@ -377,7 +378,7 @@ body {
 }
 #panel.orb-armed .gem-card { cursor: cell; }
 .gem-card:hover { border-color: #b8a44a; }
-.gem-dot { width: 10px; height: 10px; border-radius: 50%; box-shadow: 0 0 6px currentColor; }
+.gem-card .gem-icon { flex: none; }
 .gem-card .gem-lv { color: #4ad1c8; font-size: 11px; }
 .gem-card .sockets { display: inline-flex; gap: 3px; }
 .socket {
@@ -390,27 +391,90 @@ body {
 .socket.filled { border: 1px solid #6b3a7a; background: #2a1c33; color: #c67fe8; }
 
 /* The cutting dialog: same footprint as the passive chooser. */
+#gem-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 8;
+  background: radial-gradient(ellipse at center, #00000066, #000000b8);
+  backdrop-filter: blur(2px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
 #gem-dialog {
-  position: absolute;
-  bottom: 110px;
-  left: 50%;
-  transform: translateX(-50%);
-  background: #14141dee;
-  border: 1px solid #3a3a4e;
-  border-radius: 6px;
-  padding: 10px 14px;
+  background: linear-gradient(#1a1a24fa, #111119fa);
+  border: 1px solid #4ad1c855;
+  border-radius: 10px;
+  padding: 22px 26px 18px;
   text-align: center;
-  z-index: 6;
-  max-width: 520px;
+  min-width: 540px;
+  max-width: 720px;
+  box-shadow: 0 12px 60px #000d, 0 0 28px #4ad1c81f;
+}
+#gem-dialog .dlg-head {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin-bottom: 6px;
+  text-align: left;
 }
 #gem-dialog h3 {
-  margin: 0 0 8px;
-  font-size: 13px;
+  margin: 0;
+  font-size: 17px;
   color: #4ad1c8;
   font-weight: normal;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.08em;
 }
-#gem-dialog .passive-option { margin-bottom: 4px; }
+#gem-dialog .dlg-sub { font-size: 11px; color: #8d8678; margin: 1px 0 0; }
+.draft-row {
+  display: flex;
+  gap: 14px;
+  justify-content: center;
+  margin: 16px 0 10px;
+}
+.draft-card {
+  flex: 1 1 0;
+  width: 200px;
+  min-height: 195px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 7px;
+  padding: 18px 14px 14px;
+  background: linear-gradient(#222230, #171720);
+  border: 1px solid #3a3a4e;
+  border-radius: 8px;
+  color: #cfc9bf;
+  font: inherit;
+  cursor: pointer;
+  transition: transform 0.12s, border-color 0.12s, box-shadow 0.12s;
+}
+.draft-card:hover:not(:disabled) {
+  transform: translateY(-3px);
+  border-color: #4ad1c8;
+  box-shadow: 0 8px 20px #000a, 0 0 14px #4ad1c833;
+}
+.draft-card:disabled { opacity: 0.4; cursor: default; }
+.draft-card .draft-name { font-size: 14px; color: #ece5d6; }
+.draft-card .draft-kind { font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; }
+.draft-card .draft-desc { font-size: 11px; line-height: 1.45; color: #9a937f; }
+.draft-card .draft-owned {
+  margin-top: auto;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  color: #c9b76a;
+  border: 1px solid #c9b76a55;
+  border-radius: 3px;
+  padding: 1px 6px;
+}
+#gem-dialog .passive-option {
+  margin-bottom: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
 #gem-dialog .passive-option:disabled { opacity: 0.4; cursor: default; }
 .dialog-note { margin: 6px 0 4px; font-size: 11px; color: #8d8678; }
 .socket-row {

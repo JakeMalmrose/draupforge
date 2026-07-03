@@ -25,7 +25,8 @@ const (
 func sliceScenario(t *testing.T) (*sim.Sim, map[uint64][]core.Command) {
 	t.Helper()
 	s := sim.New(content.DB(), sliceSeed)
-	mustSpawn(t, s, "player", 0, 0)
+	pid := mustSpawn(t, s, "player", 0, 0)
+	grantGems(t, s, pid, "fireball") // the def grants an uncut draft now, not a cut skill
 	mustSpawn(t, s, "training_dummy", 8000, 0)
 	mustSpawn(t, s, "zombie", 0, 12000)
 
@@ -50,8 +51,8 @@ func mustSpawn(t *testing.T, s *sim.Sim, def string, x, y int64) core.EntityID {
 	return id
 }
 
-// grantGems cuts level-1 gems onto an actor — players know only their
-// starting gem (fireball); tests exercising other skills say so.
+// grantGems cuts level-1 gems onto an actor — a fresh player def carries
+// only an uncut draft, so tests casting anything grant it explicitly.
 func grantGems(t *testing.T, s *sim.Sim, id core.EntityID, skills ...string) {
 	t.Helper()
 	for _, sk := range skills {
@@ -166,16 +167,28 @@ func TestSliceOutcomes(t *testing.T) {
 	s, cmds := sliceScenario(t)
 	st := &sliceState{}
 
+	// Resolve IDs by def — the starting uncut gem consumes an item ID at
+	// player spawn, so monster entity IDs are not what they once were.
+	var dummyID, zombieID core.EntityID
+	for _, a := range s.W.Actors {
+		switch a.Def.ID {
+		case "training_dummy":
+			dummyID = a.ID
+		case "zombie":
+			zombieID = a.ID
+		}
+	}
+
 	var sawDummyDeath, sawDrop, sawZombieHit bool
 	for tick := uint64(1); tick <= sliceTicks; tick++ {
 		st.step(s, cmds[tick])
 		for _, ev := range s.W.LastEvents {
 			switch {
-			case ev.Kind == core.EvDeath && ev.Actor == 2:
+			case ev.Kind == core.EvDeath && ev.Actor == dummyID:
 				sawDummyDeath = true
-			case ev.Kind == core.EvDrop && ev.Actor == 2:
+			case ev.Kind == core.EvDrop && ev.Actor == dummyID:
 				sawDrop = true
-			case ev.Kind == core.EvHit && ev.Actor == 3 && ev.Other == 1:
+			case ev.Kind == core.EvHit && ev.Actor == zombieID && ev.Other == 1:
 				sawZombieHit = true
 			}
 		}

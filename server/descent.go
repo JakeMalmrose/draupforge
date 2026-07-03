@@ -5,9 +5,8 @@
 // new world, inject, and re-welcome — the same full-reset machinery a
 // reconnect would use.
 //
-// Run rules: a run starts in the hideout (floor 0, a small safe world,
-// pinned to its own seed so it's the same home every session); its portal
-// leads to floor 1. The portal is the death anchor — it lands on a floor's
+// Run rules: a run starts in the hideout (floor 0, a small safe world
+// derived from the instance seed); its portal leads to floor 1. The portal is the death anchor — it lands on a floor's
 // spawn the first time you step through and can be re-planted wherever you
 // stand. Death costs XP (never below the current level's floor) and ejects
 // everyone to the portal, consuming one portal use; a death with none left
@@ -103,13 +102,15 @@ func (in *Instance) buildFloor(floor int) (*sim.Sim, error) {
 	return s, nil
 }
 
-// hideoutSeed pins the hideout world — the same home for every instance
-// and every session, whatever seed the run rolled.
-const hideoutSeed uint64 = 0xCA5A
+// hideoutSalt mixes the hideout world off the instance seed. Not a pinned
+// constant: a fresh character's starting gem draft rolls from the hideout's
+// loot stream at spawn, so a fixed hideout seed would deal every new exile
+// the same three choices. The one-room layout barely varies anyway.
+const hideoutSalt uint64 = 0xCA5A
 
 // buildHideout constructs the hideout: one small safe room, no monsters.
 func (in *Instance) buildHideout() *sim.Sim {
-	s := sim.New(in.db, hideoutSeed)
+	s := sim.New(in.db, deriveSeed(in.cfg.Seed, hideoutSalt))
 	s.GenerateMap(space.MapSpec{Width: 16, Height: 12, Rooms: 1})
 	return s
 }

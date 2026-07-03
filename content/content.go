@@ -474,9 +474,10 @@ func actorDefs() []*core.ActorDef {
 			stats.Armour:     fm.FromInt(20),
 			stats.CritChance: fm.FromMilli(50), // 5%
 		}),
-		// Gems-only: no innate skills. A fresh exile knows Fireball as a
-		// level-1 cut gem; everything else comes from uncut drops.
-		StartingGems:  []string{"fireball"},
+		// Gems-only: no innate skills. A fresh exile wakes with one uncut
+		// skill gem — pick your own starter from its draft of three;
+		// everything after that comes from uncut drops.
+		StartingUncut: 1,
 		Flasks:        []string{"life_flask", "mana_flask"},
 		InventorySize: 20,
 		Level:         1,
