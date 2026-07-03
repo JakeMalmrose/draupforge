@@ -304,6 +304,7 @@ func (in *Instance) grantGrace() {
 			combat.ApplyBuff(in.sim.W, a, def, a.ID)
 		}
 	}
+	in.surgery = true // replay: buffs granted outside Step
 }
 
 // descend swaps the instance one floor deeper, entering at the new floor's
@@ -371,6 +372,7 @@ func (in *Instance) swapWorld(s *sim.Sim, floor int, at space.Vec2) {
 	in.sim = s
 	in.floor = floor
 	in.mapSnap = s.EncodeMap()
+	in.surgery = true // replay: the world changed outside Step
 	if floor > in.best {
 		in.best = floor
 	}

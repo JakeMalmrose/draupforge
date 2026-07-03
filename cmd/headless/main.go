@@ -13,6 +13,7 @@ import (
 
 	"github.com/JakeMalmrose/draupforge/content"
 	"github.com/JakeMalmrose/draupforge/protocol"
+	"github.com/JakeMalmrose/draupforge/server"
 	"github.com/JakeMalmrose/draupforge/sim"
 	"github.com/JakeMalmrose/draupforge/sim/core"
 	fm "github.com/JakeMalmrose/draupforge/sim/fixmath"
@@ -21,6 +22,7 @@ import (
 
 func main() {
 	scriptPath := flag.String("script", "", "path to scenario script (JSON)")
+	replayPath := flag.String("replay", "", "replay a server-recorded segment (server -replaydir) instead of a script")
 	ticks := flag.Uint64("ticks", 300, "ticks to simulate")
 	seed := flag.Uint64("seed", 1, "world seed")
 	snapEvery := flag.Uint64("snap-every", 0, "print a snapshot every N ticks (0 = final only)")
@@ -28,8 +30,12 @@ func main() {
 	quiet := flag.Bool("quiet", false, "suppress event lines")
 	flag.Parse()
 
+	if *replayPath != "" {
+		runReplay(*replayPath, *printHash, *quiet)
+		return
+	}
 	if *scriptPath == "" {
-		fmt.Fprintln(os.Stderr, "headless: -script is required")
+		fmt.Fprintln(os.Stderr, "headless: -script or -replay is required")
 		os.Exit(2)
 	}
 	raw, err := os.ReadFile(*scriptPath)
@@ -95,6 +101,30 @@ func main() {
 
 	fmt.Println("--- final state ---")
 	printSnapshot(s)
+}
+
+// runReplay re-executes a server-recorded segment: the recorded world plus
+// its command lines, tick for tick. The final hash is the repro currency —
+// run it twice, or against a patched build, and diff.
+func runReplay(path string, printHash, quiet bool) {
+	w, err := server.Replay(content.DB(), path,
+		func(w *core.World, cmds []core.Command) {
+			(&sim.Sim{W: w}).Step(cmds)
+		},
+		func(w *core.World) {
+			if printHash {
+				fmt.Printf("tick %4d hash %016x\n", w.Tick, w.Hash())
+			}
+			if !quiet {
+				for _, ev := range w.LastEvents {
+					printEvent(ev)
+				}
+			}
+		})
+	if err != nil {
+		fatal(err)
+	}
+	fmt.Printf("replay complete: tick %d hash %016x\n", w.Tick, w.Hash())
 }
 
 func printEvent(ev core.Event) {

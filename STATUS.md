@@ -11,8 +11,8 @@ tests, and session-log entries older than a few sessions (git history is the
 archive). If this file outgrows ~150 lines, it has stopped being a status doc
 and started being a changelog — cut it back.
 
-**Last updated: 2026-07-03** (session 53: Sweep — the first cuttable melee
-skill — and Bonelord's Mark, the +1-minion unique)
+**Last updated: 2026-07-03** (session 54: the replay log — live bugs are
+reproducible now)
 
 ## Where things stand
 
@@ -83,6 +83,7 @@ All foundational machinery from DESIGN.md is real, not stubbed:
 | Monster rarity: magic/rare rolls with mod packages, XP ×3/×6, extra drops, floor-scaled chances, rings + nameplates | `sim/sim.go`, `content/`, `web/` | done, tested |
 | Equipment + inventory: 10 slots, slot-addressed equip, pickup/unequip/drop, capacity | `sim/items/equip.go` | done, tested |
 | Server: TCP + WS transports, send-rate decoupling, interest culling, binary deltas + acks, pause, per-client send queues (a stalled socket dies alone; the tick never blocks on I/O) | `server/` | done, race-tested |
+| Replay log: `-replaydir` records every world as a segment (World.Save header + NDJSON command lines); host surgery (joins/swaps/grace/admin/stash) rotates segments so each spans a pure Step stretch; `cmd/headless -replay` re-executes bit-exact | `server/replay.go`, `cmd/headless` | done, tested, verified e2e |
 | Identity: name claim mints a 32-byte cookie token; the token resumes the character (banked on disconnect + 30s flush); one session per name; guests skip it all | `server/identity.go` | done, tested |
 | Stash: per-identity hideout bank (60 items, durable CharItem form on the identity); stash_put/stash_take verbs, hideout-only, processed at the host layer between ticks; drag between bag and stash in the panel | `server/stash.go`, `server/identity.go`, `web/` | done, tested, verified live |
 | Lobby: many instances per process, party = instance, invite/leave transfers via floor-swap machinery, 60s empty reap = reconnect grace | `server/lobby.go`, `cmd/partybot` | done, race-tested, verified live |
@@ -171,9 +172,7 @@ load-bearing (top entry: the action model is one-thing-at-a-time).
   rename/list). `identities.json` is one plaintext blob, tokens included.
 - No client prediction — input feels its latency. Prediction is what would
   justify compiling sim/ to wasm (DESIGN §13's optional layer).
-- Static files come from -web at runtime. Live play is not
-  replay-deterministic (network timing decides arrival ticks); a replay
-  log would fix that — cheap when wanted.
+- Static files come from -web at runtime.
 - Collision is soft separation between monsters only (players never push or
   get pushed); pairwise O(n²). Aggro is LoS + hearing with no memory; AI
   re-issues its chase target every tick (repath throttle keeps it cheap);
@@ -204,13 +203,24 @@ The descent shipped (session 15); the character store + sessions shipped
 (45 — staged skills, DESIGN §15); `-load` works under the lobby again (46);
 per-client send queues shipped (47); the stash shipped (48); origin checks
 and rate limiting shipped (49); uniques shipped (50) — ROADMAP's phases
-are all ✅ now — and the spawn queue paid down RISKS #2 (51). The queue is
-open: a replay log when postmortems want one, and content (skills,
-uniques, bosses, a first minion skill on the new queue) as appetite
-dictates.
+are all ✅ now; the spawn queue paid down RISKS #2 (51), minions landed on
+it (52), and the replay log closed the hardening list (54). The queue is
+pure content and tuning now: more skills/uniques/bosses/floors as appetite
+dictates, and Jake's balance pass over the numbers.
 
 ## Session log
 
+- **2026-07-03 (54)** — The replay log (the last named hardening item).
+  `-replaydir` records every world an instance runs: a segment file holds
+  a full `World.Save` header plus one NDJSON line per commanded tick, in
+  the exact sorted order Step consumed. The subtlety: the world mutates
+  outside Step (joins, leaves, floor swaps, portal grace, admin cheats,
+  stash ops), so any such surgery sets a flag and the recorder rotates to
+  a fresh segment at the next pre-Step boundary — every file spans a pure
+  command-driven stretch. `cmd/headless -replay` re-executes one and
+  prints the hash. Pinned across a floor swap; verified e2e with the real
+  binaries: recorded a TCP session, replayed the segment twice, identical
+  hashes.
 - **2026-07-03 (53)** — Content pass: Sweep + Bonelord's Mark. Sweep is
   the first cuttable melee skill (the pool had none — melee builds
   couldn't exist): a full-circle weapon-scaled spin on the nova machinery,
