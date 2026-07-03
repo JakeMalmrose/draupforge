@@ -11,8 +11,8 @@ tests, and session-log entries older than a few sessions (git history is the
 archive). If this file outgrows ~150 lines, it has stopped being a status doc
 and started being a changelog — cut it back.
 
-**Last updated: 2026-07-03** (session 54: the replay log — live bugs are
-reproducible now)
+**Last updated: 2026-07-03** (session 55: fog of war — exploration is a
+verb now)
 
 ## Where things stand
 
@@ -177,8 +177,11 @@ load-bearing (top entry: the action model is one-thing-at-a-time).
   get pushed); pairwise O(n²). Aggro is LoS + hearing with no memory; AI
   re-issues its chase target every tick (repath throttle keeps it cheap);
   kiter retreat picks from 5 fixed directions — a cornered archer fights.
-- Terrain travels as JSON rows in the welcome (~2KB at 48×48) — fine until
-  fog of war. Affix tiers are shallow and pools don't scale with item level.
+- Terrain travels as JSON rows in the welcome (~2KB at 48×48); fog of war
+  is client-side reveal tracking over it — the server still sends the whole
+  map, so a determined cheater can read the layout (not the monsters: those
+  are interest-culled server-side at 60u). Affix tiers are shallow and
+  pools don't scale with item level.
 - The run is per-instance, single-player-first: any death ejects everyone,
   travel moves the whole instance (parties live and die together); one eject
   consumes one portal use however many died that tick.
@@ -210,6 +213,16 @@ dictates, and Jake's balance pass over the numbers.
 
 ## Session log
 
+- **2026-07-03 (55)** — Fog of war, client-side (the "fine until fog of
+  war" note finally cashed). Per-world `Uint8Array` reveal tracking: tiles
+  within 9u of you reveal permanently (10Hz, on views), the current light
+  circle draws bright, explored rooms dim, the unexplored is void.
+  Monsters, projectiles, telegraphs, and the boss bar show only inside the
+  light; discovered loot stays marked; stairs and portal render only once
+  found — descending means finding the stairs now. The minimap repaints as
+  fog peels back and keeps enemy dots dark. Pure presentation (resets per
+  welcome), zero sim/wire changes. Verified live across two runs, deaths
+  and re-welcomes included; zero console errors.
 - **2026-07-03 (54)** — The replay log (the last named hardening item).
   `-replaydir` records every world an instance runs: a segment file holds
   a full `World.Save` header plus one NDJSON line per commanded tick, in
