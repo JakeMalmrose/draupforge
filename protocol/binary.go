@@ -725,6 +725,17 @@ func (w *bwriter) item(it ItemSnap) {
 	} else {
 		w.u8(0)
 	}
+	if it.Unique != nil {
+		w.u8(1)
+		w.str(it.Unique.Name)
+		w.str(it.Unique.Desc)
+		w.uv(uint64(len(it.Unique.Mods)))
+		for _, m := range it.Unique.Mods {
+			w.str(m)
+		}
+	} else {
+		w.u8(0)
+	}
 }
 
 // breader carries a sticky error: after the first malformed read every
@@ -810,6 +821,13 @@ func (r *breader) item() ItemSnap {
 			g.Choices = append(g.Choices, r.str())
 		}
 		it.Gem = g
+	}
+	if r.u8() == 1 {
+		u := &UniqueItemSnap{Name: r.str(), Desc: r.str()}
+		for n := r.uv(); n > 0 && r.err == nil; n-- {
+			u.Mods = append(u.Mods, r.str())
+		}
+		it.Unique = u
 	}
 	return it
 }

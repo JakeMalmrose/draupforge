@@ -241,9 +241,14 @@ func fire(w *core.World, a *core.Actor) {
 			dir = space.V(fm.One, 0) // aiming at your own feet fires +X
 		}
 		vel := dir.Scale(fm.Div(sk.ProjSpeed, fm.FromInt(core.TicksPerSecond)))
-		n := 1 + a.Action.Gem.ExtraProjectiles()
+		// Fan width: support gems plus the sheet's ExtraProjectiles (unique
+		// items — no affix rolls it). The sheet query costs nothing random.
+		n := 1 + a.Action.Gem.ExtraProjectiles() + int(a.Sheet.Eval(stats.ExtraProjectiles, sk.Tags).Int())
 		if n > maxFanProjectiles {
 			n = maxFanProjectiles
+		}
+		if n < 1 {
+			n = 1
 		}
 		// Left-to-right fan centered on the aim; n==1 keeps the exact
 		// pre-gem math (rotate(v, 0) is identity).
@@ -278,7 +283,10 @@ func fire(w *core.World, a *core.Actor) {
 		// (mana spent — aim near something).
 		tgt := acquireChainStart(w, a, sk)
 		var hitIDs []core.EntityID
-		for n := 1 + sk.Chains + a.Action.Gem.Chains(); tgt != nil && n > 0; n-- {
+		// Target count: the skill's own chains, support gems, and the
+		// sheet's ExtraChains (unique items).
+		total := 1 + sk.Chains + a.Action.Gem.Chains() + int(a.Sheet.Eval(stats.ExtraChains, sk.Tags).Int())
+		for n := total; tgt != nil && n > 0; n-- {
 			w.QueueHit(core.Hit{
 				Attacker: a.ID,
 				Defender: tgt.ID,

@@ -22,7 +22,7 @@ import (
 // SaveVersion gates restores: a format change bumps it, and old files fail
 // loudly instead of misloading. Saves are durable state — unlike replays,
 // they must never depend on re-execution of the code that wrote them.
-const SaveVersion = 10 // v10: staged skill actions (v9: gems)
+const SaveVersion = 11 // v11: unique items (v10: staged skill actions)
 
 type saveFile struct {
 	Version     int              `json:"version"`
@@ -57,6 +57,7 @@ type itemSave struct {
 	Implicit fm.Fixed    `json:"implicit,omitempty"`
 	Affixes  []affixSave `json:"affixes,omitempty"`
 	Gem      *uncutSave  `json:"gem,omitempty"`
+	Unique   string      `json:"unique,omitempty"` // UniqueDef ID
 }
 
 // uncutSave is an uncut gem item's payload: kind, found-at level, and the
@@ -309,6 +310,9 @@ func encodeItem(item Item) itemSave {
 	is := itemSave{ID: uint64(item.ID), Base: item.Base.ID, Rarity: uint8(item.Rarity), Implicit: item.Implicit}
 	for _, af := range item.Affixes {
 		is.Affixes = append(is.Affixes, affixSave{ID: af.Def.ID, Value: af.Value})
+	}
+	if item.Unique != nil {
+		is.Unique = item.Unique.ID
 	}
 	return is
 }
@@ -583,6 +587,12 @@ func decodeItem(db *ContentDB, affixes map[string]*AffixDef, is itemSave) (Item,
 			return Item{}, fmt.Errorf("core: save references unknown affix %q", af.ID)
 		}
 		item.Affixes = append(item.Affixes, RolledAffix{Def: def, Value: af.Value})
+	}
+	if is.Unique != "" {
+		item.Unique = db.Unique(is.Unique)
+		if item.Unique == nil {
+			return Item{}, fmt.Errorf("core: save references unknown unique %q", is.Unique)
+		}
 	}
 	return item, nil
 }

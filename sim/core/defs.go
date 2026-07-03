@@ -366,6 +366,10 @@ type LootTableDef struct {
 	// rarity like orbs (×2 magic, ×3 rare). One combined draw decides
 	// skill-or-support; both zero consumes no RNG.
 	SkillGemPermille, SupportGemPermille uint32
+	// UniquePermille is the chance a drop upgrades to a unique (uniform
+	// pick from Content.Uniques, which overrides the base). Zero consumes
+	// no RNG.
+	UniquePermille uint32
 }
 
 // ContentDB is the registry of definitions the world runs against. The sim
@@ -379,6 +383,19 @@ type MonsterModDef struct {
 	ID   string
 	Name string // display fragment: "Fleet", "Brawny"
 	Mods []BuffMod
+}
+
+// UniqueDef is a chase item: a fixed identity on a fixed base with a fixed
+// modifier package — including stats no affix can roll (extra projectiles,
+// extra chains), which is what makes one build-defining rather than just
+// bigger. ModLines is the authored display text the client shows verbatim.
+type UniqueDef struct {
+	ID       string
+	Name     string
+	Desc     string // flavor line
+	Base     string // BaseItemDef ID this unique always drops as
+	Mods     []BuffMod
+	ModLines []string
 }
 
 // PassiveDef is one fork of a level-milestone choice: a named, permanent
@@ -410,6 +427,20 @@ type ContentDB struct {
 	// Cuttable is the ordered draft pool for uncut skill gems: every skill
 	// with Cuttable set, in table order. Built by the content package.
 	Cuttable []*SkillDef
+	// Uniques is ordered — unique drops roll indices into it, so
+	// reordering is replay-relevant like the affix table.
+	Uniques []*UniqueDef
+}
+
+// Unique resolves a unique-item ID; nil if unknown. Linear scan, same
+// reasoning as MonsterMod.
+func (db *ContentDB) Unique(id string) *UniqueDef {
+	for _, u := range db.Uniques {
+		if u.ID == id {
+			return u
+		}
+	}
+	return nil
 }
 
 // Support resolves a support-gem ID; nil if unknown. Linear scan, same

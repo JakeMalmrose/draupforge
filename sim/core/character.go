@@ -31,6 +31,7 @@ type CharItem struct {
 	Implicit fm.Fixed    `json:"implicit,omitempty"`
 	Affixes  []CharAffix `json:"affixes,omitempty"`
 	Gem      *CharUncut  `json:"gem,omitempty"`
+	Unique   string      `json:"unique,omitempty"` // UniqueDef ID
 }
 
 // CharUncut is an uncut gem item's payload in character form.
@@ -145,6 +146,9 @@ func charItem(item Item) CharItem {
 	ci := CharItem{Base: item.Base.ID, Rarity: uint8(item.Rarity), Implicit: item.Implicit}
 	for _, af := range item.Affixes {
 		ci.Affixes = append(ci.Affixes, CharAffix{ID: af.Def.ID, Value: af.Value})
+	}
+	if item.Unique != nil {
+		ci.Unique = item.Unique.ID
 	}
 	return ci
 }
@@ -287,6 +291,12 @@ func decodeCharItem(db *ContentDB, affixes map[string]*AffixDef, ci CharItem) (I
 			return Item{}, fmt.Errorf("core: character references unknown affix %q", af.ID)
 		}
 		item.Affixes = append(item.Affixes, RolledAffix{Def: def, Value: af.Value})
+	}
+	if ci.Unique != "" {
+		item.Unique = db.Unique(ci.Unique)
+		if item.Unique == nil {
+			return Item{}, fmt.Errorf("core: character references unknown unique %q", ci.Unique)
+		}
 	}
 	return item, nil
 }

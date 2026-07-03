@@ -238,6 +238,9 @@ func itemSnap(item core.Item) protocol.ItemSnap {
 	for _, af := range item.Affixes {
 		out.Affixes = append(out.Affixes, protocol.AffixSnap{ID: af.Def.ID, Value: af.Value.Milli()})
 	}
+	if u := item.Unique; u != nil {
+		out.Unique = &protocol.UniqueItemSnap{Name: u.Name, Desc: u.Desc, Mods: u.ModLines}
+	}
 	return out
 }
 

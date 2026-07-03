@@ -120,5 +120,8 @@ func charItemSnap(db *core.ContentDB, id uint64, ci core.CharItem) protocol.Item
 	for _, af := range ci.Affixes {
 		out.Affixes = append(out.Affixes, protocol.AffixSnap{ID: af.ID, Value: af.Value.Milli()})
 	}
+	if u := db.Unique(ci.Unique); u != nil {
+		out.Unique = &protocol.UniqueItemSnap{Name: u.Name, Desc: u.Desc, Mods: u.ModLines}
+	}
 	return out
 }

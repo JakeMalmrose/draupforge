@@ -30,6 +30,10 @@ func sampleView() Snapshot {
 				}},
 				Inventory: []ItemSnap{
 					{ID: 9, Base: "leather_cap", Rarity: "normal"},
+					{ID: 14, Base: "iron_ring", Rarity: "unique",
+						Implicit: &AffixSnap{ID: "mana", Value: 7000},
+						Unique: &UniqueItemSnap{Name: "Stormweaver Band",
+							Desc: "The storm never asks.", Mods: []string{"+1 projectile"}}},
 					{ID: 10, Rarity: "normal", Gem: &GemItemSnap{
 						Level: 6, Choices: []string{"spark", "arc_bolt", "frost_nova"}}},
 					{ID: 12, Rarity: "normal", Gem: &GemItemSnap{

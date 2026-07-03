@@ -11,7 +11,7 @@ package protocol
 // v18 unifies two parallel branches that both claimed v16 (gems on main,
 // identity on the multiplayer branch; parties took v17) — jumping past all
 // of them so no deployed client can match a wrong meaning.
-const Version = 19 // v19: actor telegraphs (v18: gems + identity + parties)
+const Version = 20 // v20: unique items (v19: actor telegraphs)
 
 // Command is the wire form of player intent. Kind is one of "move",
 // "use_skill", "stop", the item verbs "pickup", "equip", "unequip",
@@ -151,6 +151,16 @@ type ItemSnap struct {
 	// Gem marks an uncut gem item: its kind, found-at level, and the
 	// pre-rolled draft the cutting dialog offers.
 	Gem *GemItemSnap `json:"gem,omitempty"`
+	// Unique marks a unique item: display name, flavor line, and the
+	// authored mod lines the tooltip shows verbatim (rarity is "unique").
+	Unique *UniqueItemSnap `json:"unique,omitempty"`
+}
+
+// UniqueItemSnap is the unique part of an ItemSnap.
+type UniqueItemSnap struct {
+	Name string   `json:"name"`
+	Desc string   `json:"desc,omitempty"`
+	Mods []string `json:"mods,omitempty"`
 }
 
 // GemItemSnap is the gem part of an uncut gem item.

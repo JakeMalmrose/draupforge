@@ -75,11 +75,26 @@ func RollLoot(w *core.World) {
 	}
 }
 
-// RollItem generates one item from a loot table: base, rarity (weighted per
-// table), the base's implicit, then affixes drawn from the weighted pool
-// with no two from the same group. RNG draw order (base, rarity, implicit,
+// RollItem generates one item from a loot table. A unique check runs first
+// (one draw when the table's UniquePermille is set, plus a uniform pick on
+// success — the unique dictates its own base and mods, only the implicit
+// still rolls); otherwise base, rarity (weighted per table), the base's
+// implicit, then affixes drawn from the weighted pool with no two from the
+// same group. RNG draw order (unique?, pick?, base, rarity, implicit,
 // affixes) is replay-relevant — don't reorder.
 func RollItem(w *core.World, table *core.LootTableDef) core.Item {
+	if table.UniquePermille > 0 && len(w.Content.Uniques) > 0 &&
+		w.RNGLoot.Uint64n(1000) < uint64(table.UniquePermille) {
+		u := w.Content.Uniques[w.RNGLoot.Uint64n(uint64(len(w.Content.Uniques)))]
+		item := core.Item{
+			ID: w.AllocID(), Base: w.Content.BaseItems[u.Base],
+			Rarity: core.RarityUnique, Unique: u,
+		}
+		if imp := item.Base.Implicit; imp != nil {
+			item.Implicit = w.RNGLoot.Range(imp.Min, imp.Max)
+		}
+		return item
+	}
 	baseID := table.Bases[w.RNGLoot.Uint64n(uint64(len(table.Bases)))]
 	item := core.Item{ID: w.AllocID(), Base: w.Content.BaseItems[baseID]}
 	item.Rarity = rollRarity(w, table)

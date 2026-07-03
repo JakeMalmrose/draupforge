@@ -1014,7 +1014,7 @@ function drawProjectile(p, pos) {
   ctx.fill();
 }
 
-const DROP_RARITY_COLORS = { normal: "#cfc9bf", magic: "#8888ff", rare: "#ffff77" };
+const DROP_RARITY_COLORS = { normal: "#cfc9bf", magic: "#8888ff", rare: "#ffff77", unique: "#ff9a3d" };
 // Uncut gems get their own drop identity: teal for skills, violet for
 // supports — a gem on the floor should read as an event, like a rare.
 const GEM_DROP_COLORS = { skill: "#4ad1c8", support: "#c67fe8" };
@@ -1865,6 +1865,22 @@ function itemLines(item, where) {
     for (const c of item.gem.choices || []) {
       lines.push(`<span class="tt-affix">${item.gem.support ? supportInfo(c).name : skillName(c)}</span>`);
     }
+    return lines;
+  }
+  if (item.unique) {
+    // Uniques speak for themselves: authored name and mod lines, the base
+    // as the kind line, flavor text last.
+    const lines = [
+      `<span class="tt-name rarity-unique">${item.unique.name}</span>`,
+      `<span class="tt-kind">unique ${prettify(item.base)}${where ? " · " + where : ""}</span>`,
+    ];
+    if (item.implicit) {
+      lines.push(`<span class="tt-implicit">${prettify(item.implicit.id)}: ${item.implicit.value / 1000}</span>`);
+    }
+    for (const m of item.unique.mods || []) {
+      lines.push(`<span class="tt-affix rarity-unique">${m}</span>`);
+    }
+    if (item.unique.desc) lines.push(`<span class="tt-plain">${item.unique.desc}</span>`);
     return lines;
   }
   const lines = [
