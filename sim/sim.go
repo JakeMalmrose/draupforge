@@ -352,14 +352,18 @@ func applyCommands(w *core.World, cmds []core.Command) {
 			}
 			speed := speedWithSupports(a, sk, ctx)
 			a.Mana -= cost
+			if sk.Kind == core.SkillStaged {
+				skills.BeginStaged(w, a, sk, ctx, c.Point, c.TargetID, speed)
+				continue
+			}
 			a.Action = core.Action{
 				Kind:          core.ActionSkill,
 				Skill:         sk,
 				AimPoint:      c.Point,
 				TargetID:      c.TargetID,
 				Phase:         core.PhaseWindup,
-				TicksLeft:     scaleTicks(sk.WindupTicks, speed),
-				RecoveryTicks: scaleTicks(sk.RecoveryTicks, speed),
+				TicksLeft:     skills.ScaleTicks(sk.WindupTicks, speed),
+				RecoveryTicks: skills.ScaleTicks(sk.RecoveryTicks, speed),
 				Gem:           ctx,
 			}
 		}
@@ -387,18 +391,3 @@ func speedWithSupports(a *core.Actor, sk *core.SkillDef, ctx core.GemCtx) fm.Fix
 	return fm.Mul(a.Sheet.Base(sk.SpeedStat)+p.Flat, p.Multiplier())
 }
 
-// scaleTicks divides a base tick count by a speed multiplier. Anything an
-// actor does takes at least one tick; zero-length phases stay zero.
-func scaleTicks(base uint32, speed fm.Fixed) uint32 {
-	if base == 0 {
-		return 0
-	}
-	if speed < fm.FromMilli(100) {
-		speed = fm.FromMilli(100) // floor at 10% speed: no infinite windups
-	}
-	t := fm.Div(fm.FromInt(int64(base)), speed).Int()
-	if t < 1 {
-		t = 1
-	}
-	return uint32(t)
-}

@@ -13,12 +13,13 @@ cast-while-moving, and no stun/interrupt semantics. Action semantics leak
 into AI, command validation, and netcode feel — grow them deliberately, not
 mid-feature.
 
-The skill half of the same risk: `SkillDef` carries per-kind fields and
-`fire()` in `sim/skills` is a switch on `SkillKind` — one effect, at the
-effect point. Every new skill shape (channel, multi-hit, movement skill,
-trigger) grows the struct and the switch. The first boss with a telegraphed
-multi-stage attack is where this gets designed for real; don't let it
-happen by accretion.
+The skill half of this got its deliberate design in DESIGN §15 (staged
+skills, session 45): multi-effect sequences compose from stage primitives
+instead of growing the `fire()` switch, and the Barrow King proved it.
+What remains of the risk: the legacy single-effect path still IS a switch
+on `SkillKind`, and every action — staged or not — still owns the actor
+completely. Channel/movement-skill/interrupt each still need the same
+design-first treatment.
 
 ## 2. No mid-tick entity creation
 

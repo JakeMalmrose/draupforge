@@ -18,6 +18,7 @@ var deciders = map[string]decider{
 	"melee_chaser": meleeChaser,
 	"ranged_kiter": rangedKiter,
 	"boss_brute":   bossBrute,
+	"boss_king":    bossKing,
 }
 
 // Decide produces this tick's AI commands in actor slice order.
@@ -146,6 +147,45 @@ func bossBrute(w *core.World, a *core.Actor) (core.Command, bool) {
 		return core.Command{
 			Actor: a.ID, Kind: core.CmdUseSkill,
 			Skill: a.Def.Skills[1], Point: tgt.Pos,
+		}, true
+	}
+	return core.Command{Actor: a.ID, Kind: core.CmdMove, Point: tgt.Pos}, true
+}
+
+// bossKing: the staged-skill boss. Skills are [slam, volley, storm] — all
+// telegraphed sequences the player dodges by reading. Selection is a pure
+// function of distance and current life (no AI memory): inside slam range
+// the tracked triple slam; at range with line of sight, ring volleys —
+// swapped for the gap-bisecting double storm below half life; otherwise it
+// stalks closer. Pacing comes from each skill's built-in recovery stage.
+func bossKing(w *core.World, a *core.Actor) (core.Command, bool) {
+	if a.Action.Kind == core.ActionSkill {
+		return core.Command{}, false // committed to the sequence
+	}
+	tgt := acquireTarget(w, a)
+	if tgt == nil {
+		return returnHome(a)
+	}
+	slam := w.Content.Skills[a.Def.Skills[0]]
+	if space.Dist(a.Pos, tgt.Pos) <= slam.Range+tgt.Def.Radius {
+		return core.Command{
+			Actor: a.ID, Kind: core.CmdUseSkill,
+			Skill: slam.ID, TargetID: tgt.ID, Point: tgt.Pos,
+		}, true
+	}
+	los := true
+	if w.Grid != nil {
+		_, blocked := w.Grid.SegmentHit(a.Pos, tgt.Pos)
+		los = !blocked
+	}
+	if los && len(a.Def.Skills) > 2 {
+		ring := a.Def.Skills[1]
+		if a.Life*2 < a.MaxLife() {
+			ring = a.Def.Skills[2] // enraged: the storm
+		}
+		return core.Command{
+			Actor: a.ID, Kind: core.CmdUseSkill,
+			Skill: ring, TargetID: tgt.ID, Point: tgt.Pos,
 		}, true
 	}
 	return core.Command{Actor: a.ID, Kind: core.CmdMove, Point: tgt.Pos}, true

@@ -36,8 +36,11 @@ func resolve(w *core.World, h *core.Hit) {
 	}
 	tags := h.Tags
 
-	// Stage: hit check. Attacks roll accuracy vs evasion; spells always hit.
-	if tags.Has(stats.TagAttack) && !rollHitCheck(w, att, def, tags) {
+	// Stage: hit check. Attacks roll accuracy vs evasion; spells always
+	// hit, and so do telegraphed zones — their dodge is spatial, and the
+	// skipped roll is replay-relevant (telegraphed hits consume no
+	// accuracy RNG).
+	if tags.Has(stats.TagAttack) && !h.Telegraphed && !rollHitCheck(w, att, def, tags) {
 		h.Evaded = true
 		w.Emit(core.Event{Kind: core.EvMiss, Actor: att.ID, Other: def.ID, Note: h.Skill.ID})
 		return

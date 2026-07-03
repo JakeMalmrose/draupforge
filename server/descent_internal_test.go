@@ -416,6 +416,58 @@ func TestGuardianFloorsSpawnTheColossus(t *testing.T) {
 	}
 }
 
+// TestBossFloorsSpawnTheKing: every bossFloors-th floor builds with a rare
+// Barrow King at the stairs, outranking the guardian schedule (floor 15 is
+// divisible by both; only the king shows).
+func TestBossFloorsSpawnTheKing(t *testing.T) {
+	in, _, _ := descentInstance(t, 3)
+	find := func(s *sim.Sim, def string) *core.Actor {
+		for _, a := range s.W.Actors {
+			if a.Def.ID == def {
+				return a
+			}
+		}
+		return nil
+	}
+	s5, err := in.buildFloor(5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	king := find(s5, bossDef)
+	if king == nil {
+		t.Fatal("floor 5 has no boss")
+	}
+	if king.Rarity != core.RarityRare || len(king.Mods) != 2 {
+		t.Errorf("boss rarity %v with %d mods, want rare with 2", king.Rarity, len(king.Mods))
+	}
+	if king.Level != 7 {
+		t.Errorf("boss level = %d, want floor+2 = 7", king.Level)
+	}
+	if d := space.Dist(king.Pos, farthestWalkable(s5.W.Grid)); d > fm.FromInt(2) {
+		t.Errorf("boss %v from the stairs, want parked on them", d)
+	}
+	s15, err := in.buildFloor(15)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if find(s15, bossDef) == nil {
+		t.Error("floor 15 has no boss")
+	}
+	if find(s15, guardianDef) != nil {
+		t.Error("floor 15 spawned a guardian alongside the boss")
+	}
+	s6, err := in.buildFloor(6)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if find(s6, bossDef) != nil {
+		t.Error("floor 6 spawned a boss; wanted the guardian schedule")
+	}
+	if find(s6, guardianDef) == nil {
+		t.Error("floor 6 has no guardian")
+	}
+}
+
 // TestRunSaveRoundTrip: the run envelope restores a mid-run instance —
 // floor, portal anchor, budget, best — around a bit-identical world;
 // legacy bare-world saves still load as floor 1 of a fresh run.

@@ -158,6 +158,7 @@ function resetWorld(msg) {
   closeCutDialog();
   autoCutShown = false;
   actorMotion.clear();
+  telegraphMax.clear();
   runState = msg.run || null;
   snap = null;
   seenSelf = false;
@@ -421,6 +422,7 @@ function render() {
     drawTerrain();
     drawStairs(now);
     drawPortal(now);
+    drawTelegraphs(s);
     // Fade-out ghosts go under live entities; a ghost whose id reappears
     // (re-entered interest range) yields to the live drawing immediately.
     for (let i = ghosts.length - 1; i >= 0; i--) {
@@ -446,6 +448,7 @@ function render() {
     for (const p of s.to.projectiles.values()) drawProjectile(p, lerpPos(s.from.projectiles, p, s.t));
 
     drawMinimap(s);
+    drawBossBar(s);
 
     // Client VFX run on the same delayed server-timeline clock as span();
     // an effect whose moment hasn't been rendered yet (t < 0) just waits.
@@ -462,6 +465,85 @@ function render() {
     ctx.globalAlpha = 1;
   }
   requestAnimationFrame(render);
+}
+
+// --- telegraphs: the danger zones staged skills (and nova wind-ups) mark
+// on the ground. The server sends center/radius plus a tick countdown; the
+// fill sweeps up as the impact approaches, so "leave the circle" reads at a
+// glance. Wind-ups whose total isn't on the wire (legacy novas) infer it
+// from the largest countdown seen.
+
+const telegraphMax = new Map(); // actor id → inferred countdown total
+
+function drawTelegraphs(s) {
+  for (const a of s.to.actors.values()) {
+    const tg = a.telegraph;
+    if (!tg) {
+      telegraphMax.delete(a.id);
+      continue;
+    }
+    let total = tg.total;
+    if (!total) {
+      total = Math.max(telegraphMax.get(a.id) || 0, tg.left);
+      telegraphMax.set(a.id, total);
+    }
+    // Impact lands at server-timeline (view tick + ticks left); progress
+    // runs 0→1 against the delayed render clock, so the sweep is smooth
+    // between views.
+    const impactSt = (s.to.tick + tg.left) * tickMs;
+    const progress = Math.min(1, Math.max(0, 1 - (impactSt - renderClock) / (total * tickMs)));
+    const p = worldToScreen(tg.x, tg.y);
+    const r = toUnits(tg.radius) * SCALE;
+    const hostile = a.team !== 1;
+    const rim = hostile ? "#d84a3a" : "#6fa8e8";
+    const fill = hostile ? "216,74,58" : "111,168,232";
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(${fill},${0.08 + 0.06 * progress})`;
+    ctx.fill();
+    ctx.lineWidth = 1.5;
+    ctx.strokeStyle = rim + "aa";
+    ctx.stroke();
+    ctx.beginPath(); // the sweep: an inner disc growing to the rim
+    ctx.arc(p.x, p.y, r * progress, 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(${fill},${0.16 + 0.18 * progress})`;
+    ctx.fill();
+  }
+}
+
+// --- boss bar: any actor whose def is a named boss gets the big top-center
+// life bar while it's on screen — the fight should feel like an occasion,
+// so the bar appears when the boss does, not from across the floor.
+
+const BOSS_DEFS = { barrow_king: "The Barrow King" };
+
+function drawBossBar(s) {
+  for (const a of s.to.actors.values()) {
+    const name = BOSS_DEFS[a.def];
+    if (!name || a.life <= 0) continue;
+    const p = worldToScreen(a.pos.x, a.pos.y);
+    const margin = 60;
+    if (p.x < -margin || p.x > canvas.width + margin || p.y < -margin || p.y > canvas.height + margin) continue;
+    const w = Math.min(canvas.width * 0.5, 520), h = 13;
+    const x = (canvas.width - w) / 2, y = 58; // below the run HUD line
+    ctx.fillStyle = "#000000b0";
+    ctx.fillRect(x - 3, y - 3, w + 6, h + 6);
+    const frac = a.max_life > 0 ? Math.max(0, a.life / a.max_life) : 0;
+    const grad = ctx.createLinearGradient(x, y, x, y + h);
+    grad.addColorStop(0, "#c23b2e");
+    grad.addColorStop(1, "#711c13");
+    ctx.fillStyle = grad;
+    ctx.fillRect(x, y, w * frac, h);
+    ctx.strokeStyle = "#c9a86acc";
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(x - 3.5, y - 3.5, w + 7, h + 7);
+    ctx.fillStyle = "#e8dcc0";
+    ctx.font = "14px Georgia";
+    ctx.textAlign = "center";
+    const label = a.mods && a.mods.length ? `${name} — ${a.mods.join(", ")}` : name;
+    ctx.fillText(label, canvas.width / 2, y - 9);
+    break; // one bar is plenty; two kings on screen is a future problem
+  }
 }
 
 // drawTerrain paints the map when the welcome delivered one (floor tiles +
@@ -747,6 +829,28 @@ const MODEL_PAINTERS = {
     }
     eyes(r, ex, ey, "#8a1c1c");
   },
+  barrow_king(r, ex, ey) {
+    bodySphere(r, "#6b5a7e");
+    ctx.strokeStyle = "#00000040"; // burial wrappings
+    ctx.lineWidth = Math.max(r * 0.09, 1);
+    for (let i = -1; i <= 1; i++) {
+      ctx.beginPath();
+      ctx.arc(0, r * 0.15 + i * r * 0.32, r * 0.72, Math.PI * 0.1, Math.PI * 0.9);
+      ctx.stroke();
+    }
+    ctx.fillStyle = "#d8c66a"; // the crown
+    ctx.beginPath();
+    ctx.moveTo(-r * 0.6, -r * 0.55);
+    for (const [px2, py2] of [[-0.6, -1.0], [-0.3, -0.7], [0, -1.15], [0.3, -0.7], [0.6, -1.0], [0.6, -0.55]]) {
+      ctx.lineTo(px2 * r, py2 * r);
+    }
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = "#00000055";
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    eyes(r, ex, ey, "#7fe8d4");
+  },
   training_dummy(r) {
     bodySphere(r, "#b89a5a");
     ctx.strokeStyle = "#6e5432"; // post and crossbar
@@ -873,6 +977,7 @@ const DEF_COLORS = {
   skeleton_mage: "#5a4a8e",
   skeleton_archer: "#6e6a58",
   bone_colossus: "#a89c82",
+  barrow_king: "#6b5a7e",
 };
 
 const AILMENT_RINGS = [
@@ -888,6 +993,8 @@ const PROJ_COLORS = {
   bone_arrow: ["#f2ead8", "#8d8678"],
   arc_bolt: ["#e8e0ff", "#8f6ff0"],
   bone_volley: ["#f2ead8", "#6e5f48"],
+  grave_volley: ["#e8d8f2", "#5a4468"],
+  grave_storm: ["#f2e0c8", "#7e3a2e"],
 };
 
 function drawProjectile(p, pos) {
@@ -1211,6 +1318,9 @@ const IMPACT_VFX = {
   arc: { core: "#ffffff", glow: "#8f6ff0", r: 0.8 },
   bone_volley: { core: "#f2ead8", glow: "#6e5f48", r: 0.9 },
   colossus_slam: { core: "#ffe8d0", glow: "#a89c82", r: 1.2 },
+  barrow_slam: { core: "#f2e0ff", glow: "#6b5a7e", r: 1.3 },
+  grave_volley: { core: "#e8d8f2", glow: "#5a4468", r: 0.8 },
+  grave_storm: { core: "#f2e0c8", glow: "#7e3a2e", r: 0.8 },
 };
 
 // Skills whose projectile impacts detonate: radius mirrors the server's

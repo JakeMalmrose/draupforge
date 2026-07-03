@@ -11,9 +11,9 @@ tests, and session-log entries older than a few sessions (git history is the
 archive). If this file outgrows ~150 lines, it has stopped being a status doc
 and started being a changelog — cut it back.
 
-**Last updated: 2026-07-02** (session 42: pick-3 UI — fresh exiles pick
-their first skill from an uncut draft, centered draft-card dialog, gem
-icons, vector actor models)
+**Last updated: 2026-07-03** (session 45: staged skills + the Barrow King —
+the telegraphed multi-stage boss every 5th floor, ground telegraphs on the
+wire)
 
 ## Where things stand
 
@@ -71,6 +71,7 @@ All foundational machinery from DESIGN.md is real, not stubbed:
 | Statuses: ignite/chill/shock ailments + content buffs (refresh-not-stack, pending-buff queue) | `sim/combat` | done, tested |
 | Persistence: `World.Save`/`LoadWorld` (versioned JSON, bit-exact), admin `POST /api/save`, descent run envelope (v2) — `-load` refused in lobby mode (see shortcuts) | `sim/core/save.go`, `server/runsave.go` | done, tested; `-load` regressed |
 | Actions (windup/recovery) + projectiles; skill feel: splash w/ falloff, wall bounce, heading wiggle, hitscan chains | `sim/skills` | done, tested |
+| Staged skills (DESIGN §15): stage sequences w/ per-stage locked aims, blast/ring effects, telegraphs on the wire (v19); telegraphed blasts skip evasion; the Barrow King (boss_king AI, floors %5, rare, stateless enrage <50%) + boss bar + ground-telegraph rendering | `sim/skills`, `sim/ai`, `content/`, `server/descent.go`, `web/` | done, tested, verified live |
 | Loot: rarity weights, weighted affixes, group caps, per-slot pools (depth asserted at DB()), rolled implicits | `sim/items` | done, tested |
 | Currency: orb wallet (transmute/alch/chaos/jeweller) banked straight to the killer; `apply_orb` crafts bag items | `sim/items`, `web/` | done, tested |
 | Gems: cast only from cut gems; a fresh character spawns with `StartingUncut` draft-of-3 gems instead of a fixed starter; uncut drops carry a draft of 3 at the dier's level (cap 20); supports fold into the socketed skill's queries only (more/less, added flat, speed, mana, fans, chain, conversion); cast contexts bake at use; save v9 | `sim/core/gems.go`, `sim/items/gems.go`, `content/supports.go`, `web/` | done, tested, verified live |
@@ -90,7 +91,7 @@ All foundational machinery from DESIGN.md is real, not stubbed:
 | AI: behavior registry (`melee_chaser`, `ranged_kiter`, `boss_brute`); territorial aggro: LoS/hearing, leash to `Actor.Home`, return-home | `sim/ai` | real, tested |
 | Phase order + command validation | `sim/sim.go` | done — this IS the determinism contract |
 | Wire types: versioned welcome (v18), JSON snapshots, binary delta codec | `protocol/` | done, tested |
-| Content tables | `content/` | 11 skills (6 cuttable), 10 supports, 7 actors, 32 affixes, 9 bases, 6 drop tables, 4 monster mods, 4 buffs |
+| Content tables | `content/` | 14 skills (6 cuttable, 3 staged), 10 supports, 8 actors, 32 affixes, 9 bases, 7 drop tables, 4 monster mods, 4 buffs |
 | Debug client + determinism/golden replay tests | `cmd/headless`, `sim/sim_test.go` | done |
 
 ## Invariants the code currently honors (don't break casually)
@@ -199,15 +200,30 @@ load-bearing (top entry: the action model is one-thing-at-a-time).
 ## Feature plan
 
 The descent shipped (session 15); the character store + sessions shipped
-(37–38 — DESIGN §14 is fully real). The queue: a boss with telegraphed
-multi-stage attacks at floor milestones (forces deliberate action-model
-growth, RISKS.md #1 — design the state machine first); run saves under the
-lobby (un-regress `-load`); then server hardening (replay log, per-client
-send queues, rate limiting) — strangers *can* connect now. ROADMAP phase 4's
-remainder (town hub, stash, uniques) is the fun-first counterweight.
+(37–38 — DESIGN §14 is fully real); the telegraphed multi-stage boss shipped
+(45 — staged skills, DESIGN §15). The queue: run saves under the lobby
+(un-regress `-load`); server hardening (replay log, per-client send queues,
+rate limiting) — strangers *can* connect now. ROADMAP phase 4's remainder
+(town hub, stash, uniques) is the fun-first counterweight.
 
 ## Session log
 
+- **2026-07-03 (45)** — Staged skills + the Barrow King. The action model
+  grew on purpose (RISKS #1 → DESIGN §15): `SkillStaged` skills run a
+  scripted stage sequence — countdown, effect (blast/ring/none), aim
+  locked at stage start (target-tracked/self/point), durations bound at
+  use time, recovery just a trailing stage. Telegraphs are wire data now
+  (`TelegraphSnap` center/radius/countdown, v19; legacy nova wind-ups emit
+  them too), telegraphed blasts skip the evasion roll (the dodge is
+  spatial — pinned by test), save v10 carries staged actions, hash covers
+  them conditionally (legacy streams — and goldens — untouched). Content:
+  the Barrow King guards every 5th floor's stairs (outranks the colossus
+  schedule, rare, level floor+2, jackpot loot table): tracked triple slam
+  with a 1.5× finisher, ring volleys, gap-bisecting double storm below
+  half life (stateless `boss_king` decider reads life/distance). Client:
+  ground telegraphs (fill sweeps to impact), on-screen-gated boss bar,
+  crown model, `-startfloor` dev flag. Verified live on floor 5: two king
+  fights, dodge/track/ring all observed, zero console errors.
 - **2026-07-02 (44)** — Dashboard-under-prefix regression + CI. The
   instance dashboard's JS fetched absolute `/api/...` paths — mounted
   at `/i/{id}/` under the lobby they escaped the StripPrefix and 404'd

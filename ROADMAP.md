@@ -9,8 +9,8 @@ The foundations are done — and so, now, are most of the phases below: the
 descent (stakes), gems/passives/per-slot affixes (build identity), currency,
 rarity packs, juice, and a public multiplayer server your friends can join.
 The phases keep their original text as the record of *why* each thing was
-built; ✅ marks what shipped. What's genuinely left: the real telegraphed
-multi-stage boss, and phase 4's town hub + stash + uniques.
+built; ✅ marks what shipped. What's genuinely left: phase 4's town hub +
+stash + uniques.
 
 ## North star: the loop has to pull
 
@@ -46,12 +46,14 @@ If only one thing ships this year, it's this.
 
 *Makes the loop satisfying second-to-second and gives the descent a payoff.*
 
-- **A telegraphed boss** at floor milestones — a multi-stage, wind-up attack you
-  dodge by reading it. This is the destination of a descent and the first fight
-  that's *about* the player playing well. (It also forces the action model to
-  grow on purpose — RISKS.md #1 — so design that state machine first.)
-  *Partial: the Bone Colossus floor guardian shipped on the one-action model;
-  the real multi-stage boss is the top of STATUS.md's queue.*
+- ✅ **A telegraphed boss** at floor milestones — a multi-stage, wind-up attack
+  you dodge by reading it. This is the destination of a descent and the first
+  fight that's *about* the player playing well. (It also forces the action
+  model to grow on purpose — RISKS.md #1 — so design that state machine
+  first.) *Shipped (session 45): the Barrow King every 5th floor — tracked
+  triple slam, ring volleys, gap-bisecting storm below half life — on the
+  staged-skill machinery of DESIGN §15, with exact ground telegraphs on the
+  wire.*
 - ✅ **Pack variety and density.** Five archetypes (zombie, archer, ghoul,
   skeleton mage, colossus) plus magic/rare monster mods with scaled payouts.
 - ✅ **Juice** — damage numbers, hit flashes, death pops, drop beams, audio

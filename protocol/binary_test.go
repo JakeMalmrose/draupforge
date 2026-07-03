@@ -41,6 +41,7 @@ func sampleView() Snapshot {
 				Pos: Vec{X: 9000, Y: 9000}, Radius: 500,
 				Life: 30000, MaxLife: 30000, Action: "move",
 				Rarity: "rare", Mods: []string{"Fleet", "Brawny"},
+				Telegraph: &TelegraphSnap{X: 8500, Y: 9200, Radius: 2200, Left: 12, Total: 24},
 			},
 		},
 		Projectiles: []ProjectileSnap{
@@ -99,6 +100,7 @@ func TestDeltaRoundTrip(t *testing.T) {
 	view.Actors = append(view.Actors, ActorSnap{
 		ID: 5, Def: "zombie", Team: 2, Pos: Vec{X: 7000, Y: 0}, Radius: 500,
 		Life: 30000, MaxLife: 30000, Action: "idle",
+		Telegraph: &TelegraphSnap{X: 7000, Y: 0, Radius: 3500, Left: 30},
 	})
 	view.Projectiles[0].Pos = Vec{X: 5000, Y: 5000}
 	view.Drops = []DropSnap{{ID: 6, Pos: Vec{X: 7000, Y: 0},

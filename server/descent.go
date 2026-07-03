@@ -41,10 +41,14 @@ var (
 // clamped so a level's progress never goes negative (no de-leveling).
 const deathXPPenaltyDiv = 5
 
-// The stairs guardian: which def, and how often (every Nth floor).
+// The stairs guardian: which def, and how often (every Nth floor). Boss
+// floors outrank guardian floors — every bossFloors-th floor stakes the
+// Barrow King on the stairs instead.
 const (
 	guardianDef    = "bone_colossus"
 	guardianFloors = 3
+	bossDef        = "barrow_king"
+	bossFloors     = 5
 )
 
 // deriveSeed mixes a salt into a base seed (splitmix finalizer), so run
@@ -91,10 +95,15 @@ func (in *Instance) buildFloor(floor int) (*sim.Sim, error) {
 			return nil, fmt.Errorf("server: floor %d scatter: %w", floor, err)
 		}
 	}
-	// Every guardianFloors-th floor, a rare Bone Colossus guards the
-	// stairs — the descent's first set-piece fight. It spawns two levels
-	// hot and leashes tight: fight it, or sneak the stairs at your peril.
-	if floor > 0 && floor%guardianFloors == 0 {
+	// Set-piece fights at the stairs: every bossFloors-th floor the Barrow
+	// King (the telegraphed multi-stage boss), otherwise every
+	// guardianFloors-th floor a rare Bone Colossus. Both spawn two levels
+	// hot and leash tight: fight, or sneak the stairs at your peril.
+	if floor > 0 && floor%bossFloors == 0 {
+		if _, err := s.SpawnRareLeveled(bossDef, farthestWalkable(s.W.Grid), floor+2); err != nil {
+			return nil, fmt.Errorf("server: floor %d boss: %w", floor, err)
+		}
+	} else if floor > 0 && floor%guardianFloors == 0 {
 		if _, err := s.SpawnRareLeveled(guardianDef, farthestWalkable(s.W.Grid), floor+2); err != nil {
 			return nil, fmt.Errorf("server: floor %d guardian: %w", floor, err)
 		}

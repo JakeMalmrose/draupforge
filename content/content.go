@@ -21,6 +21,36 @@ func DB() *core.ContentDB {
 	}
 	for _, sk := range skillDefs() {
 		db.Skills[sk.ID] = sk
+		// Staged skills carry their whole timeline in Stages; the legacy
+		// windup/recovery fields (and player cutting) must stay off them.
+		// Mis-authored stage params would fire silently-wrong effects, so
+		// they're content bugs caught here.
+		if (sk.Kind == core.SkillStaged) != (len(sk.Stages) > 0) {
+			panic("content: skill " + sk.ID + ": Stages and SkillStaged must come together")
+		}
+		if sk.Kind != core.SkillStaged {
+			continue
+		}
+		if sk.WindupTicks != 0 || sk.RecoveryTicks != 0 || sk.Cuttable {
+			panic("content: staged skill " + sk.ID + " sets windup/recovery/cuttable")
+		}
+		total := uint32(0)
+		for _, st := range sk.Stages {
+			total += st.Ticks
+			switch st.Effect {
+			case core.StageBlast:
+				if st.Radius <= 0 {
+					panic("content: staged skill " + sk.ID + " has a radius-less blast")
+				}
+			case core.StageRing:
+				if sk.ProjSpeed <= 0 || sk.ProjTTL == 0 || st.RingStep < 1 || st.RingStep > 3 {
+					panic("content: staged skill " + sk.ID + " has a malformed ring stage")
+				}
+			}
+		}
+		if total == 0 {
+			panic("content: staged skill " + sk.ID + " has a zero-tick timeline")
+		}
 	}
 	for _, a := range actorDefs() {
 		db.Actors[a.ID] = a
@@ -441,7 +471,70 @@ func skillDefs() []*core.SkillDef {
 		SelfBuff:      "adrenaline",
 	}
 
-	return []*core.SkillDef{fireball, slam, frostNova, spark, boneArrow, adrenaline, claws, arcBolt, arc, colossusSlam, boneVolley}
+	// --- The Barrow King's staged arsenal. Every attack is a readable
+	// telegraph sequence: the fight is about moving on cue, not stats.
+
+	// Triple slam: two tracked hits then a bigger, harder finisher. Each
+	// zone locks where you STAND when its telegraph appears — keep moving.
+	barrowSlam := &core.SkillDef{
+		ID:            "barrow_slam",
+		Name:          "Barrow Slam",
+		Kind:          core.SkillStaged,
+		Tags:          stats.T(stats.TagAttack, stats.TagMelee, stats.TagPhysical),
+		Effectiveness: fm.One,
+		SpeedStat:     stats.AttackSpeed,
+		Range:         fm.FromInt(6), // AI engages inside this
+		Stages: []core.SkillStage{
+			{Ticks: 24, Effect: core.StageBlast, Aim: core.StageAimTarget, Radius: fm.FromMilli(2200)},
+			{Ticks: 15, Effect: core.StageBlast, Aim: core.StageAimTarget, Radius: fm.FromMilli(2200)},
+			{Ticks: 21, Effect: core.StageBlast, Aim: core.StageAimTarget, Radius: fm.FromMilli(3200), DamageScale: fm.FromMilli(1500)},
+			{Ticks: 27}, // recovery: the punish window
+		},
+	}
+	barrowSlam.BaseMin[core.Physical] = fm.FromInt(16)
+	barrowSlam.BaseMax[core.Physical] = fm.FromInt(24)
+
+	// Ring volley: one circle of slow bones, gaps to slip through.
+	graveVolley := &core.SkillDef{
+		ID:            "grave_volley",
+		Name:          "Grave Volley",
+		Kind:          core.SkillStaged,
+		Tags:          stats.T(stats.TagAttack, stats.TagProjectile, stats.TagPhysical),
+		Effectiveness: fm.One,
+		SpeedStat:     stats.AttackSpeed,
+		ProjSpeed:     fm.FromInt(11),
+		ProjTTL:       48, // 1.6s ≈ 18u — crosses the arena, dodged not outrun
+		ProjRadius:    fm.FromMilli(500),
+		Stages: []core.SkillStage{
+			{Ticks: 27, Effect: core.StageRing, Aim: core.StageAimTarget, RingStep: 3, Radius: fm.FromMilli(2500)},
+			{Ticks: 21}, // recovery
+		},
+	}
+	graveVolley.BaseMin[core.Physical] = fm.FromInt(10)
+	graveVolley.BaseMax[core.Physical] = fm.FromInt(16)
+
+	// Enraged volley: two rings, the second skewed to bisect the first's
+	// gaps — standing still eats the second ring.
+	graveStorm := &core.SkillDef{
+		ID:            "grave_storm",
+		Name:          "Grave Storm",
+		Kind:          core.SkillStaged,
+		Tags:          stats.T(stats.TagAttack, stats.TagProjectile, stats.TagPhysical),
+		Effectiveness: fm.One,
+		SpeedStat:     stats.AttackSpeed,
+		ProjSpeed:     fm.FromInt(11),
+		ProjTTL:       48,
+		ProjRadius:    fm.FromMilli(500),
+		Stages: []core.SkillStage{
+			{Ticks: 24, Effect: core.StageRing, Aim: core.StageAimTarget, RingStep: 3, Radius: fm.FromMilli(2500)},
+			{Ticks: 12, Effect: core.StageRing, Aim: core.StageAimTarget, RingStep: 3, RingSkew: 1, Radius: fm.FromMilli(2500)},
+			{Ticks: 27}, // recovery
+		},
+	}
+	graveStorm.BaseMin[core.Physical] = fm.FromInt(10)
+	graveStorm.BaseMax[core.Physical] = fm.FromInt(16)
+
+	return []*core.SkillDef{fireball, slam, frostNova, spark, boneArrow, adrenaline, claws, arcBolt, arc, colossusSlam, boneVolley, barrowSlam, graveVolley, graveStorm}
 }
 
 func baseStats(pairs map[stats.StatID]fm.Fixed) [stats.StatCount]fm.Fixed {
@@ -635,7 +728,37 @@ func actorDefs() []*core.ActorDef {
 		},
 	}
 
-	return []*core.ActorDef{player, zombie, archer, dummy, ghoul, mage, colossus}
+	// The floor-milestone boss: every 5th floor, parked on the stairs.
+	// Slower and far tougher than the colossus, and every attack is a
+	// staged telegraph sequence — the first fight that's about the player
+	// playing well. Always spawned rare; below half life it turns to
+	// grave_storm (the AI reads life, no state).
+	barrowKing := &core.ActorDef{
+		ID:     "barrow_king",
+		Name:   "The Barrow King",
+		Team:   core.TeamMonsters,
+		Radius: fm.FromMilli(1300),
+		BaseStats: baseStats(map[stats.StatID]fm.Fixed{
+			stats.Life:       fm.FromInt(550),
+			stats.MoveSpeed:  fm.FromMilli(2400),
+			stats.Accuracy:   fm.FromInt(140),
+			stats.Armour:     fm.FromInt(50),
+			stats.CritChance: fm.FromMilli(50),
+		}),
+		Skills:      []string{"barrow_slam", "grave_volley", "grave_storm"},
+		AI:          "boss_king",
+		AggroRadius: fm.FromInt(20),
+		LeashRadius: fm.FromInt(16), // holds its barrow like the colossus holds stairs
+		LootTable:   "king_drops",
+		Level:       1,
+		XPValue:     900,
+		PerLevel: []core.BuffMod{
+			{Stat: stats.Life, Layer: stats.LayerFlat, Value: fm.FromInt(40)},
+			{Stat: stats.Damage, Layer: stats.LayerIncreased, Value: fm.FromMilli(45)},
+		},
+	}
+
+	return []*core.ActorDef{player, zombie, archer, dummy, ghoul, mage, colossus, barrowKing}
 }
 
 // affixDefs is the global affix pool. Slice order feeds the weighted roll —
@@ -972,6 +1095,22 @@ func lootTableDefs() []*core.LootTableDef {
 			RarityWeights:      [3]uint32{10, 45, 45},
 			SkillGemPermille:   450,
 			SupportGemPermille: 300,
+			Bases: []string{
+				"rusty_sword", "wooden_shield", "leather_cap", "leather_vest",
+				"leather_gloves", "leather_boots", "bone_amulet", "iron_ring",
+				"leather_belt",
+			},
+		},
+		{
+			// The Barrow King's hoard: the run's jackpot. Always drops,
+			// rare-dominant, and near-certain gems — a boss kill should
+			// change your build's trajectory. Rare-monster hooks add two
+			// more attempts on top.
+			ID:                 "king_drops",
+			DropChance:         fm.One,
+			RarityWeights:      [3]uint32{0, 40, 60},
+			SkillGemPermille:   700,
+			SupportGemPermille: 500,
 			Bases: []string{
 				"rusty_sword", "wooden_shield", "leather_cap", "leather_vest",
 				"leather_gloves", "leather_boots", "bone_amulet", "iron_ring",

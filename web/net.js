@@ -9,7 +9,7 @@
 
 "use strict";
 
-const PROTOCOL_VERSION = 18;
+const PROTOCOL_VERSION = 19;
 
 const FRAME_VIEW = 1;
 
@@ -29,6 +29,7 @@ const ACTOR_PASSIVES = 1 << 12; // taken milestone-passive IDs
 const ACTOR_FLASKS = 1 << 13; // charges per flask slot
 const ACTOR_ORBS = 1 << 14; // crafting-currency wallet
 const ACTOR_GEMS = 1 << 15; // cut skill gems (skill bar + gem panel)
+const ACTOR_TELEGRAPH = 1 << 16; // pending-effect danger zone
 
 const PROJ_IDENTITY = 1 << 0; // skill, radius
 const PROJ_POS = 1 << 1;
@@ -184,6 +185,11 @@ function decodeViewFrame(buf, baseFor) {
         g.mana_cost = r.sv();
         a.gems.push(g);
       }
+    }
+    if (mask & ACTOR_TELEGRAPH) {
+      a.telegraph = r.u8() === 1
+        ? { x: r.sv(), y: r.sv(), radius: r.sv(), left: r.uv(), total: r.uv() }
+        : null;
     }
     view.actors.set(id, a);
   }

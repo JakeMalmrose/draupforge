@@ -99,6 +99,10 @@ func stepSkill(w *core.World, a *core.Actor) {
 	if a.Action.TicksLeft > 0 {
 		return
 	}
+	if a.Action.Skill.Kind == core.SkillStaged {
+		stepStaged(w, a)
+		return
+	}
 	switch a.Action.Phase {
 	case core.PhaseWindup:
 		fire(w, a)
@@ -111,6 +115,120 @@ func stepSkill(w *core.World, a *core.Actor) {
 	case core.PhaseRecovery:
 		a.Action = core.Action{}
 	}
+}
+
+// BeginStaged arms a staged skill action: binds every stage duration at use
+// time (chill mid-sequence can't stretch a committed attack, same rule as
+// RecoveryTicks) and locks stage 0's aim. The caller has already validated
+// the cast and paid its cost.
+func BeginStaged(w *core.World, a *core.Actor, sk *core.SkillDef, ctx core.GemCtx, aim space.Vec2, target core.EntityID, speed fm.Fixed) {
+	act := core.Action{
+		Kind: core.ActionSkill, Skill: sk, AimPoint: aim, TargetID: target, Gem: ctx,
+		StageTicks: make([]uint32, len(sk.Stages)),
+	}
+	for i, st := range sk.Stages {
+		act.StageTicks[i] = ScaleTicks(st.Ticks, speed)
+	}
+	act.TicksLeft = act.StageTicks[0]
+	a.Action = act
+	lockStageAim(w, a)
+}
+
+// stepStaged runs a staged action's countdown boundary: fire the finished
+// stage's effect, then start the next stage (or finish the action). The
+// next stage's aim locks now — its telegraph shows where things stand at
+// this instant, and the zone doesn't move until it fires.
+func stepStaged(w *core.World, a *core.Actor) {
+	fireStage(w, a, &a.Action.Skill.Stages[a.Action.Stage])
+	a.Action.Stage++
+	if a.Action.Stage >= len(a.Action.Skill.Stages) {
+		a.Action = core.Action{}
+		return
+	}
+	a.Action.TicksLeft = a.Action.StageTicks[a.Action.Stage]
+	lockStageAim(w, a)
+}
+
+// lockStageAim resolves and pins the current stage's aim point.
+func lockStageAim(w *core.World, a *core.Actor) {
+	st := &a.Action.Skill.Stages[a.Action.Stage]
+	switch st.Aim {
+	case core.StageAimSelf:
+		a.Action.StageAim = a.Pos
+	case core.StageAimPoint:
+		a.Action.StageAim = a.Action.AimPoint
+	default: // StageAimTarget
+		if tgt := w.ActorByID(a.Action.TargetID); tgt != nil && !tgt.Dead {
+			a.Action.StageAim = tgt.Pos
+		} else {
+			a.Action.StageAim = a.Action.AimPoint
+		}
+	}
+}
+
+// ringSteps is a full circle in fan steps (12° each).
+const ringSteps = 30
+
+// fireStage is a staged skill's effect point.
+func fireStage(w *core.World, a *core.Actor, st *core.SkillStage) {
+	sk := a.Action.Skill
+	switch st.Effect {
+	case core.StageBlast:
+		// Full damage everywhere inside the zone — a telegraph is a binary
+		// dodge, not a falloff gradient. Walls don't block it (like novas).
+		for _, tgt := range w.Actors {
+			if tgt.Dead || tgt.Team == a.Team || tgt.Team == core.TeamNone {
+				continue
+			}
+			if space.Dist(a.Action.StageAim, tgt.Pos) > st.Radius+tgt.Def.Radius {
+				continue
+			}
+			w.QueueHit(core.Hit{
+				Attacker:    a.ID,
+				Defender:    tgt.ID,
+				Skill:       sk,
+				Tags:        sk.Tags.With(stats.TagHit),
+				Gem:         a.Action.Gem,
+				AreaScale:   st.DamageScale,
+				Telegraphed: true,
+			})
+		}
+	case core.StageRing:
+		step := st.RingStep
+		if step < 1 || step > len(fanCos)-1 {
+			step = len(fanCos) - 1 // one rotate() hop caps at 36°
+		}
+		dir := a.Action.StageAim.Sub(a.Pos).Normalize()
+		if dir == (space.Vec2{}) {
+			dir = space.V(fm.One, 0)
+		}
+		vel := dir.Scale(fm.Div(sk.ProjSpeed, fm.FromInt(core.TicksPerSecond)))
+		for i := 0; i < st.RingSkew; i++ {
+			vel = rotate(vel, 1)
+		}
+		// Successive single rotations compound milli-rounding, but that is
+		// deterministic and invisible at gameplay scale.
+		for fired := 0; fired < ringSteps; fired += step {
+			w.SpawnProjectileGem(a, sk, a.Pos, vel, a.Action.Gem)
+			vel = rotate(vel, step)
+		}
+	}
+}
+
+// ScaleTicks divides a base tick count by a speed multiplier. Anything an
+// actor does takes at least one tick; zero-length phases stay zero.
+func ScaleTicks(base uint32, speed fm.Fixed) uint32 {
+	if base == 0 {
+		return 0
+	}
+	if speed < fm.FromMilli(100) {
+		speed = fm.FromMilli(100) // floor at 10% speed: no infinite windups
+	}
+	t := fm.Div(fm.FromInt(int64(base)), speed).Int()
+	if t < 1 {
+		t = 1
+	}
+	return uint32(t)
 }
 
 // fire is the effect point: the moment the skill actually happens.

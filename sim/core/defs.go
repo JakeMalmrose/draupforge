@@ -74,7 +74,66 @@ const (
 	// enemy nearest the aim point (within Range of the caster, LoS-gated),
 	// then chains to Chains more nearby enemies. No projectile exists.
 	SkillChain
+	// SkillStaged runs a scripted sequence of stages (SkillDef.Stages)
+	// instead of the windup/effect/recovery arc: each stage is a tick
+	// countdown ending in an effect at an aim point locked when the stage
+	// begins. This is how telegraphed multi-stage boss attacks are authored —
+	// the telegraph shows the locked zone, and you dodge by leaving it
+	// before the countdown ends. Recovery is just a trailing effect-less
+	// stage. The caster is committed for the whole sequence.
+	SkillStaged
 )
+
+// StageEffect is what fires when a stage's countdown ends.
+type StageEffect uint8
+
+const (
+	// StageNone fires nothing — a pause between hits, or the recovery tail.
+	StageNone StageEffect = iota
+	// StageBlast hits every enemy within Radius of the stage's aim point
+	// (measured to their circle edge, walls ignored like novas).
+	StageBlast
+	// StageRing fires the skill's projectiles in a circle around the caster,
+	// one every RingStep fan steps (12° each), the first aimed at the
+	// stage's aim point.
+	StageRing
+)
+
+// StageAimKind is where a stage's aim point locks when the stage begins.
+type StageAimKind uint8
+
+const (
+	// StageAimTarget locks onto the action target's position at stage start
+	// (the attack tracks a moving player between stages); falls back to the
+	// cast's AimPoint when the target is gone.
+	StageAimTarget StageAimKind = iota
+	// StageAimSelf locks onto the caster's position at stage start.
+	StageAimSelf
+	// StageAimPoint keeps the cast's original AimPoint for every stage.
+	StageAimPoint
+)
+
+// SkillStage is one step of a staged skill: wait Ticks (the telegraph
+// window — bound at use time like RecoveryTicks), then fire Effect at the
+// stage's locked aim. A zero-tick stage fires one tick after its
+// predecessor (the countdown is checked once per tick).
+type SkillStage struct {
+	Ticks  uint32
+	Effect StageEffect
+	Aim    StageAimKind
+	// Radius is the blast's hit radius — and the telegraph radius the
+	// client renders. Zero on a ring stage means no ground telegraph.
+	Radius fm.Fixed
+	// DamageScale multiplies the stage's hits (via Hit.AreaScale); zero
+	// means full damage. Lets a finisher stage hit harder than the setup.
+	DamageScale fm.Fixed
+	// RingStep is the fan-step spacing between ring projectiles (1–3, i.e.
+	// 12°–36°); a full circle is 30 fan steps, so step 3 fires 10.
+	RingStep int
+	// RingSkew rotates the whole ring by this many fan steps, so a second
+	// ring's spokes can bisect the first ring's gaps.
+	RingSkew int
+}
 
 type SkillDef struct {
 	ID   string
@@ -128,6 +187,11 @@ type SkillDef struct {
 
 	// SelfBuff names the BuffDef a SkillBuff skill applies to its caster.
 	SelfBuff string
+
+	// Stages is a SkillStaged skill's sequence, in play order. Staged
+	// skills leave WindupTicks/RecoveryTicks zero — every phase, recovery
+	// included, is a stage.
+	Stages []SkillStage
 
 	// Cuttable marks skills an uncut skill gem's draft can offer — the
 	// player-appropriate subset of the table.
