@@ -29,6 +29,7 @@ func TestOrbsTransformBagItems(t *testing.T) {
 	s := sim.New(content.DB(), 81)
 	id := mustSpawn(t, s, "player", 0, 0)
 	a := s.W.ActorByID(id)
+	a.Inventory = nil // this test indexes the bag; drop the starting draft
 	a.Orbs = [core.OrbCount]int32{2, 1, 1}
 
 	sword := bagItem(s, a, "rusty_sword")

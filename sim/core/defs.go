@@ -204,10 +204,15 @@ type ActorDef struct {
 	// recovery: a charges-gated regen burst). Empty = the actor has none.
 	// Slot order is wire/command order.
 	Flasks []string
-	// StartingGems are skill IDs cut as level-1 gems at spawn — how a fresh
-	// character can act at all in a gems-only world. Monsters don't need
-	// them; their Def.Skills work directly.
+	// StartingGems are skill IDs cut as level-1 gems at spawn — how a
+	// scenario-scripted actor can act at all in a gems-only world.
+	// Monsters don't need them; their Def.Skills work directly.
 	StartingGems []string
+	// StartingUncut grants this many level-1 uncut skill gems (draft of
+	// three pre-rolled from the loot stream) into the bag at spawn — a
+	// fresh character picks its own first skill instead of inheriting one.
+	// Granted by sim.Spawn, not at injection: transfers carry the bag.
+	StartingUncut int
 }
 
 type AffixKind uint8

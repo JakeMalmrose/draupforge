@@ -43,6 +43,7 @@ func hitAmount(t *testing.T, seed uint64, mutate func(*core.Actor, *core.Content
 	t.Helper()
 	s := sim.New(content.DB(), seed)
 	player := mustSpawn(t, s, "player", 0, 0)
+	grantGems(t, s, player, "fireball")
 	dummy := mustSpawn(t, s, "training_dummy", 8000, 0)
 	a := s.W.ActorByID(player)
 	if mutate != nil {
@@ -91,6 +92,7 @@ func TestSupportManaAndSpeed(t *testing.T) {
 	cast := func(support string) (manaAfter fm.Fixed, ticksLeft uint32) {
 		s := sim.New(content.DB(), 79)
 		player := mustSpawn(t, s, "player", 0, 0)
+		grantGems(t, s, player, "fireball")
 		a := s.W.ActorByID(player)
 		if support != "" {
 			a.Gems[0].Supports[0] = s.W.Content.Support(support)
@@ -121,6 +123,7 @@ func TestSupportManaAndSpeed(t *testing.T) {
 func TestMultipleProjectilesFan(t *testing.T) {
 	s := sim.New(content.DB(), 80)
 	player := mustSpawn(t, s, "player", 0, 0)
+	grantGems(t, s, player, "fireball")
 	a := s.W.ActorByID(player)
 	a.Gems[0].Supports[0] = s.W.Content.Support("lesser_projectiles")
 
@@ -137,6 +140,46 @@ func TestMultipleProjectilesFan(t *testing.T) {
 	}
 	if len(vels) != 3 {
 		t.Errorf("fan has %d distinct velocities, want 3", len(vels))
+	}
+}
+
+// TestStartingUncutGem: a fresh player knows no skills — it wakes with one
+// uncut skill gem in the bag (level 1, three distinct choices) and picks
+// its own starter. Monsters get nothing.
+func TestStartingUncutGem(t *testing.T) {
+	s := sim.New(content.DB(), 88)
+	player := mustSpawn(t, s, "player", 0, 0)
+	a := s.W.ActorByID(player)
+	if len(a.Gems) != 0 {
+		t.Errorf("fresh player has %d cut gems, want 0", len(a.Gems))
+	}
+	if len(a.Inventory) != 1 {
+		t.Fatalf("fresh player carries %d items, want 1 uncut gem", len(a.Inventory))
+	}
+	g := a.Inventory[0].Gem
+	if g == nil || g.Support || g.Level != 1 {
+		t.Fatalf("starting item = %+v, want a level-1 uncut skill gem", a.Inventory[0])
+	}
+	seen := map[string]bool{}
+	for _, c := range g.Choices {
+		if seen[c] {
+			t.Errorf("draft repeats %q", c)
+		}
+		seen[c] = true
+	}
+	if len(seen) != core.GemDraftSize {
+		t.Errorf("draft has %d distinct choices, want %d", len(seen), core.GemDraftSize)
+	}
+	// Cutting the first choice works end to end and empties the bag.
+	if !items.CutSkill(s.W, a, a.Inventory[0].ID, 0, false, 0) {
+		t.Fatal("cutting the starting draft was rejected")
+	}
+	if len(a.Gems) != 1 || len(a.Inventory) != 0 {
+		t.Errorf("after cut: %d gems, %d items — want 1 gem, empty bag", len(a.Gems), len(a.Inventory))
+	}
+	zombie := mustSpawn(t, s, "zombie", 5000, 0)
+	if z := s.W.ActorByID(zombie); len(z.Inventory) != 0 {
+		t.Errorf("zombie spawned carrying %d items, want none", len(z.Inventory))
 	}
 }
 
@@ -174,6 +217,7 @@ func TestGlaciateConverts(t *testing.T) {
 	chilled := func(support bool) bool {
 		s := sim.New(content.DB(), 82)
 		player := mustSpawn(t, s, "player", 0, 0)
+		grantGems(t, s, player, "fireball")
 		dummy := mustSpawn(t, s, "training_dummy", 8000, 0)
 		a := s.W.ActorByID(player)
 		if support {
@@ -203,9 +247,11 @@ func TestGlaciateConverts(t *testing.T) {
 func TestCutSkillCommand(t *testing.T) {
 	s := sim.New(content.DB(), 83)
 	player := mustSpawn(t, s, "player", 0, 0)
+	grantGems(t, s, player, "fireball")
 	a := s.W.ActorByID(player)
+	a.Inventory = nil // this test counts bag items; drop the starting draft
 
-	// Choice 0 duplicates the starter fireball — rejected outright.
+	// Choice 0 duplicates the cut fireball — rejected outright.
 	dup := giveUncut(s, a, false, 5, "fireball", "spark", "frost_nova")
 	s.Step([]core.Command{{Actor: player, Kind: core.CmdCutSkill, TargetID: dup, Choice: 0}})
 	if len(a.Gems) != 1 {
@@ -237,7 +283,9 @@ func TestCutSkillCommand(t *testing.T) {
 func TestLevelGemCommand(t *testing.T) {
 	s := sim.New(content.DB(), 84)
 	player := mustSpawn(t, s, "player", 0, 0)
+	grantGems(t, s, player, "fireball")
 	a := s.W.ActorByID(player)
+	a.Inventory = nil // this test counts bag items; drop the starting draft
 
 	up := giveUncut(s, a, false, 9, "spark", "frost_nova", "arc_bolt")
 	s.Step([]core.Command{{Actor: player, Kind: core.CmdLevelGem, TargetID: up, GemIndex: 0}})
@@ -259,6 +307,7 @@ func TestLevelGemCommand(t *testing.T) {
 func TestCutSupportCommand(t *testing.T) {
 	s := sim.New(content.DB(), 85)
 	player := mustSpawn(t, s, "player", 0, 0)
+	grantGems(t, s, player, "fireball")
 	a := s.W.ActorByID(player)
 	grantGems(t, s, player, "frost_nova") // gem 1: no projectile tag
 
@@ -286,6 +335,7 @@ func TestCutSupportCommand(t *testing.T) {
 func TestAddSocketCommand(t *testing.T) {
 	s := sim.New(content.DB(), 86)
 	player := mustSpawn(t, s, "player", 0, 0)
+	grantGems(t, s, player, "fireball")
 	a := s.W.ActorByID(player)
 
 	s.Step([]core.Command{{Actor: player, Kind: core.CmdAddSocket, GemIndex: 0}})
@@ -340,6 +390,7 @@ func TestUncutDraftDistinct(t *testing.T) {
 func TestGemSaveRoundTrip(t *testing.T) {
 	s := sim.New(content.DB(), 88)
 	player := mustSpawn(t, s, "player", 0, 0)
+	grantGems(t, s, player, "fireball")
 	mustSpawn(t, s, "training_dummy", 12000, 0)
 	a := s.W.ActorByID(player)
 	a.Gems[0].Level = 6
@@ -376,13 +427,14 @@ func TestGemSaveRoundTrip(t *testing.T) {
 }
 
 // TestCharacterCarriesGems: extract/inject moves cut gems (level, sockets,
-// supports) and uncut bag items; a gem-less legacy character is re-granted
-// its def's starters.
+// supports) and uncut bag items; injection never grants anything a
+// character didn't carry — a gem-less character arrives gem-less.
 func TestCharacterCarriesGems(t *testing.T) {
 	s := sim.New(content.DB(), 89)
 	player := mustSpawn(t, s, "player", 0, 0)
+	grantGems(t, s, player, "fireball", "spark")
 	a := s.W.ActorByID(player)
-	grantGems(t, s, player, "spark")
+	a.Inventory = nil // this test counts bag items; drop the starting draft
 	a.Gems[1].Level = 8
 	a.Gems[1].Supports[0] = s.W.Content.Support("brute_force")
 	giveUncut(s, a, true, 0, "chain", "glaciate", "faster_casting")
@@ -403,14 +455,15 @@ func TestCharacterCarriesGems(t *testing.T) {
 		t.Fatal("uncut gem item didn't transfer")
 	}
 
-	// Legacy character: no gems recorded → starters granted at injection.
+	// A character with nothing recorded arrives with nothing: injection is
+	// a transfer, never a grant (StartingUncut fires only in sim.Spawn).
 	legacy := core.Character{Def: "player", Level: 3}
 	s3 := sim.New(content.DB(), 91)
 	c, err := core.InjectCharacter(s3.W, legacy, space.V(0, 0))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(c.Gems) != 1 || c.Gems[0].Skill.ID != "fireball" {
-		t.Fatalf("legacy character got gems %+v, want starter fireball", c.Gems)
+	if len(c.Gems) != 0 || len(c.Inventory) != 0 {
+		t.Fatalf("bare character got %d gems, %d items — injection must not grant", len(c.Gems), len(c.Inventory))
 	}
 }

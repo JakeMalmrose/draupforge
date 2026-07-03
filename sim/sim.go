@@ -49,7 +49,15 @@ func (s *Sim) Spawn(defID string, pos space.Vec2) (core.EntityID, error) {
 		}
 		pos = p
 	}
-	return s.W.SpawnActor(def, pos).ID, nil
+	a := s.W.SpawnActor(def, pos)
+	// A fresh character picks its first skill: StartingUncut rolls uncut
+	// gems (three loot-stream draws each) straight into the bag. Lives
+	// here rather than in SpawnActor — injection must never re-grant (the
+	// bag transfers), and only root sim reaches into items.
+	for i := 0; i < def.StartingUncut; i++ {
+		a.Inventory = append(a.Inventory, items.RollUncutGem(s.W, false, 1))
+	}
+	return a.ID, nil
 }
 
 // GrantGem cuts a skill gem directly onto an actor (level clamped to
