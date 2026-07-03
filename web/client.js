@@ -151,6 +151,8 @@ function resetWorld(msg) {
   applyRoster(msg.roster);
   gen = msg.gen || 0;
   worldMap = msg.map || null;
+  fog = worldMap ? new Uint8Array(worldMap.w * worldMap.h) : null;
+  fogDirty = true;
   buildMinimapBase();
   stairs = msg.stairs || null;
   passiveTable = msg.passives || [];
@@ -232,6 +234,7 @@ function onView(view) {
   const self = me();
   if (self) {
     seenSelf = true;
+    revealAround(self.pos);
     updateHUD(self);
     updatePassiveChooser(self);
   } else if (seenSelf) {
@@ -441,15 +444,21 @@ function render() {
       else drawDrop(g.e);
     }
     for (const d of s.to.drops.values()) {
+      if (!tileSeen(d.pos.x, d.pos.y)) continue; // discovered loot stays marked
       ctx.globalAlpha = alphaFor(d.id, now);
       drawDrop(d);
     }
     for (const a of s.to.actors.values()) {
+      // Friendlies always render; the enemy only inside the light.
+      if (a.team !== 1 && !litNow(a.pos.x, a.pos.y)) continue;
       ctx.globalAlpha = alphaFor(a.id, now);
       drawActor(a, lerpPos(s.from.actors, a, s.t));
     }
     ctx.globalAlpha = 1;
-    for (const p of s.to.projectiles.values()) drawProjectile(p, lerpPos(s.from.projectiles, p, s.t));
+    for (const p of s.to.projectiles.values()) {
+      if (!litNow(p.pos.x, p.pos.y)) continue;
+      drawProjectile(p, lerpPos(s.from.projectiles, p, s.t));
+    }
 
     drawMinimap(s);
     drawBossBar(s);
@@ -486,6 +495,7 @@ function drawTelegraphs(s) {
       telegraphMax.delete(a.id);
       continue;
     }
+    if (!litNow(tg.x, tg.y)) continue; // no spoilers from the dark
     let total = tg.total;
     if (!total) {
       total = Math.max(telegraphMax.get(a.id) || 0, tg.left);
@@ -524,7 +534,7 @@ const BOSS_DEFS = { barrow_king: "The Barrow King" };
 function drawBossBar(s) {
   for (const a of s.to.actors.values()) {
     const name = BOSS_DEFS[a.def];
-    if (!name || a.life <= 0) continue;
+    if (!name || a.life <= 0 || !litNow(a.pos.x, a.pos.y)) continue;
     const p = worldToScreen(a.pos.x, a.pos.y);
     const margin = 60;
     if (p.x < -margin || p.x > canvas.width + margin || p.y < -margin || p.y > canvas.height + margin) continue;
@@ -550,6 +560,51 @@ function drawBossBar(s) {
   }
 }
 
+// --- fog of war: purely client-side reveal tracking. Tiles start unseen
+// (void), reveal permanently as you walk (dimmed once you move on), and
+// only the currently-lit circle shows monsters — exploration is a verb
+// again. Resets with every world (welcome), like all presentation state.
+
+let fog = null; // Uint8Array(w*h), 1 = seen; null = no map (open plane)
+let fogDirty = false; // minimap base needs a repaint
+const FOG_RADIUS = 9; // units lit around you
+
+function revealAround(posMilli) {
+  if (!fog || !worldMap) return;
+  const t = worldMap.tile; // milli per tile
+  const cx = posMilli.x / t, cy = posMilli.y / t;
+  const r = (FOG_RADIUS * 1000) / t;
+  const x0 = Math.max(0, Math.floor(cx - r)), x1 = Math.min(worldMap.w - 1, Math.ceil(cx + r));
+  const y0 = Math.max(0, Math.floor(cy - r)), y1 = Math.min(worldMap.h - 1, Math.ceil(cy + r));
+  for (let y = y0; y <= y1; y++) {
+    for (let x = x0; x <= x1; x++) {
+      const dx = x + 0.5 - cx, dy = y + 0.5 - cy;
+      const i = y * worldMap.w + x;
+      if (dx * dx + dy * dy <= r * r && !fog[i]) {
+        fog[i] = 1;
+        fogDirty = true;
+      }
+    }
+  }
+}
+
+// tileSeen: has this world position (milli) ever been revealed?
+function tileSeen(mx, my) {
+  if (!fog || !worldMap) return true;
+  const t = worldMap.tile;
+  const x = Math.floor(mx / t), y = Math.floor(my / t);
+  if (x < 0 || y < 0 || x >= worldMap.w || y >= worldMap.h) return false;
+  return fog[y * worldMap.w + x] === 1;
+}
+
+// litNow: is this world position (milli) inside the current light? The
+// camera rides the player, so cam IS the player's position in units.
+function litNow(mx, my) {
+  if (!fog) return true;
+  const dx = mx / 1000 - cam.x, dy = my / 1000 - cam.y;
+  return dx * dx + dy * dy <= FOG_RADIUS * FOG_RADIUS;
+}
+
 // drawTerrain paints the map when the welcome delivered one (floor tiles +
 // walls, only the visible range), and falls back to the open-plane
 // reference grid otherwise. Outside the map is void — the background color.
@@ -567,11 +622,19 @@ function drawTerrain() {
   const py = (wy) => (wy - cam.y) * SCALE + canvas.height / 2;
   const ts = t * SCALE;
 
+  // seenAt/lit in tile coords, shared by both passes below.
+  const seenAt = (x, y) => !fog || fog[y * worldMap.w + x] === 1;
+  const litAt = (x, y) => {
+    if (!fog) return true;
+    const dx = (x + 0.5) * t - cam.x, dy = (y + 0.5) * t - cam.y;
+    return dx * dx + dy * dy <= FOG_RADIUS * FOG_RADIUS;
+  };
+
   for (let y = y0; y <= y1; y++) {
     const row = worldMap.rows[y];
     for (let x = x0; x <= x1; x++) {
-      if (row[x] === "#") continue;
-      ctx.fillStyle = "#14141d";
+      if (row[x] === "#" || !seenAt(x, y)) continue;
+      ctx.fillStyle = litAt(x, y) ? "#191924" : "#101017"; // lit floor glows over explored
       ctx.fillRect(px(x * t), py(y * t), ts + 1, ts + 1);
     }
   }
@@ -579,16 +642,17 @@ function drawTerrain() {
   for (let y = y0; y <= y1; y++) {
     const row = worldMap.rows[y];
     for (let x = x0; x <= x1; x++) {
-      if (row[x] !== "#") continue;
+      if (row[x] !== "#" || !seenAt(x, y)) continue;
       // Skip walls buried inside other walls — only faces near floor matter.
       const nearFloor =
         (x > 0 && row[x - 1] === ".") || (x < worldMap.w - 1 && row[x + 1] === ".") ||
         (y > 0 && worldMap.rows[y - 1][x] === ".") ||
         (y < worldMap.h - 1 && worldMap.rows[y + 1][x] === ".");
       if (!nearFloor) continue;
-      ctx.fillStyle = "#2b2b3a";
+      const lit = litAt(x, y);
+      ctx.fillStyle = lit ? "#2b2b3a" : "#1d1d28";
       ctx.fillRect(px(x * t), py(y * t), ts + 1, ts + 1);
-      ctx.fillStyle = "#3a3a4e";
+      ctx.fillStyle = lit ? "#3a3a4e" : "#272734";
       ctx.fillRect(px(x * t), py(y * t), ts + 1, 3);
     }
   }
@@ -611,6 +675,7 @@ function drawTerrain() {
 // within a floor): a shrinking stack of steps sinking into the dark.
 function drawStairs(now) {
   if (!stairs) return;
+  if (!tileSeen(stairs.x, stairs.y)) return; // find them first
   const p = worldToScreen(stairs.x, stairs.y);
   const s = SCALE * 0.45;
   ctx.save();
@@ -638,6 +703,7 @@ function drawStairs(now) {
 function drawPortal(now) {
   const portal = runState && runState.portal;
   if (!portal) return;
+  if (!tileSeen(portal.x, portal.y)) return; // find it first
   const p = worldToScreen(portal.x, portal.y);
   const r = SCALE * 0.55;
   const spin = now / 900;
@@ -1132,10 +1198,15 @@ function buildMinimapBase() {
   for (let y = 0; y < worldMap.h; y++) {
     const row = worldMap.rows[y];
     for (let x = 0; x < worldMap.w; x++) {
-      b.fillStyle = row[x] === "#" ? "#1c1c26" : "#3a3a4e";
+      if (fog && !fog[y * worldMap.w + x]) {
+        b.fillStyle = "#101018"; // unexplored: uniform dark
+      } else {
+        b.fillStyle = row[x] === "#" ? "#1c1c26" : "#3a3a4e";
+      }
       b.fillRect(x * MM_TILE, y * MM_TILE, MM_TILE, MM_TILE);
     }
   }
+  fogDirty = false;
 }
 
 function mmDot(pos, color, r) {
@@ -1148,12 +1219,14 @@ function mmDot(pos, color, r) {
 
 function drawMinimap(s) {
   if (!mmBase || !worldMap) return;
+  if (fogDirty) buildMinimapBase(); // repaint as the fog peels back
   mmCtx.drawImage(mmBase, 0, 0);
-  if (stairs) mmDot(stairs, "#f0d060", 3.5);
+  if (stairs && tileSeen(stairs.x, stairs.y)) mmDot(stairs, "#f0d060", 3.5);
   const portal = runState && runState.portal;
-  if (portal) mmDot(portal, "#7fd4ff", 3);
+  if (portal && tileSeen(portal.x, portal.y)) mmDot(portal, "#7fd4ff", 3);
   for (const a of s.to.actors.values()) {
     if (a.id === myId) continue;
+    if (a.team !== 1 && !litNow(a.pos.x, a.pos.y)) continue; // the dark keeps its secrets
     mmDot(a.pos, a.team === 1 ? "#4a7ad1" : RARITY_COLORS[a.rarity] || "#a33030", 2);
   }
   const self = s.to.actors.get(myId);
