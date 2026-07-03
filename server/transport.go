@@ -9,6 +9,8 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
+	"strings"
 	"time"
 
 	"github.com/coder/websocket"
@@ -86,11 +88,25 @@ func (t *wsTransport) Close() error {
 }
 
 // acceptWS upgrades a request and parses the view mode — shared by the
-// standalone instance and the lobby doors.
-func acceptWS(w http.ResponseWriter, r *http.Request) (*websocket.Conn, mode, bool) {
+// standalone instance and the lobby doors. With no configured patterns
+// only same-origin browsers connect (non-browser clients send no Origin
+// and pass); extra origins (a LAN dev box, say) come in via Config.
+//
+// A reverse proxy that rewrites Host would break the same-origin
+// comparison, so an Origin matching X-Forwarded-Host is allowed too.
+// Browsers cannot attach custom headers to a WebSocket handshake, so a
+// hostile page can't forge that — and non-browser clients never faced the
+// origin check to begin with.
+func acceptWS(w http.ResponseWriter, r *http.Request, origins []string) (*websocket.Conn, mode, bool) {
+	if o := r.Header.Get("Origin"); o != "" {
+		if u, err := url.Parse(o); err == nil {
+			if xfh := r.Header.Get("X-Forwarded-Host"); xfh != "" && strings.EqualFold(u.Host, xfh) {
+				origins = append(origins, u.Host)
+			}
+		}
+	}
 	ws, err := websocket.Accept(w, r, &websocket.AcceptOptions{
-		// Dev server: accept any origin so LAN machines can join.
-		OriginPatterns: []string{"*"},
+		OriginPatterns: origins,
 		// permessage-deflate; context takeover compresses across frames,
 		// which suits view frames' heavy cross-frame redundancy.
 		CompressionMode: websocket.CompressionContextTakeover,
@@ -112,7 +128,7 @@ func acceptWS(w http.ResponseWriter, r *http.Request) (*websocket.Conn, mode, bo
 // cookie (identity.go) resumes that identity's character — unless the
 // identity is already connected, which is refused: one session per name.
 func (in *Instance) HandleWS(w http.ResponseWriter, r *http.Request) {
-	ws, m, ok := acceptWS(w, r)
+	ws, m, ok := acceptWS(w, r, in.cfg.WSOrigins)
 	if !ok {
 		return
 	}

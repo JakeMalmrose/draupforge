@@ -71,6 +71,10 @@ type IdentityStore struct {
 	path      string
 	dirty     bool
 	lastFlush time.Time
+
+	// claims throttles identity minting per source — every claim is a
+	// permanent store entry, so unthrottled it is a disk-filling lever.
+	claims *claimLimiter
 }
 
 // identityFile is the on-disk shape, versioned like every other save.
@@ -88,6 +92,7 @@ func NewIdentityStore(path string) (*IdentityStore, error) {
 		byToken: map[string]*Identity{},
 		byName:  map[string]string{},
 		path:    path,
+		claims:  newClaimLimiter(),
 	}
 	if path == "" {
 		return st, nil
@@ -339,6 +344,13 @@ func (st *IdentityStore) handleClaim(w http.ResponseWriter, r *http.Request) {
 			json.NewEncoder(w).Encode(map[string]string{"name": name})
 			return
 		}
+	}
+	// Throttled after the no-op login path — reloads don't burn budget —
+	// but before the store grows a permanent entry.
+	if !st.claims.allow(sourceKey(r), time.Now()) {
+		w.WriteHeader(http.StatusTooManyRequests)
+		json.NewEncoder(w).Encode(map[string]string{"error": "too many name claims; wait a minute"})
+		return
 	}
 	tok, err := st.Claim(body.Name)
 	if err != nil {
