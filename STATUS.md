@@ -85,7 +85,7 @@ All foundational machinery from DESIGN.md is real, not stubbed:
 | Identity: name claim mints a 32-byte cookie token; the token resumes the character (banked on disconnect + 30s flush); one session per name; guests skip it all | `server/identity.go` | done, tested |
 | Lobby: many instances per process, party = instance, invite/leave transfers via floor-swap machinery, 60s empty reap = reconnect grace | `server/lobby.go`, `cmd/partybot` | done, race-tested, verified live |
 | Hosting + CI/CD: public via Tailscale Funnel (`-addr "" -admin ""`); every push to main builds, swaps (prev kept), restarts, health-checks; `identities.json` never touched | `.github/workflows/deploy.yml` | done, verified e2e |
-| Admin dashboard: observe (tick health, counts, events, hash, run line) + poke (pause, spawn, kick, save) + dev cheats (god/gem/orbs); lobby index at `/i/{id}/` | `server/admin.go` | done, tested; NO AUTH — public deploy disables it |
+| Admin dashboard: observe (tick health, counts, events, hash, run line) + poke (pause, spawn, kick, save) + dev cheats (god/gem/orbs); lobby index at `/i/{id}/` | `server/admin.go` | done, tested; NO AUTH — on the nuc it binds loopback, tailnet-only via `tailscale serve` at http://nuc:9090 (see multiplayer.md) |
 | Web client: canvas render, vector actor models (shaded per-archetype bodies, motion-derived facing), drag-drop inventory, delta decoding + tick-timeline interpolation, VFX/damage numbers/audio stingers, PoE2 HUD + gem bar (shared gem-icon SVGs), centered pick-3 draft dialog (auto-opens for gemless characters), WASD + click, minimap, join screen, party panel | `web/` | working, no build step |
 | AI: behavior registry (`melee_chaser`, `ranged_kiter`, `boss_brute`); territorial aggro: LoS/hearing, leash to `Actor.Home`, return-home | `sim/ai` | real, tested |
 | Phase order + command validation | `sim/sim.go` | done — this IS the determinism contract |
@@ -208,6 +208,16 @@ remainder (town hub, stash, uniques) is the fun-first counterweight.
 
 ## Session log
 
+- **2026-07-02 (43)** — Admin portal on the tailnet. Ops: the nuc's
+  dashboard binds `127.0.0.1:9090` (systemd drop-in) and `tailscale
+  serve --http=9090` proxies it tailnet-only at http://nuc:9090 —
+  serve, never funnel; plain HTTP on purpose (WireGuard already
+  encrypts, and an HTTPS serve cert can't cover the short name — the
+  "secure connection failed" Jake hit). Code: the lobby admin index
+  grew up from a bare `<ul>` — styled landing page, sorted instance
+  table with client/party columns, an empty-state line explaining the
+  60s reap, 5s auto-refresh, gem favicon (+ 204 for /favicon.ico).
+  `TestLobbyAdminIndex` pins it.
 - **2026-07-02 (42)** — Pick-3 UI + first-skill choice (Jake: "the pick-3
   is whelming; start with a pick-3 instead of fireball"). Sim:
   `ActorDef.StartingUncut` — a fresh player spawns holding one level-1

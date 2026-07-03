@@ -29,9 +29,20 @@ branch also claimed v16, so the merged protocol on main is **v18**.
 Tailscale Funnel relays public HTTPS to the nuc through Tailscale's edge —
 ISP said no to port forwarding. Live at **https://nuc.tail4b8d48.ts.net**:
 nuc is Ubuntu 24.04 x86_64, binary + `web/` + `scripts/` in `~/draupforge/`,
-systemd unit `draupforge` running with `-addr "" -admin ""` so only the
-HTTP/WS port exists (the TCP command port and the no-auth admin dashboard
-must never be public), `tailscale funnel --bg 8080` in front.
+systemd unit `draupforge` running with `-addr ""` so the TCP command port
+never exists, `tailscale funnel --bg 8080` in front.
+
+The no-auth admin dashboard is reachable from the tailnet only, at
+**http://nuc:9090** (or the full name) — a systemd drop-in
+(`/etc/systemd/system/draupforge.service.d/admin-tailnet.conf`) binds
+`-admin 127.0.0.1:9090`, and `tailscale serve --bg --http=9090
+http://127.0.0.1:9090` proxies it inside the tailnet. Plain HTTP on
+purpose: the tailnet link is already WireGuard-encrypted, and an HTTPS
+serve would carry a cert only for the full MagicDNS name — short-name
+visits would fail the TLS handshake. Serve ≠ Funnel: `tailscale serve
+status` must always show `:9090 (tailnet only)` — never funnel that
+port, the dashboard has no auth. Both the drop-in and the serve config
+persist across reboots and deploys.
 
 The client picks `ws`/`wss` from the page protocol (hardcoded `ws://` would
 be blocked on HTTPS pages).

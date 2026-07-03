@@ -6,10 +6,47 @@ package server
 
 import (
 	"context"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/JakeMalmrose/draupforge/content"
 )
+
+// TestLobbyAdminIndex: the admin landing page lists live instances with
+// links to their dashboards, and stray favicon fetches get a quiet 204
+// instead of an error.
+func TestLobbyAdminIndex(t *testing.T) {
+	lb, _ := bareLobby(t, 2)
+	ts := httptest.NewServer(lb.adminHandler())
+	defer ts.Close()
+
+	res, err := http.Get(ts.URL + "/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(res.Body)
+	res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("index status = %d, want 200", res.StatusCode)
+	}
+	for _, want := range []string{"draupforge lobby", `href="/i/0/"`, `href="/i/1/"`, "2 instance(s)"} {
+		if !strings.Contains(string(body), want) {
+			t.Errorf("index missing %q", want)
+		}
+	}
+
+	fav, err := http.Get(ts.URL + "/favicon.ico")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fav.Body.Close()
+	if fav.StatusCode != http.StatusNoContent {
+		t.Errorf("favicon status = %d, want 204", fav.StatusCode)
+	}
+}
 
 // bareLobby wires a lobby and n hand-driven instances (no goroutines — the
 // test calls tick itself).
