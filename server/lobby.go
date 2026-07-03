@@ -19,7 +19,9 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -464,24 +466,62 @@ func sameInstance(a, b *client) bool {
 	return ia == ib
 }
 
+// lobbyIndexHead is the admin landing page's static shell: dark styling to
+// match the game, an inline gem favicon (stray /favicon.ico fetches get a
+// 204), and a 5s meta refresh so the instance list tracks reality. Emitted
+// with Fprint only — the CSS percent signs must never meet a format verb.
+const lobbyIndexHead = `<!doctype html><html><head><meta charset="utf-8">
+<title>draupforge lobby</title>
+<meta http-equiv="refresh" content="5">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><polygon points='12,1.5 21,9 12,22.5 3,9' fill='%234ad1c8'/></svg>">
+<style>
+body { background: #0b0b10; color: #cfc9bf; font: 14px/1.5 Georgia, serif; padding: 32px 40px; }
+h1 { color: #4ad1c8; font-weight: normal; letter-spacing: 0.08em; font-size: 20px; margin: 0 0 2px; }
+.sub { color: #8d8678; font-size: 12px; margin: 0 0 18px; }
+.empty { color: #8d8678; font-style: italic; }
+table { border-collapse: collapse; }
+th, td { text-align: left; padding: 6px 18px 6px 0; border-bottom: 1px solid #22222c; font-size: 13px; }
+th { color: #8d8678; font-weight: normal; font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; }
+a { color: #7fd4ff; text-decoration: none; }
+a:hover { text-decoration: underline; }
+</style></head><body><h1>draupforge lobby</h1>
+`
+
 // adminHandler lists instances and mounts each one's admin dashboard under
 // /i/{id}/. Same rule as ever: no auth, never expose it publicly.
 func (lb *Lobby) adminHandler() http.Handler {
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /favicon.ico", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNoContent) // the page carries a data-URI icon
+	})
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
 		lb.mu.Lock()
 		defer lb.mu.Unlock()
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		fmt.Fprint(w, "<!doctype html><title>draupforge lobby</title><h1>instances</h1><ul>")
-		for id, ref := range lb.instances {
-			party := ""
-			if names, ok := ref.in.partyNames.Load().([]string); ok && len(names) > 0 {
-				party = " — " + fmt.Sprint(names)
-			}
-			fmt.Fprintf(w, `<li><a href="/i/%d/">instance %d</a>: %d client(s)%s</li>`,
-				id, id, ref.in.clientN.Load(), party)
+		ids := make([]int, 0, len(lb.instances))
+		for id := range lb.instances {
+			ids = append(ids, id)
 		}
-		fmt.Fprint(w, "</ul>")
+		sort.Ints(ids)
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		fmt.Fprint(w, lobbyIndexHead)
+		fmt.Fprintf(w, `<p class="sub">%d instance(s) · %d named player(s) online · refreshes every 5s</p>`,
+			len(ids), len(lb.online))
+		if len(ids) == 0 {
+			fmt.Fprint(w, `<p class="empty">no live instances — the lobby spins one up per connection, and empties reap after 60 seconds. Join the game and this page will show it.</p>`)
+		} else {
+			fmt.Fprint(w, `<table><tr><th>instance</th><th>clients</th><th>party</th></tr>`)
+			for _, id := range ids {
+				ref := lb.instances[id]
+				party := "—" // name charset is claim-validated; safe to print
+				if names, ok := ref.in.partyNames.Load().([]string); ok && len(names) > 0 {
+					party = strings.Join(names, ", ")
+				}
+				fmt.Fprintf(w, `<tr><td><a href="/i/%d/">instance %d</a></td><td>%d</td><td>%s</td></tr>`,
+					id, id, ref.in.clientN.Load(), party)
+			}
+			fmt.Fprint(w, `</table>`)
+		}
+		fmt.Fprint(w, `</body></html>`)
 	})
 	mux.HandleFunc("/i/{id}/", func(w http.ResponseWriter, r *http.Request) {
 		id, err := strconv.Atoi(r.PathValue("id"))

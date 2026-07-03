@@ -208,6 +208,16 @@ remainder (town hub, stash, uniques) is the fun-first counterweight.
 
 ## Session log
 
+- **2026-07-02 (43)** — Admin portal on the tailnet. Ops: the nuc's
+  dashboard binds `127.0.0.1:9090` (systemd drop-in) and `tailscale
+  serve --http=9090` proxies it tailnet-only at http://nuc:9090 —
+  serve, never funnel; plain HTTP on purpose (WireGuard already
+  encrypts, and an HTTPS serve cert can't cover the short name — the
+  "secure connection failed" Jake hit). Code: the lobby admin index
+  grew up from a bare `<ul>` — styled landing page, sorted instance
+  table with client/party columns, an empty-state line explaining the
+  60s reap, 5s auto-refresh, gem favicon (+ 204 for /favicon.ico).
+  `TestLobbyAdminIndex` pins it.
 - **2026-07-02 (42)** — Pick-3 UI + first-skill choice (Jake: "the pick-3
   is whelming; start with a pick-3 instead of fireball"). Sim:
   `ActorDef.StartingUncut` — a fresh player spawns holding one level-1
