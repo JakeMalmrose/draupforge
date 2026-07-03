@@ -70,6 +70,10 @@ func (w *World) Hash() uint64 {
 		s.i64(a.Pos.Y.Milli())
 		s.i64(a.Home.X.Milli())
 		s.i64(a.Home.Y.Milli())
+		// Conditional like everything new: independents keep their stream.
+		if a.Owner != 0 {
+			s.u64(uint64(a.Owner))
+		}
 		s.i64(a.Life.Milli())
 		s.i64(a.Mana.Milli())
 		s.i64(a.ES.Milli())

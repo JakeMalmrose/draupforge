@@ -29,11 +29,11 @@ after combat, loot, and XP, before compaction — so IDs stay deterministic,
 newcomers take no action and eat no hit on their birth tick, and saves
 refuse a pending queue. On-death adds (the Carrion Husk) prove it.
 
-Still deliberate about what it does NOT cover: spawns that must act the
-tick they appear (trap triggers), player-owned minions (team/ownership/
-command routing are undesigned), and projectile/ground-effect creation
-mid-phase. Each of those is a design decision, not a retrofit — the queue
-gives them a place to land.
+Player-owned minions landed on it (session 52: `Actor.Owner`, kill
+attribution via `CreditFor`, heel AI, cap-despawn). Still deliberate about
+what it does NOT cover: spawns that must act the tick they appear (trap
+triggers) and projectile/ground-effect creation mid-phase. Each is a
+design decision, not a retrofit — the queue gives them a place to land.
 
 ## Smaller, recoverable (listed for honesty)
 

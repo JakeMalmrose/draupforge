@@ -74,6 +74,11 @@ const (
 	// enemy nearest the aim point (within Range of the caster, LoS-gated),
 	// then chains to Chains more nearby enemies. No projectile exists.
 	SkillChain
+	// SkillSummon queues SummonCount minions of SummonDef at the effect
+	// point (spawn queue; they materialize the same tick, act the next),
+	// owned by the caster at the gem's level. Past SummonCap, the oldest
+	// minion of that def despawns quietly — no death, no loot, no XP.
+	SkillSummon
 	// SkillStaged runs a scripted sequence of stages (SkillDef.Stages)
 	// instead of the windup/effect/recovery arc: each stage is a tick
 	// countdown ending in an effect at an aim point locked when the stage
@@ -187,6 +192,12 @@ type SkillDef struct {
 
 	// SelfBuff names the BuffDef a SkillBuff skill applies to its caster.
 	SelfBuff string
+
+	// Summon fields (SkillSummon): which def, how many per cast, and the
+	// per-caster cap for that def.
+	SummonDef   string
+	SummonCount int
+	SummonCap   int
 
 	// Stages is a SkillStaged skill's sequence, in play order. Staged
 	// skills leave WindupTicks/RecoveryTicks zero — every phase, recovery

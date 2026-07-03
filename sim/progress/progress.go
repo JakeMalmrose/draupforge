@@ -34,6 +34,9 @@ func AwardXP(w *core.World) {
 		if dier.Def.XPValue == 0 || killer.Team == dier.Team {
 			continue
 		}
+		// A minion's kills are its summoner's: XP, the ding, and flask
+		// charges all credit the root owner.
+		killer = w.CreditFor(killer)
 		// Leveled monsters pay leveled XP (linear for now) so floor-scaled
 		// packs keep up with the quadratic curve. Level 1 is the identity —
 		// existing scenarios and goldens are unaffected. Rarity multiplies

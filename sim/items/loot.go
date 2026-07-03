@@ -33,8 +33,9 @@ func RollLoot(w *core.World) {
 			continue
 		}
 		// Currency first: one orb draw per kill with a live enemy killer.
+		// Minion kills bank to the summoner (CreditFor), same as XP.
 		if killer := w.ActorByID(ev.Other); killer != nil && !killer.Dead && killer.Team != a.Team {
-			rollOrb(w, killer, a.Rarity)
+			rollOrb(w, w.CreditFor(killer), a.Rarity)
 		}
 		// Uncut gems next: independent skill and support draws (a rare can
 		// pay both), permilles scaled by the dier's rarity like orbs.
