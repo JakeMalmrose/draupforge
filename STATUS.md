@@ -84,7 +84,7 @@ All foundational machinery from DESIGN.md is real, not stubbed:
 | Server: TCP + WS transports, send-rate decoupling, interest culling, binary deltas + acks, pause | `server/` | done, race-tested |
 | Identity: name claim mints a 32-byte cookie token; the token resumes the character (banked on disconnect + 30s flush); one session per name; guests skip it all | `server/identity.go` | done, tested |
 | Lobby: many instances per process, party = instance, invite/leave transfers via floor-swap machinery, 60s empty reap = reconnect grace | `server/lobby.go`, `cmd/partybot` | done, race-tested, verified live |
-| Hosting + CI/CD: public via Tailscale Funnel (`-addr "" -admin ""`); every push to main builds, swaps (prev kept), restarts, health-checks; `identities.json` never touched | `.github/workflows/deploy.yml` | done, verified e2e |
+| Hosting + CI/CD: public via Tailscale Funnel; every push to main builds, swaps (prev kept), restarts, health-checks; `identities.json` never touched. CI gates every PR and main push: `go vet`, race-tested suite, JS syntax | `.github/workflows/deploy.yml`, `ci.yml` | done, verified e2e |
 | Admin dashboard: observe (tick health, counts, events, hash, run line) + poke (pause, spawn, kick, save) + dev cheats (god/gem/orbs); lobby index at `/i/{id}/` | `server/admin.go` | done, tested; NO AUTH — on the nuc it binds loopback, tailnet-only via `tailscale serve` at http://nuc:9090 (see multiplayer.md) |
 | Web client: canvas render, vector actor models (shaded per-archetype bodies, motion-derived facing), drag-drop inventory, delta decoding + tick-timeline interpolation, VFX/damage numbers/audio stingers, PoE2 HUD + gem bar (shared gem-icon SVGs), centered pick-3 draft dialog (auto-opens for gemless characters), WASD + click, minimap, join screen, party panel | `web/` | working, no build step |
 | AI: behavior registry (`melee_chaser`, `ranged_kiter`, `boss_brute`); territorial aggro: LoS/hearing, leash to `Actor.Home`, return-home | `sim/ai` | real, tested |
@@ -208,6 +208,20 @@ remainder (town hub, stash, uniques) is the fun-first counterweight.
 
 ## Session log
 
+- **2026-07-02 (44)** — Dashboard-under-prefix regression + CI. The
+  instance dashboard's JS fetched absolute `/api/...` paths — mounted
+  at `/i/{id}/` under the lobby they escaped the StripPrefix and 404'd
+  at the lobby root (latent since the lobby merge; surfaced when Jake
+  first browsed the nuc's portal). Fix: relative `api/...` paths, which
+  resolve correctly both under the prefix and at a root mount. New
+  integration test walks the browser's path — TCP client spins up
+  instance 0, `/i/0/api/status` answers through the lobby handler, and
+  the page is asserted free of absolute `/api/` references. And the
+  suite finally runs automatically: `.github/workflows/ci.yml` gates
+  every PR and main push (vet, `go test -race ./...`, JS syntax) —
+  deploy.yml was shipping untested builds. Verified live: dashboard
+  under `/i/0/` polls status at 30/30 Hz and the god-mode POST lands,
+  zero console errors.
 - **2026-07-02 (43)** — Admin portal on the tailnet. Ops: the nuc's
   dashboard binds `127.0.0.1:9090` (systemd drop-in) and `tailscale
   serve --http=9090` proxies it tailnet-only at http://nuc:9090 —

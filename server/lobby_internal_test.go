@@ -6,14 +6,89 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/JakeMalmrose/draupforge/content"
 )
+
+// TestLobbyAdminInstanceAPI walks the path a browser takes from the lobby
+// index into a live instance: a client joins (spawning instance 0), the
+// dashboard page serves under /i/0/, and the instance API answers under
+// the same prefix. The page must never reference absolute "/api/" paths —
+// they escape the StripPrefix mount and 404 at the lobby root, which is
+// exactly the regression this test pins.
+func TestLobbyAdminInstanceAPI(t *testing.T) {
+	lb, err := NewLobby(content.DB(), Config{
+		Addr: "127.0.0.1:0", Seed: 5, TickInterval: 2 * time.Millisecond,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	go lb.ListenAndServe(ctx)
+	addr := lb.Addr() // one-shot channel receive — capture it once
+	if addr == nil {
+		t.Fatal("lobby failed to listen")
+	}
+	// A TCP debug connection joins like a guest, spinning up instance 0.
+	conn, err := net.Dial("tcp", addr.String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { conn.Close() })
+
+	admin := httptest.NewServer(lb.adminHandler())
+	t.Cleanup(admin.Close)
+
+	// The instance spins up with the join; poll briefly until it answers.
+	deadline := time.Now().Add(5 * time.Second)
+	var status *http.Response
+	for {
+		res, err := http.Get(admin.URL + "/i/0/api/status")
+		if err == nil && res.StatusCode == http.StatusOK {
+			status = res
+			break
+		}
+		if err == nil {
+			res.Body.Close()
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("/i/0/api/status never answered through the lobby prefix")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	var st struct {
+		TickHzTarget float64 `json:"tick_hz_target"`
+	}
+	if err := json.NewDecoder(status.Body).Decode(&st); err != nil || st.TickHzTarget <= 0 {
+		t.Fatalf("status JSON through the prefix: err %v, tick_hz_target %v", err, st.TickHzTarget)
+	}
+	status.Body.Close()
+
+	page, err := http.Get(admin.URL + "/i/0/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(page.Body)
+	page.Body.Close()
+	if page.StatusCode != http.StatusOK {
+		t.Fatalf("dashboard page = %d, want 200", page.StatusCode)
+	}
+	if strings.Contains(string(body), `"/api/`) {
+		t.Error(`dashboard HTML references absolute "/api/" paths — they escape the /i/{id}/ mount and 404 at the lobby root`)
+	}
+	if !strings.Contains(string(body), `api("api/status`) {
+		t.Error("dashboard HTML lost its relative api/status call — did the JS change shape?")
+	}
+}
 
 // TestLobbyAdminIndex: the admin landing page lists live instances with
 // links to their dashboards, and stray favicon fetches get a quiet 204
