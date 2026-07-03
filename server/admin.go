@@ -135,7 +135,7 @@ func (in *Instance) adminStatusLocked() *adminStatus {
 	}
 	for _, c := range in.clients {
 		st.Clients = append(st.Clients, adminClientInfo{
-			Actor: uint64(c.actor), Mode: c.mode.String(), BytesSent: c.bytesSent,
+			Actor: uint64(c.actor), Mode: c.mode.String(), BytesSent: c.bytesSent.Load(),
 		})
 	}
 	for id := range w.Content.Actors {

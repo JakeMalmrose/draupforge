@@ -116,7 +116,8 @@ func (in *Instance) HandleWS(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	c := &client{tr: &wsTransport{conn: ws}, mode: m, inst: in}
+	c := newClient(&wsTransport{conn: ws}, m)
+	c.inst = in
 	if tok := cookieToken(r); tok != "" && r.URL.Query().Get("guest") == "" {
 		name, char, ok, dup := in.ids.connectWithGrace(tok)
 		switch {
@@ -124,7 +125,10 @@ func (in *Instance) HandleWS(w http.ResponseWriter, r *http.Request) {
 			frame, _ := json.Marshal(protocol.ServerMsg{
 				Type: "error", Error: fmt.Sprintf("%s is already connected", name),
 			})
-			c.send(frame, false)
+			// Written directly, not queued: the writer is being shut down
+			// and must not race the one frame this client exists to see.
+			c.tr.WriteFrame(frame, false)
+			c.stopWriter()
 			c.tr.Close()
 			return
 		case ok:

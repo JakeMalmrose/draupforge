@@ -34,8 +34,14 @@ func startLobby(t *testing.T) string {
 		t.Fatal(err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	t.Cleanup(cancel)
-	go lb.ListenAndServe(ctx)
+	done := make(chan struct{})
+	go func() {
+		lb.ListenAndServe(ctx)
+		close(done)
+	}()
+	// Wait out the shutdown: instance loops flush the identity store into
+	// this test's TempDir, and RemoveAll must not race them.
+	t.Cleanup(func() { cancel(); <-done })
 	if lb.Addr() == nil {
 		t.Fatal("lobby failed to listen")
 	}

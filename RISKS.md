@@ -35,12 +35,11 @@ re-records every golden.
 ## Smaller, recoverable (listed for honesty)
 
 - The public server is unhardened: session identity shipped (session
-  37–38 — named characters survive disconnects; 60s empty-instance reap is
-  the reconnect grace), but the Funnel URL has no rate limiting, the WS
-  accepts any origin, a slow client can stall its instance's tick for up
-  to 1s (no per-client send queues), and `identities.json` is a plaintext
-  blob of auth tokens. Fine at friends-scale; harden before strangers
-  matter.
+  37–38) and per-client send queues shipped (47 — a stalled client dies
+  alone instead of stalling its instance), but the Funnel URL has no rate
+  limiting, the WS accepts any origin, and `identities.json` is a
+  plaintext blob of auth tokens. Fine at friends-scale; harden before
+  strangers matter.
 - Content-as-Go-code: balance changes need recompile+redeploy. Two sharper
   edges found in audit: saves reference content by string ID, so editing a
   def retro-patches every saved world (usually what you want, occasionally

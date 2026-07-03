@@ -35,8 +35,14 @@ func startIdentityServer(t *testing.T) string {
 		t.Fatal(err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	t.Cleanup(cancel)
-	go in.ListenAndServe(ctx)
+	done := make(chan struct{})
+	go func() {
+		in.ListenAndServe(ctx) // returns after the tick loop stops
+		close(done)
+	}()
+	// Wait out the shutdown: the tick loop flushes the identity store into
+	// this test's TempDir, and RemoveAll must not race it.
+	t.Cleanup(func() { cancel(); <-done })
 	if in.Addr() == nil {
 		t.Fatal("server failed to listen")
 	}
