@@ -334,3 +334,41 @@ func TestBlockRNGConsumption(t *testing.T) {
 		t.Fatal("a block chance consumed no extra RNG — the block roll vanished")
 	}
 }
+
+// TestESRechargeAfterDelay: energy shield refills once the delay elapses,
+// a hit resets the delay, and life recharge never touches a no-ES actor.
+func TestESRechargeAfterDelay(t *testing.T) {
+	w := testWorld()
+	a := w.SpawnActor(actorDef(100, map[stats.StatID]fm.Fixed{stats.EnergyShield: fm.FromInt(100)}), space.V(0, 0))
+	a.ES = fm.FromInt(30) // drained
+
+	// Within the delay window (60 ticks), ES does not move.
+	combat.MarkHit(a)
+	for i := 0; i < 60; i++ {
+		combat.Upkeep(w)
+	}
+	if a.ES != fm.FromInt(30) {
+		t.Fatalf("ES = %v during the recharge delay, want it held at 30", a.ES)
+	}
+	// After the delay, it climbs toward max at 20%/s (20 ES/s here).
+	combat.Upkeep(w) // first recharging tick
+	if a.ES <= fm.FromInt(30) {
+		t.Fatalf("ES = %v after the delay, want it recharging", a.ES)
+	}
+	for i := 0; i < 30*core.TicksPerSecond; i++ {
+		combat.Upkeep(w)
+	}
+	if a.ES != a.MaxES() {
+		t.Fatalf("ES = %v after long recharge, want the max %v", a.ES, a.MaxES())
+	}
+
+	// A hit resets the delay: recharge stops again.
+	combat.MarkHit(a)
+	a.ES = fm.FromInt(50)
+	for i := 0; i < 60; i++ {
+		combat.Upkeep(w)
+	}
+	if a.ES != fm.FromInt(50) {
+		t.Fatalf("a hit didn't reset the recharge delay (ES = %v)", a.ES)
+	}
+}

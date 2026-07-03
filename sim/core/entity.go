@@ -146,6 +146,12 @@ type Actor struct {
 	DoTs     []DoT
 	Statuses []Status
 
+	// RechargeDelay is ticks remaining before energy shield starts
+	// recharging; any damage taken resets it. Zone-local combat state like
+	// DoTs — saved and hashed, but never transferred (a fresh zone starts
+	// clear). Zero means "recharging now" (or no ES to recharge).
+	RechargeDelay uint32
+
 	// Equipment by concrete slot; nil = empty. Equipped items grant their
 	// affixes as sheet modifiers sourced by the item's ID.
 	Equipment [EquipSlotCount]*Item

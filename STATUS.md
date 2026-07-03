@@ -11,8 +11,8 @@ tests, and session-log entries older than a few sessions (git history is the
 archive). If this file outgrows ~150 lines, it has stopped being a status doc
 and started being a changelog — cut it back.
 
-**Last updated: 2026-07-03** (session 59: block — shields negate hits, the
-counterplay layer)
+**Last updated: 2026-07-03** (session 60: energy shield recharge — the
+defensive trio is complete)
 
 ## Where things stand
 
@@ -66,7 +66,7 @@ All foundational machinery from DESIGN.md is real, not stubbed:
 | Space: tile grid (clearance-eroded walkability), DDA raycast, deterministic A* + smoothing, rooms-and-corridors mapgen off RNGMap | `sim/space` | done, tested |
 | Stat algebra (flat/inc/more/override + tags) | `sim/stats` | done, tested, memoized |
 | World/Actor/Hit/defs, RNG, state hashing | `sim/core` | done |
-| Damage pipeline (incl. live conversion stage) + DoTs + regen + life leech (PostHit) + block (post-evasion: a defender's Block chance negates the whole hit, 75% cap, conditional RNG draw pinned) | `sim/combat` | done, tested |
+| Damage pipeline (incl. live conversion stage) + DoTs + regen + life leech (PostHit) + block (post-evasion, conditional RNG pinned) + ES recharge (Upkeep: refills 20%/s after 2s untouched; `Actor.RechargeDelay` saved+hashed, reset on any damage) | `sim/combat` | done, tested |
 | Statuses: ignite/chill/shock ailments + content buffs (refresh-not-stack, pending-buff queue) | `sim/combat` | done, tested |
 | Persistence: `World.Save`/`LoadWorld` (versioned JSON, bit-exact), admin `POST /api/save`, descent run envelope (v2); `-load` under the lobby seeds the first instance (validated at boot) | `sim/core/save.go`, `server/runsave.go`, `server/lobby.go` | done, tested, verified e2e |
 | Actions (windup/recovery) + projectiles; skill feel: splash w/ falloff, wall bounce, heading wiggle, hitscan chains | `sim/skills` | done, tested |
@@ -156,9 +156,9 @@ load-bearing (top entry: the action model is one-thing-at-a-time).
 
 ## Known shortcuts (deliberate, fine for now)
 
-- Stun, ES recharge: absent. Life leech (58) and block (59) shipped —
-  block is the shield's identity now (its implicit rolls 15–25% block, an
-  offhand suffix stacks more, 75% cap). Chill doesn't slow an action
+- Stun: absent. The defensive trio shipped — life leech (58), block (59),
+  ES recharge (60: ES refills at 20%/s after 2s untouched, any damage
+  resets the delay). Chill doesn't slow an action
   already in flight (tick counts bind at use time); movement slows now.
 - Corpses compact away at tick end — fine until on-corpse mechanics matter.
 - Inventory is a flat ID-addressed bag, no stacking; bag arrangement is
@@ -214,6 +214,16 @@ dictates, and Jake's balance pass over the numbers.
 
 ## Session log
 
+- **2026-07-03 (60)** — Energy shield recharge — the defensive trio (leech,
+  block, recharge) is complete, and ES gear finally does more than sit
+  there. ES refills in combat Upkeep at 20% of max per second, but only
+  after 2 seconds without taking damage: any hit or DoT tick calls MarkHit
+  and resets the delay. New zone-local actor state `RechargeDelay` (saved,
+  conditionally hashed, never transferred — a fresh zone starts clear).
+  No RNG, but the new hashed field shifted the goldens (re-recorded). ES
+  already flows to the client as a pool, so it renders the climb for free.
+  Pinned: the delay holds ES, then it recharges to max, and a hit resets
+  it; verified in the real Step() loop with an ES chest equipped.
 - **2026-07-03 (59)** — Block: the counterplay layer, and the shield's new
   reason to exist. A `Block` sheet stat — a defender's chance to negate an
   entire hit — rolled in the pipeline right after evasion, before any

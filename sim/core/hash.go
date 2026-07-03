@@ -82,6 +82,11 @@ func (w *World) Hash() uint64 {
 		s.i64(a.Life.Milli())
 		s.i64(a.Mana.Milli())
 		s.i64(a.ES.Milli())
+		// Conditional like everything new: actors that never took damage
+		// keep their pre-recharge hash stream.
+		if a.RechargeDelay != 0 {
+			s.u64(uint64(a.RechargeDelay))
+		}
 		s.u64(uint64(a.Level))
 		s.i64(a.XP)
 		// Rarity hashes only when rolled — normal actors keep the

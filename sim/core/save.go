@@ -135,6 +135,7 @@ type actorSave struct {
 	Action    actionSave   `json:"action"`
 	DoTs      []dotSave    `json:"dots,omitempty"`
 	Statuses  []statusSave `json:"statuses,omitempty"`
+	Recharge  uint32       `json:"recharge,omitempty"` // ES recharge delay ticks
 	Equipment []*itemSave  `json:"equipment"` // EquipSlotCount entries, null = empty
 	Inventory []itemSave   `json:"inventory,omitempty"`
 }
@@ -216,7 +217,7 @@ func encodeActor(a *Actor) actorSave {
 	as := actorSave{
 		ID: uint64(a.ID), Def: a.Def.ID, Team: uint8(a.Team), Pos: a.Pos, Home: a.Home,
 		Owner: uint64(a.Owner),
-		Life:  a.Life, Mana: a.Mana, ES: a.ES,
+		Life:  a.Life, Mana: a.Mana, ES: a.ES, Recharge: a.RechargeDelay,
 		Level: a.Level, XP: a.XP, Rarity: uint8(a.Rarity),
 		Base: make([]fm.Fixed, stats.StatCount),
 		Action: actionSave{
@@ -434,7 +435,7 @@ func decodeActor(db *ContentDB, affixes map[string]*AffixDef, as actorSave) (*Ac
 		ID: EntityID(as.ID), Def: def, Team: Team(as.Team), Pos: as.Pos, Home: as.Home,
 		Owner: EntityID(as.Owner),
 		Sheet: stats.RestoreSheet(base, mods),
-		Life:  as.Life, Mana: as.Mana, ES: as.ES,
+		Life:  as.Life, Mana: as.Mana, ES: as.ES, RechargeDelay: as.Recharge,
 		Level: level, XP: as.XP,
 		Rarity: Rarity(as.Rarity),
 		Action: Action{

@@ -27,6 +27,7 @@ func TickDoTs(w *core.World) {
 			absorbed := fm.Min(a.ES, dmg)
 			a.ES -= absorbed
 			a.Life -= dmg - absorbed
+			MarkHit(a) // a DoT tick delays recharge too
 			if a.Life <= 0 {
 				killerID = d.Source
 			}
@@ -42,17 +43,40 @@ func TickDoTs(w *core.World) {
 	}
 }
 
-// Upkeep applies per-tick regeneration, clamped to pool maxima.
+// Energy-shield recharge (open for tuning): after esRechargeDelay ticks
+// without taking damage, ES refills at esRechargeRate of its maximum per
+// second. Any damage taken (MarkHit) resets the delay — ES is the buffer
+// that rewards not getting hit, unlike life regen which is always on.
+const (
+	esRechargeDelay = 2 * core.TicksPerSecond // 2s untouched before it kicks in
+	esRechargeRate  = fm.Fixed(200)           // 20% of max ES per second
+)
+
+// MarkHit resets an actor's ES recharge delay — call whenever it takes
+// damage (hits and DoTs alike).
+func MarkHit(a *core.Actor) { a.RechargeDelay = esRechargeDelay }
+
+// Upkeep applies per-tick regeneration (life, mana) and energy-shield
+// recharge, all clamped to pool maxima.
 func Upkeep(w *core.World) {
+	perTick := fm.FromInt(core.TicksPerSecond)
 	for _, a := range w.Actors {
 		if a.Dead {
 			continue
 		}
 		if regen := a.Sheet.Eval(stats.ManaRegen, stats.TagSet{}); regen > 0 {
-			a.Mana = fm.Min(a.Mana+fm.Div(regen, fm.FromInt(core.TicksPerSecond)), a.MaxMana())
+			a.Mana = fm.Min(a.Mana+fm.Div(regen, perTick), a.MaxMana())
 		}
 		if regen := a.Sheet.Eval(stats.LifeRegen, stats.TagSet{}); regen > 0 {
-			a.Life = fm.Min(a.Life+fm.Div(regen, fm.FromInt(core.TicksPerSecond)), a.MaxLife())
+			a.Life = fm.Min(a.Life+fm.Div(regen, perTick), a.MaxLife())
+		}
+		// ES recharge: count the delay down, then refill once it elapses.
+		if a.RechargeDelay > 0 {
+			a.RechargeDelay--
+			continue
+		}
+		if maxES := a.MaxES(); maxES > 0 && a.ES < maxES {
+			a.ES = fm.Min(a.ES+fm.Div(fm.Mul(maxES, esRechargeRate), perTick), maxES)
 		}
 	}
 }
