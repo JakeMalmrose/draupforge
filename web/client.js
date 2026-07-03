@@ -156,6 +156,8 @@ function resetWorld(msg) {
   cutSkillTable = msg.cut_skills || [];
   skillBarKey = "";
   closeCutDialog();
+  autoCutShown = false;
+  actorMotion.clear();
   runState = msg.run || null;
   snap = null;
   seenSelf = false;
@@ -231,6 +233,7 @@ function onView(view) {
     showOverlay("YOU DIED");
   }
   syncCutDialog(self);
+  autoOpenCut(self);
 
   // Position lookups fall back to the previous view: the victim of a
   // killing blow (and the dier of a death event) is already compacted out
@@ -595,21 +598,222 @@ function drawGrid() {
   ctx.stroke();
 }
 
+// --- actor models -----------------------------------------------------
+//
+// Actors are tiny hand-drawn vector bodies instead of flat circles: a
+// shaded sphere, a facing derived from motion, and one def-specific
+// accessory each so archetypes read across a room. All painters draw
+// around (0,0) after the body sphere; ex/ey is the facing unit vector.
+
+const actorMotion = new Map(); // id → { x, y, h } last pos + heading
+
+// facingOf tracks per-actor heading from frame-to-frame motion; idle
+// actors keep their last heading, newcomers face the camera.
+function facingOf(id, pos) {
+  const m = actorMotion.get(id);
+  let h = m ? m.h : Math.PI / 2;
+  let moving = false;
+  if (m) {
+    const dx = pos.x - m.x, dy = pos.y - m.y;
+    if (dx * dx + dy * dy > 0.0004) {
+      h = Math.atan2(dy, dx);
+      moving = true;
+    }
+  }
+  actorMotion.set(id, { x: pos.x, y: pos.y, h });
+  return { h, moving };
+}
+
+// shade lightens (amt > 0) or darkens (amt < 0) a #rrggbb color.
+function shade(hex, amt) {
+  const n = parseInt(hex.slice(1), 16);
+  const t = amt < 0 ? 0 : 255, f = Math.abs(amt);
+  const ch = (v) => Math.round(v + (t - v) * f);
+  return `rgb(${ch((n >> 16) & 255)},${ch((n >> 8) & 255)},${ch(n & 255)})`;
+}
+
+// bodySphere fills a lit-from-above sphere — the shared torso.
+function bodySphere(r, color, squashX = 1) {
+  const g = ctx.createRadialGradient(-r * 0.35, -r * 0.4, r * 0.15, 0, 0, r);
+  g.addColorStop(0, shade(color, 0.35));
+  g.addColorStop(0.65, color);
+  g.addColorStop(1, shade(color, -0.4));
+  ctx.beginPath();
+  ctx.ellipse(0, 0, r * squashX, r, 0, 0, Math.PI * 2);
+  ctx.fillStyle = g;
+  ctx.fill();
+}
+
+function eyes(r, ex, ey, color) {
+  const px = -ey, py = ex; // perpendicular
+  ctx.fillStyle = color;
+  for (const side of [-1, 1]) {
+    ctx.beginPath();
+    ctx.arc(ex * r * 0.45 + px * side * r * 0.22, ey * r * 0.45 + py * side * r * 0.22 - r * 0.15, Math.max(r * 0.09, 1.2), 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+// One painter per archetype; fallback is a plain shaded sphere with eyes.
+const MODEL_PAINTERS = {
+  zombie(r, ex, ey) {
+    const px = -ey, py = ex;
+    bodySphere(r, "#7a2424");
+    ctx.fillStyle = shade("#7a2424", -0.15); // arms shamble out front
+    for (const side of [-1, 1]) {
+      ctx.beginPath();
+      ctx.arc(ex * r * 0.85 + px * side * r * 0.5, ey * r * 0.85 + py * side * r * 0.5, r * 0.28, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.strokeStyle = "#00000055"; // a stitched gash
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(-r * 0.5, r * 0.1);
+    ctx.lineTo(r * 0.2, r * 0.45);
+    ctx.stroke();
+    eyes(r, ex, ey, "#e8d86a");
+  },
+  ghoul(r, ex, ey) {
+    const px = -ey, py = ex;
+    bodySphere(r, "#5f7a2e", 0.82);
+    ctx.fillStyle = shade("#5f7a2e", 0.2); // claw spikes
+    for (const side of [-1, 1]) {
+      for (let i = 0; i < 3; i++) {
+        const bx = ex * r * (0.45 + i * 0.18) + px * side * r * 0.62;
+        const by = ey * r * (0.45 + i * 0.18) + py * side * r * 0.62;
+        ctx.beginPath();
+        ctx.moveTo(bx, by);
+        ctx.lineTo(bx + ex * r * 0.3 + px * side * r * 0.18, by + ey * r * 0.3 + py * side * r * 0.18);
+        ctx.lineTo(bx + ex * r * 0.05 + px * side * r * 0.3, by + ey * r * 0.05 + py * side * r * 0.3);
+        ctx.fill();
+      }
+    }
+    eyes(r, ex, ey, "#ff6a4a");
+  },
+  skeleton_archer(r, ex, ey) {
+    bodySphere(r, "#6e6a58");
+    const bx = ex * r * 0.75, by = ey * r * 0.75, h = Math.atan2(ey, ex);
+    ctx.strokeStyle = "#c9b98a"; // the bow, held out front
+    ctx.lineWidth = Math.max(r * 0.12, 1.5);
+    ctx.beginPath();
+    ctx.arc(bx, by, r * 0.75, h - 1.15, h + 1.15);
+    ctx.stroke();
+    ctx.lineWidth = 1; // the string
+    ctx.strokeStyle = "#e8e0cc99";
+    ctx.beginPath();
+    ctx.moveTo(bx + Math.cos(h - 1.15) * r * 0.75, by + Math.sin(h - 1.15) * r * 0.75);
+    ctx.lineTo(bx + Math.cos(h + 1.15) * r * 0.75, by + Math.sin(h + 1.15) * r * 0.75);
+    ctx.stroke();
+    eyes(r, ex, ey, "#2a2a30");
+  },
+  skeleton_mage(r, ex, ey) {
+    const px = -ey, py = ex;
+    bodySphere(r, "#5a4a8e");
+    ctx.fillStyle = shade("#5a4a8e", -0.25); // the hood, always peaked
+    ctx.beginPath();
+    ctx.moveTo(-r * 0.55, -r * 0.3);
+    ctx.lineTo(r * 0.55, -r * 0.3);
+    ctx.lineTo(0, -r * 1.3);
+    ctx.fill();
+    const sx = px * r * 0.85 + ex * r * 0.3, sy = py * r * 0.85 + ey * r * 0.3;
+    ctx.strokeStyle = "#3c3448"; // staff with a charged tip
+    ctx.lineWidth = Math.max(r * 0.12, 1.5);
+    ctx.beginPath();
+    ctx.moveTo(sx - ex * r * 0.4, sy - ey * r * 0.4);
+    ctx.lineTo(sx + ex * r * 0.5, sy + ey * r * 0.5);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(sx + ex * r * 0.55, sy + ey * r * 0.55, r * 0.22, 0, Math.PI * 2);
+    ctx.fillStyle = "#8f6ff0";
+    ctx.fill();
+    eyes(r, ex, ey, "#b09fff");
+  },
+  bone_colossus(r, ex, ey) {
+    bodySphere(r, "#a89c82");
+    ctx.strokeStyle = "#00000033"; // ribs
+    ctx.lineWidth = Math.max(r * 0.08, 1);
+    for (let i = -1; i <= 1; i++) {
+      ctx.beginPath();
+      ctx.arc(0, r * 0.2 + i * r * 0.3, r * 0.7, Math.PI * 0.15, Math.PI * 0.85);
+      ctx.stroke();
+    }
+    ctx.fillStyle = "#e8dfc8"; // horns
+    for (const side of [-1, 1]) {
+      ctx.beginPath();
+      ctx.moveTo(side * r * 0.45, -r * 0.55);
+      ctx.lineTo(side * r * 0.95, -r * 1.15);
+      ctx.lineTo(side * r * 0.75, -r * 0.35);
+      ctx.fill();
+    }
+    eyes(r, ex, ey, "#8a1c1c");
+  },
+  training_dummy(r) {
+    bodySphere(r, "#b89a5a");
+    ctx.strokeStyle = "#6e5432"; // post and crossbar
+    ctx.lineWidth = Math.max(r * 0.16, 2);
+    ctx.beginPath();
+    ctx.moveTo(0, -r * 0.9);
+    ctx.lineTo(0, r);
+    ctx.moveTo(-r * 0.85, -r * 0.25);
+    ctx.lineTo(r * 0.85, -r * 0.25);
+    ctx.stroke();
+  },
+};
+
+function paintPlayer(r, ex, ey, isMe, named) {
+  const px = -ey, py = ex;
+  bodySphere(r, isMe ? "#3d6fd1" : named ? "#3562b8" : "#2a4fa3");
+  const sx = px * r * 0.8, sy = py * r * 0.8;
+  ctx.strokeStyle = "#d8d8e0"; // sword at the ready
+  ctx.lineWidth = Math.max(r * 0.14, 1.5);
+  ctx.beginPath();
+  ctx.moveTo(sx, sy);
+  ctx.lineTo(sx + ex * r * 0.95, sy + ey * r * 0.95);
+  ctx.stroke();
+  ctx.beginPath(); // head, leaning into the facing
+  ctx.arc(ex * r * 0.15, ey * r * 0.15 - r * 0.35, r * 0.42, 0, Math.PI * 2);
+  ctx.fillStyle = "#d8b58f";
+  ctx.fill();
+  ctx.strokeStyle = "#00000044";
+  ctx.lineWidth = 1;
+  ctx.stroke();
+}
+
 function drawActor(a, pos) {
   const p = worldToScreen(pos.x, pos.y);
   const r = toUnits(a.radius) * SCALE;
   const isMe = a.id === myId;
 
   const rarityColor = RARITY_COLORS[a.rarity];
+  const { h, moving } = facingOf(a.id, pos);
+  const ex = Math.cos(h), ey = Math.sin(h);
+  const bob = moving ? Math.sin(renderClock / 90 + a.id * 1.7) * r * 0.07 : 0;
 
-  ctx.beginPath();
-  ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
-  ctx.fillStyle =
-    a.team === 1 ? (isMe ? "#3d6fd1" : "#2a4fa3") : DEF_COLORS[a.def] || "#7a2424";
+  ctx.beginPath(); // grounding shadow
+  ctx.ellipse(p.x, p.y + r * 0.75, r * 0.8, r * 0.28, 0, 0, Math.PI * 2);
+  ctx.fillStyle = "#00000059";
   ctx.fill();
-  ctx.lineWidth = rarityColor ? 2.5 : 2;
-  ctx.strokeStyle = rarityColor || (isMe ? "#cfc9bf" : "#00000066");
-  ctx.stroke();
+
+  ctx.save();
+  ctx.translate(p.x, p.y + bob);
+  if (a.team === 1) {
+    paintPlayer(r, ex, ey, isMe, roster.has(a.id));
+  } else {
+    const painter = MODEL_PAINTERS[a.def];
+    if (painter) painter(r, ex, ey);
+    else {
+      bodySphere(r, DEF_COLORS[a.def] || "#7a2424");
+      eyes(r, ex, ey, "#e8d86a");
+    }
+  }
+  if (rarityColor || isMe) {
+    ctx.beginPath(); // rarity/self ring hugs the body
+    ctx.arc(0, 0, r, 0, Math.PI * 2);
+    ctx.lineWidth = rarityColor ? 2.5 : 1.5;
+    ctx.strokeStyle = rarityColor || "#cfc9bf88";
+    ctx.stroke();
+  }
+  ctx.restore();
 
   // hit flash: a white pulse that decays over FLASH_MS
   const flashUntil = flashes.get(a.id);
@@ -662,8 +866,8 @@ function drawActor(a, pos) {
 // PoE-flavored rarity colors: magic blue, rare yellow.
 const RARITY_COLORS = { magic: "#7a9bf0", rare: "#f0d060" };
 
-// Monster body colors by def, so archetypes read at a glance; anything
-// unlisted falls back to the generic monster red.
+// Fallback body tints for defs without a MODEL_PAINTERS entry; anything
+// unlisted renders as a generic monster-red sphere.
 const DEF_COLORS = {
   ghoul: "#5f7a2e",
   skeleton_mage: "#5a4a8e",
@@ -1226,14 +1430,40 @@ canvas.addEventListener("mousedown", (e) => {
 // point; unknown skills get a neutral aimed default.
 const GEM_KEYS = ["q", "e", "r", "t"];
 const SKILL_META = {
-  fireball: { color: "#d35400", aimed: true },
-  frost_nova: { color: "#7fd4ff", aimed: false },
-  spark: { color: "#5fa8f5", aimed: true },
-  adrenaline: { color: "#9fff9f", aimed: false },
-  arc_bolt: { color: "#8f6ff0", aimed: true },
-  arc: { color: "#8f6ff0", aimed: true },
-  bone_arrow: { color: "#8d8678", aimed: true },
+  fireball: { color: "#d35400", aimed: true, kind: "Projectile",
+    desc: "Hurl a fireball that explodes on impact, splashing everything nearby. Can ignite." },
+  frost_nova: { color: "#7fd4ff", aimed: false, kind: "Nova",
+    desc: "A ring of cold erupts from you, chilling everything it touches." },
+  spark: { color: "#5fa8f5", aimed: true, kind: "Projectile",
+    desc: "Loose a wandering bolt that ricochets off walls until it finds flesh. Can shock." },
+  adrenaline: { color: "#9fff9f", aimed: false, kind: "Buff",
+    desc: "Surge with borrowed speed for a few seconds." },
+  arc_bolt: { color: "#8f6ff0", aimed: true, kind: "Projectile" },
+  arc: { color: "#8f6ff0", aimed: true, kind: "Chain",
+    desc: "Lightning leaps to the enemy nearest your cursor, then chains onward. Can shock." },
+  bone_arrow: { color: "#8d8678", aimed: true, kind: "Attack",
+    desc: "A swift physical arrow — long reach, and it scales with your weapon." },
 };
+
+// gemIconSVG is the one gem glyph, colored per skill: draft cards, the gem
+// panel, the skill bar. Supports get a rounded "socket stone" cut instead
+// of the skill diamond. The glow rides inline so it works everywhere.
+function gemIconSVG(color, { support = false, size = 26, glow = true } = {}) {
+  const filter = glow ? ` style="filter: drop-shadow(0 0 ${size / 5}px ${color}aa)"` : "";
+  if (support) {
+    return `<svg class="gem-icon" width="${size}" height="${size}" viewBox="0 0 24 24"${filter}>
+      <rect x="4" y="4" width="16" height="16" rx="5" fill="${color}" stroke="#000a" stroke-width="1.2"/>
+      <rect x="7.5" y="7.5" width="9" height="9" rx="3" fill="#ffffff2e"/>
+      <circle cx="9.2" cy="8.6" r="2" fill="#ffffff70"/>
+    </svg>`;
+  }
+  return `<svg class="gem-icon" width="${size}" height="${size}" viewBox="0 0 24 24"${filter}>
+    <polygon points="12,1.5 21,9 12,22.5 3,9" fill="${color}" stroke="#000a" stroke-width="1.2"/>
+    <polygon points="12,1.5 16.5,9 12,22.5 7.5,9" fill="#ffffff24"/>
+    <polygon points="3,9 21,9 12,13.5" fill="#00000026"/>
+    <circle cx="9.4" cy="6.4" r="1.8" fill="#ffffff80"/>
+  </svg>`;
+}
 
 let supportTable = [];  // SupportSnap list from the welcome
 let cutSkillTable = []; // SkillSnap list from the welcome
@@ -1263,7 +1493,7 @@ function renderSkillBar(self) {
     btn.id = `slot-${i}`;
     btn.title = `${skillName(g.skill)} — level ${g.level}, ${fmtMana(g.mana_cost)} mana`;
     btn.innerHTML =
-      `<div class="glyph" style="background: radial-gradient(circle at 35% 30%, #fff8, ${meta.color}); color: ${meta.color}"></div>` +
+      `<div class="glyph">${gemIconSVG(meta.color, { size: 22 })}</div>` +
       `<span class="slot-name">${skillName(g.skill)}</span>` +
       `<span class="key">${GEM_KEYS[i].toUpperCase()}</span>` +
       `<span class="gem-level">${g.level}</span>`;
@@ -1356,6 +1586,10 @@ window.addEventListener("keydown", (e) => {
   if (e.repeat) return;
   audioUnlock();
   const key = e.key.toLowerCase();
+  if (key === "escape") {
+    if (cutState) closeCutDialog();
+    return;
+  }
   if (key in WASD_DIRS) {
     wasdHeld.add(key);
     return;
@@ -1817,7 +2051,7 @@ function renderGemList(self) {
       return `<span class="socket filled" title="${info.name} — ${info.desc}">${info.name[0]}</span>`;
     }).join("");
     card.innerHTML =
-      `<span class="gem-dot" style="background:${meta.color}"></span>` +
+      gemIconSVG(meta.color, { size: 15 }) +
       `<span class="gem-name">${skillName(g.skill)}</span>` +
       `<span class="gem-lv">Lv ${g.level}</span>` +
       `<span class="sockets">${pips}</span>`;
@@ -1842,7 +2076,12 @@ function renderGemList(self) {
 // optimistically; a rejected cut leaves the item in the bag to try again.
 
 let cutState = null; // { itemId, support, level, choices, choice }
+let autoCutShown = false; // one nudge per welcome, not per view
 const gemDialog = document.getElementById("gem-dialog");
+const gemScrim = document.getElementById("gem-scrim");
+gemScrim.addEventListener("click", (e) => {
+  if (e.target === gemScrim) closeCutDialog();
+});
 
 function openCutDialog(item) {
   cutState = {
@@ -1857,8 +2096,20 @@ function openCutDialog(item) {
 
 function closeCutDialog() {
   cutState = null;
-  gemDialog.classList.add("hidden");
+  gemScrim.classList.add("hidden");
   gemDialog.innerHTML = "";
+}
+
+// A fresh exile's first act is choosing a skill: with no gems cut and an
+// uncut skill gem in the bag, the dialog presents itself. Dismissing it
+// keeps it away until the next welcome — the bag click still works.
+function autoOpenCut(self) {
+  if (autoCutShown || cutState || !self) return;
+  if ((self.gems || []).length > 0) return;
+  const uncut = (self.inventory || []).find((i) => i.gem && !i.gem.support);
+  if (!uncut) return;
+  autoCutShown = true;
+  openCutDialog(uncut);
 }
 
 // syncCutDialog closes the dialog once its item leaves the bag (the cut
@@ -1886,6 +2137,28 @@ function dialogNote(text) {
   gemDialog.appendChild(p);
 }
 
+// dialogHeader builds the modal's masthead: an uncut-gem icon, a title,
+// and one line of context.
+function dialogHeader(support, title, sub) {
+  const head = document.createElement("div");
+  head.className = "dlg-head";
+  const color = support ? GEM_DROP_COLORS.support : GEM_DROP_COLORS.skill;
+  head.innerHTML =
+    gemIconSVG(color, { support, size: 34 }) +
+    `<div><h3>${title}</h3><p class="dlg-sub">${sub}</p></div>`;
+  gemDialog.appendChild(head);
+}
+
+// draftCard is one of the three big pick-3 choices.
+function draftCard(html, onclick, disabled) {
+  const btn = document.createElement("button");
+  btn.className = "draft-card";
+  btn.innerHTML = html;
+  if (disabled) btn.disabled = true;
+  else btn.onclick = onclick;
+  return btn;
+}
+
 function renderCutDialog() {
   if (!cutState) return;
   const self = me();
@@ -1896,29 +2169,40 @@ function renderCutDialog() {
   const gems = self.gems || [];
   const st = cutState;
   gemDialog.innerHTML = "";
-  const h = document.createElement("h3");
-  h.textContent = st.support ? "Cut Support Gem" : `Cut Skill Gem — level ${st.level}`;
-  gemDialog.appendChild(h);
 
   if (!st.support && st.choice >= 0) {
     // At the four-gem cap: cutting means destroying one, sockets and all.
-    dialogNote(`cut ${skillName(st.choices[st.choice])} — which gem does it replace?`);
+    dialogHeader(false, `Cut ${skillName(st.choices[st.choice])}`,
+      "your gem bar is full — choose the gem it replaces");
     gems.forEach((g, i) => {
-      dialogButton(`<b>${skillName(g.skill)}</b><span>Lv ${g.level} · ${g.sockets} socket${g.sockets === 1 ? "" : "s"} — destroyed</span>`, () => {
-        send({ kind: "cut_skill", target: st.itemId, choice: st.choice, replace: true, gem: i });
-        closeCutDialog();
-      });
+      const meta = SKILL_META[g.skill] || { color: "#cfc9bf" };
+      dialogButton(
+        gemIconSVG(meta.color, { size: 22 }) +
+          `<b>${skillName(g.skill)}</b><span>Lv ${g.level} · ${g.sockets} socket${g.sockets === 1 ? "" : "s"} — destroyed</span>`,
+        () => {
+          send({ kind: "cut_skill", target: st.itemId, choice: st.choice, replace: true, gem: i });
+          closeCutDialog();
+        });
     });
     dialogButton("back", () => {
       st.choice = -1;
       renderCutDialog();
     });
   } else if (!st.support) {
-    dialogNote("cut a new skill:");
+    dialogHeader(false, "Cut a Skill Gem",
+      gems.length ? `a level ${st.level} uncut gem — pick one of three` :
+        "your first skill — pick one of three, the rest drop from monsters");
+    const row = document.createElement("div");
+    row.className = "draft-row";
     st.choices.forEach((c, idx) => {
       const owned = gems.some((g) => g.skill === c);
-      dialogButton(
-        `<b>${skillName(c)}</b>${owned ? "<span>already cut</span>" : ""}`,
+      const meta = SKILL_META[c] || { color: "#cfc9bf" };
+      row.appendChild(draftCard(
+        gemIconSVG(meta.color, { size: 46 }) +
+          `<b class="draft-name">${skillName(c)}</b>` +
+          `<span class="draft-kind" style="color:${meta.color}">${meta.kind || "Skill"} · Lv ${st.level}</span>` +
+          `<span class="draft-desc">${meta.desc || ""}</span>` +
+          (owned ? '<span class="draft-owned">already cut</span>' : ""),
         () => {
           if (gems.length >= GEM_KEYS.length) {
             st.choice = idx;
@@ -1929,30 +2213,44 @@ function renderCutDialog() {
           }
         },
         owned,
-      );
+      ));
     });
+    gemDialog.appendChild(row);
     const uppable = gems.map((g, i) => [g, i]).filter(([g]) => g.level < st.level);
     if (uppable.length) {
       dialogNote("— or raise an existing gem to this level —");
       for (const [g, i] of uppable) {
-        dialogButton(`<b>${skillName(g.skill)}</b><span>Lv ${g.level} → Lv ${st.level}</span>`, () => {
-          send({ kind: "level_gem", target: st.itemId, gem: i });
-          closeCutDialog();
-        });
+        const meta = SKILL_META[g.skill] || { color: "#cfc9bf" };
+        dialogButton(
+          gemIconSVG(meta.color, { size: 22 }) +
+            `<b>${skillName(g.skill)}</b><span>Lv ${g.level} → Lv ${st.level}</span>`,
+          () => {
+            send({ kind: "level_gem", target: st.itemId, gem: i });
+            closeCutDialog();
+          });
       }
     }
   } else if (st.choice < 0) {
-    dialogNote("choose a support:");
+    dialogHeader(true, "Cut a Support Gem", "pick one of three — it sockets into a skill");
+    const row = document.createElement("div");
+    row.className = "draft-row";
     st.choices.forEach((c, idx) => {
       const info = supportInfo(c);
-      dialogButton(`<b>${info.name}</b><span>${info.desc}</span>`, () => {
-        st.choice = idx;
-        renderCutDialog();
-      });
+      row.appendChild(draftCard(
+        gemIconSVG(GEM_DROP_COLORS.support, { support: true, size: 46 }) +
+          `<b class="draft-name">${info.name}</b>` +
+          `<span class="draft-kind" style="color:${GEM_DROP_COLORS.support}">Support</span>` +
+          `<span class="draft-desc">${info.desc}</span>`,
+        () => {
+          st.choice = idx;
+          renderCutDialog();
+        },
+      ));
     });
+    gemDialog.appendChild(row);
   } else {
     const info = supportInfo(st.choices[st.choice]);
-    dialogNote(`socket ${info.name} into:`);
+    dialogHeader(true, `Socket ${info.name}`, info.desc || "choose the skill gem it supports");
     gems.forEach((g, i) => {
       const legal = (info.legal_for || []).includes(g.skill) && !(g.supports || []).includes(info.id);
       const row = document.createElement("div");
@@ -1984,7 +2282,7 @@ function renderCutDialog() {
     });
   }
   dialogButton("cancel", closeCutDialog);
-  gemDialog.classList.remove("hidden");
+  gemScrim.classList.remove("hidden");
 }
 
 // ----------------------------------------------------------- event log
