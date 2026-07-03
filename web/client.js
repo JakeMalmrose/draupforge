@@ -833,6 +833,22 @@ const MODEL_PAINTERS = {
     }
     eyes(r, ex, ey, "#8a1c1c");
   },
+  carrion_husk(r, ex, ey) {
+    bodySphere(r, "#7a6a3a", 1.1); // swollen wider than tall
+    ctx.fillStyle = "#5f7a2e88"; // the ghouls pressing at the skin
+    for (const [bx, by] of [[-0.35, -0.2], [0.3, 0.15], [-0.1, 0.4]]) {
+      ctx.beginPath();
+      ctx.arc(bx * r, by * r, r * 0.22, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.strokeStyle = "#00000044"; // straining seams
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(-r * 0.6, -r * 0.4);
+    ctx.quadraticCurveTo(0, r * 0.1, r * 0.55, -r * 0.3);
+    ctx.stroke();
+    eyes(r, ex, ey, "#d8c66a");
+  },
   barrow_king(r, ex, ey) {
     bodySphere(r, "#6b5a7e");
     ctx.strokeStyle = "#00000040"; // burial wrappings
@@ -982,6 +998,7 @@ const DEF_COLORS = {
   skeleton_archer: "#6e6a58",
   bone_colossus: "#a89c82",
   barrow_king: "#6b5a7e",
+  carrion_husk: "#7a6a3a",
 };
 
 const AILMENT_RINGS = [
@@ -2491,6 +2508,9 @@ function logEvent(ev) {
       break;
     case "drop":
       text = `${ev.note.replace(/_/g, " ")} dropped`;
+      break;
+    case "spawn":
+      text = `a ${ev.note.replace(/_/g, " ")} bursts forth`;
       break;
     case "pickup":
       text = `${nameOf(ev.actor)} picked up ${ev.note.replace(/_/g, " ")}`;

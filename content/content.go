@@ -126,6 +126,23 @@ func DB() *core.ContentDB {
 				panic("content: starting gem " + id + " on " + a.ID + " is not a cuttable skill")
 			}
 		}
+		// Death-spawn chains must resolve and terminate: a cycle would grow
+		// the population forever, one death at a time.
+		seen := map[string]bool{a.ID: true}
+		for cur := a; cur.DeathSpawnCount > 0; {
+			if cur.DeathSpawnCount > 8 {
+				panic("content: " + cur.ID + " death-spawns more than 8 adds")
+			}
+			next := db.Actors[cur.DeathSpawnDef]
+			if next == nil {
+				panic("content: " + cur.ID + " death-spawns unknown def " + cur.DeathSpawnDef)
+			}
+			if seen[next.ID] {
+				panic("content: death-spawn cycle through " + next.ID)
+			}
+			seen[next.ID] = true
+			cur = next
+		}
 	}
 	db.Uniques = uniqueDefs()
 	seenUnique := map[string]bool{}
@@ -820,7 +837,36 @@ func actorDefs() []*core.ActorDef {
 		},
 	}
 
-	return []*core.ActorDef{player, zombie, archer, dummy, ghoul, mage, colossus, barrowKing}
+	// The splitter: a slow, swollen lurcher that bursts into two ghouls on
+	// death — killing it is a commitment, not a checkbox. Rides the spawn
+	// queue (RISKS #2 made real).
+	husk := &core.ActorDef{
+		ID:     "carrion_husk",
+		Name:   "Carrion Husk",
+		Team:   core.TeamMonsters,
+		Radius: fm.FromMilli(750),
+		BaseStats: baseStats(map[stats.StatID]fm.Fixed{
+			stats.Life:       fm.FromInt(85),
+			stats.MoveSpeed:  fm.FromMilli(2600),
+			stats.Accuracy:   fm.FromInt(80),
+			stats.CritChance: fm.FromMilli(50),
+		}),
+		Skills:          []string{"zombie_slam"},
+		AI:              "melee_chaser",
+		AggroRadius:     fm.FromInt(14),
+		LeashRadius:     fm.FromInt(18),
+		LootTable:       "ghoul_drops",
+		Level:           1,
+		XPValue:         25, // the ghouls inside pay their own way
+		DeathSpawnDef:   "ghoul",
+		DeathSpawnCount: 2,
+		PerLevel: []core.BuffMod{
+			{Stat: stats.Life, Layer: stats.LayerFlat, Value: fm.FromInt(10)},
+			{Stat: stats.Damage, Layer: stats.LayerIncreased, Value: fm.FromMilli(40)},
+		},
+	}
+
+	return []*core.ActorDef{player, zombie, archer, dummy, ghoul, mage, colossus, barrowKing, husk}
 }
 
 // affixDefs is the global affix pool. Slice order feeds the weighted roll —

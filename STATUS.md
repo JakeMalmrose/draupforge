@@ -11,9 +11,8 @@ tests, and session-log entries older than a few sessions (git history is the
 archive). If this file outgrows ~150 lines, it has stopped being a status doc
 and started being a changelog — cut it back.
 
-**Last updated: 2026-07-03** (session 45: staged skills + the Barrow King —
-the telegraphed multi-stage boss every 5th floor, ground telegraphs on the
-wire)
+**Last updated: 2026-07-03** (session 51: the spawn queue — RISKS #2 paid
+down — and the Carrion Husk that proves it)
 
 ## Where things stand
 
@@ -90,7 +89,8 @@ All foundational machinery from DESIGN.md is real, not stubbed:
 | Hosting + CI/CD: public via Tailscale Funnel; every push to main builds, swaps (prev kept), restarts, health-checks; `identities.json` never touched. CI gates every PR and main push: `go vet`, race-tested suite, JS syntax | `.github/workflows/deploy.yml`, `ci.yml` | done, verified e2e |
 | Admin dashboard: observe (tick health, counts, events, hash, run line) + poke (pause, spawn, kick, save) + dev cheats (god/gem/orbs); lobby index at `/i/{id}/` | `server/admin.go` | done, tested; NO AUTH — on the nuc it binds loopback, tailnet-only via `tailscale serve` at http://nuc:9090 (see multiplayer.md) |
 | Web client: canvas render, vector actor models (shaded per-archetype bodies, motion-derived facing), drag-drop inventory, delta decoding + tick-timeline interpolation, VFX/damage numbers/audio stingers, PoE2 HUD + gem bar (shared gem-icon SVGs), centered pick-3 draft dialog (auto-opens for gemless characters), WASD + click, minimap, join screen, party panel | `web/` | working, no build step |
-| AI: behavior registry (`melee_chaser`, `ranged_kiter`, `boss_brute`); territorial aggro: LoS/hearing, leash to `Actor.Home`, return-home | `sim/ai` | real, tested |
+| AI: behavior registry (`melee_chaser`, `ranged_kiter`, `boss_brute`, `boss_king`); territorial aggro: LoS/hearing, leash to `Actor.Home`, return-home | `sim/ai` | real, tested |
+| Spawn queue (RISKS #2): `QueueSpawn`/`DrainSpawns` at a fixed phase — deterministic IDs, birth-tick immunity, save-refused when pending; on-death adds (`ActorDef.DeathSpawn*`, the Carrion Husk splits into ghouls) | `sim/core/world.go`, `sim/sim.go`, `content/` | done, tested, verified live |
 | Phase order + command validation | `sim/sim.go` | done — this IS the determinism contract |
 | Wire types: versioned welcome (v18), JSON snapshots, binary delta codec | `protocol/` | done, tested |
 | Content tables | `content/` | 14 skills (6 cuttable, 3 staged), 10 supports, 8 actors, 32 affixes, 9 bases, 4 uniques, 7 drop tables, 4 monster mods, 4 buffs |
@@ -203,12 +203,25 @@ The descent shipped (session 15); the character store + sessions shipped
 (45 — staged skills, DESIGN §15); `-load` works under the lobby again (46);
 per-client send queues shipped (47); the stash shipped (48); origin checks
 and rate limiting shipped (49); uniques shipped (50) — ROADMAP's phases
-are all ✅ now. The queue is open: a replay log when postmortems want one,
-more uniques/skills/bosses as content appetite dictates, and RISKS #2
-(mid-tick spawns) before any minion skill.
+are all ✅ now — and the spawn queue paid down RISKS #2 (51). The queue is
+open: a replay log when postmortems want one, and content (skills,
+uniques, bosses, a first minion skill on the new queue) as appetite
+dictates.
 
 ## Session log
 
+- **2026-07-03 (51)** — The spawn queue (RISKS #2, designed on purpose
+  before the first minion skill needed it in a hurry). `World.QueueSpawn`
+  buffers mid-tick actor creations; `DrainSpawns` materializes them in
+  queue order at a new fixed phase — after combat/loot/XP, before
+  compaction — so IDs are deterministic, newcomers act and bleed only from
+  their next tick, positions clamp to walkable, and `Save` refuses a
+  pending queue. First consumer: `ActorDef.DeathSpawnDef/Count` — the
+  Carrion Husk, a slow swollen lurcher that bursts into two ghouls at the
+  dier's level (fixed offsets, no RNG anywhere in the path; goldens
+  untouched). DB() rejects death-spawn cycles. EvSpawn narrates births
+  ("a ghoul bursts forth"). In the arena scatter. Verified live: killed a
+  husk in Chrome, two ghouls burst out and attacked, zero console errors.
 - **2026-07-03 (50)** — Uniques (ROADMAP phase 4 finale — every phase ✅).
   Chase items: fixed identity, fixed base, fixed mod package, no affixes
   (orbs refuse them via the rarity gates). What makes them build-defining:
@@ -278,72 +291,4 @@ more uniques/skills/bosses as content appetite dictates, and RISKS #2
   ground telegraphs (fill sweeps to impact), on-screen-gated boss bar,
   crown model, `-startfloor` dev flag. Verified live on floor 5: two king
   fights, dodge/track/ring all observed, zero console errors.
-- **2026-07-02 (44)** — Dashboard-under-prefix regression + CI. The
-  instance dashboard's JS fetched absolute `/api/...` paths — mounted
-  at `/i/{id}/` under the lobby they escaped the StripPrefix and 404'd
-  at the lobby root (latent since the lobby merge; surfaced when Jake
-  first browsed the nuc's portal). Fix: relative `api/...` paths, which
-  resolve correctly both under the prefix and at a root mount. New
-  integration test walks the browser's path — TCP client spins up
-  instance 0, `/i/0/api/status` answers through the lobby handler, and
-  the page is asserted free of absolute `/api/` references. And the
-  suite finally runs automatically: `.github/workflows/ci.yml` gates
-  every PR and main push (vet, `go test -race ./...`, JS syntax) —
-  deploy.yml was shipping untested builds. Verified live: dashboard
-  under `/i/0/` polls status at 30/30 Hz and the god-mode POST lands,
-  zero console errors.
-- **2026-07-02 (43)** — Admin portal on the tailnet. Ops: the nuc's
-  dashboard binds `127.0.0.1:9090` (systemd drop-in) and `tailscale
-  serve --http=9090` proxies it tailnet-only at http://nuc:9090 —
-  serve, never funnel; plain HTTP on purpose (WireGuard already
-  encrypts, and an HTTPS serve cert can't cover the short name — the
-  "secure connection failed" Jake hit). Code: the lobby admin index
-  grew up from a bare `<ul>` — styled landing page, sorted instance
-  table with client/party columns, an empty-state line explaining the
-  60s reap, 5s auto-refresh, gem favicon (+ 204 for /favicon.ico).
-  `TestLobbyAdminIndex` pins it.
-- **2026-07-02 (42)** — Pick-3 UI + first-skill choice (Jake: "the pick-3
-  is whelming; start with a pick-3 instead of fireball"). Sim:
-  `ActorDef.StartingUncut` — a fresh player spawns holding one level-1
-  uncut skill gem (3 loot draws in `sim.Spawn`; injection never grants)
-  instead of a cut Fireball; goldens re-recorded (spawn draws shift the
-  loot stream), scenario tests grant their skills explicitly. Hideout
-  seed now derives from the instance seed — a pinned hideout was dealing
-  every new exile the identical draft (caught live in verification).
-  Client: the cut dialog is a centered modal (scrim, Escape/outside-click
-  closes) with three big draft cards — shared faceted gem-icon SVGs,
-  kind tags, flavor text from `SKILL_META`, owned-gating — and it opens
-  itself for a gemless character (once per welcome). Gem icons replaced
-  the dots/gradients in the skill bar and gem panel. Actors are vector
-  models now: shaded spheres with motion-derived facing, walk bob,
-  shadows, and per-archetype accessories (zombie arms, ghoul claws,
-  archer bow, mage hood+staff, colossus horns+ribs, player head+sword)
-  — rarity rings, flashes, and telegraphs unchanged. Verified live in
-  Chrome twice over (two different drafts, Bone Arrow and Arc runs, arc
-  hits logged, death eject intact, zero console errors).
-- **2026-07-02 (41)** — World runover. Runs start in the hideout: fresh
-  instances and post-run-over restarts wake at floor 0 — the same home
-  every session (`hideoutSeed`-pinned) — with the portal leading to
-  floor 1 (anchor lands on the floor's spawn at first use;
-  `Config.StartFloor` lets tests/dev start directly on a floor). World
-  seeds roll from OS entropy when 0 (the new `-seed` default), logged
-  for reproduction; the lobby rolls once, instances derive. Run envelope
-  v2 (portal-placed flag). All tests pin seeds now. Verified over the
-  TCP wire: two boots → different seeds and different floor-1 dungeons,
-  `-seed 42` twice → identical ones, hideout identical across all,
-  hideout→floor-1 hop free. Also: pruned this file back toward budget,
-  killed the stale "conversion is identity" shortcut, fixed stale
-  comments (admin.go header, cmd/server doc, orphan-reclaim).
-- **2026-07-02 (40)** — Docs true-up. STATUS.md's body caught up with
-  sessions 36–39 (which had only logged themselves); README/DESIGN §14/
-  RISKS/ROADMAP/multiplayer.md/SHOWCASE aligned with main. No code.
-- **2026-07-02 (39)** — CI/CD. Every push to main auto-deploys the nuc
-  (self-hosted runner: build, swap with `playserver.prev` rollback, sync
-  `web/`+`scripts/`, restart, health-check; `identities.json` untouched).
-  Merging to main IS deploying — never deploy by hand.
-- **2026-07-02 (38)** — Parties + friends. `server/lobby.go`: a Lobby of
-  instances — party = instance, invites transfer via the floor-swap
-  machinery, leave moves you out; F panel lists online named players;
-  60s empty-instance reap doubles as reconnect grace. `cmd/partybot`
-  auto-accepts invites. Gems (v16) + parties (v17) merged as wire v18.
-- (older sessions pruned — git history is the archive)
+- (sessions 38–44 pruned — git history is the archive)
