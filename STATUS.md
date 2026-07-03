@@ -11,8 +11,9 @@ tests, and session-log entries older than a few sessions (git history is the
 archive). If this file outgrows ~150 lines, it has stopped being a status doc
 and started being a changelog — cut it back.
 
-**Last updated: 2026-07-02** (session 41: world runover — runs start in the
-hideout, world seeds roll fresh each boot; STATUS pruned back toward budget)
+**Last updated: 2026-07-02** (session 42: pick-3 UI — fresh exiles pick
+their first skill from an uncut draft, centered draft-card dialog, gem
+icons, vector actor models)
 
 ## Where things stand
 
@@ -27,9 +28,8 @@ accepted invite transfers you into the inviter's world via the floor-swap
 machinery, and empty instances reap after 60s, doubling as reconnect grace.
 
 The game is a game now: you descend — from home. Every run starts in the
-hideout (floor 0, a small safe world pinned to its own seed — the same home
-every session); its portal leads down to floor 1, anchoring there on first
-use. Each boot rolls a fresh world seed (logged — `-seed` pins it to
+hideout (floor 0, a small safe world derived from the instance seed); its
+portal leads down to floor 1, anchoring there on first use. Each boot rolls a fresh world seed (logged — `-seed` pins it to
 reproduce a session), and every instance derives its dungeons from that one
 number. Floors are whole fresh Worlds seeded from (run seed, floor index);
 stairs at the far end take everyone a level deeper; packs grow and level
@@ -41,8 +41,9 @@ back home on a fresh seed, best-floor kept as the score, the character
 stand (P); a trip home costs one use, returning is free. The HUD shows run ·
 floor · portals · best.
 
-Player skills are gems (session 34): a fresh exile knows only a level-1
-Fireball; uncut skill/support gems drop from kills carrying a pre-rolled
+Player skills are gems (session 34): a fresh exile wakes holding one uncut
+skill gem and picks its first skill from the draft (the dialog opens
+itself); uncut skill/support gems drop from kills carrying a pre-rolled
 draft of three choices — cut a new skill at the drop's level (1–20, from the
 dier's level), raise an existing gem to it, or socket a support. Sockets
 live on the gem (start 1, cap 4); the jeweller orb adds one. The Q/E/R/T
@@ -72,12 +73,12 @@ All foundational machinery from DESIGN.md is real, not stubbed:
 | Actions (windup/recovery) + projectiles; skill feel: splash w/ falloff, wall bounce, heading wiggle, hitscan chains | `sim/skills` | done, tested |
 | Loot: rarity weights, weighted affixes, group caps, per-slot pools (depth asserted at DB()), rolled implicits | `sim/items` | done, tested |
 | Currency: orb wallet (transmute/alch/chaos/jeweller) banked straight to the killer; `apply_orb` crafts bag items | `sim/items`, `web/` | done, tested |
-| Gems: cast only from cut gems; uncut drops carry a draft of 3 at the dier's level (cap 20); supports fold into the socketed skill's queries only (more/less, added flat, speed, mana, fans, chain, conversion); cast contexts bake at use; save v9 | `sim/core/gems.go`, `sim/items/gems.go`, `content/supports.go`, `web/` | done, 13 tests, verified live |
+| Gems: cast only from cut gems; a fresh character spawns with `StartingUncut` draft-of-3 gems instead of a fixed starter; uncut drops carry a draft of 3 at the dier's level (cap 20); supports fold into the socketed skill's queries only (more/less, added flat, speed, mana, fans, chain, conversion); cast contexts bake at use; save v9 | `sim/core/gems.go`, `sim/items/gems.go`, `content/supports.go`, `web/` | done, tested, verified live |
 | Progression: leveled XP on kill, quadratic curve, cap 50, PerLevel mods, ding heal | `sim/progress` | done, tested |
 | Flasks: charge-gated regen-burst sips (keys 1/2), kills feed charges, durable (save v7) | `sim/`, `content/`, `web/` | done, tested |
 | Passive forks: milestone choices at 5/10, permanent, durable (save v6), client chooser | `sim/core`, `content/`, `web/` | done, tested |
 | Character extract/inject: durables only, item IDs re-minted, sheet rebuilt | `sim/core/character.go` | done, tested |
-| The descent: hideout start (`Config.StartFloor`, 0 = home; pinned hideout seed), floor swaps, portal economy, XP death penalty, run-over → new run at home, leveled+thickened packs, stairs guardian every 3rd floor | `server/descent.go` | done, unit + e2e tested, verified live |
+| The descent: hideout start (`Config.StartFloor`, 0 = home; hideout world derived from the instance seed), floor swaps, portal economy, XP death penalty, run-over → new run at home, leveled+thickened packs, stairs guardian every 3rd floor | `server/descent.go` | done, unit + e2e tested, verified live |
 | Monster rarity: magic/rare rolls with mod packages, XP ×3/×6, extra drops, floor-scaled chances, rings + nameplates | `sim/sim.go`, `content/`, `web/` | done, tested |
 | Equipment + inventory: 10 slots, slot-addressed equip, pickup/unequip/drop, capacity | `sim/items/equip.go` | done, tested |
 | Server: TCP + WS transports, send-rate decoupling, interest culling, binary deltas + acks, pause | `server/` | done, race-tested |
@@ -85,7 +86,7 @@ All foundational machinery from DESIGN.md is real, not stubbed:
 | Lobby: many instances per process, party = instance, invite/leave transfers via floor-swap machinery, 60s empty reap = reconnect grace | `server/lobby.go`, `cmd/partybot` | done, race-tested, verified live |
 | Hosting + CI/CD: public via Tailscale Funnel (`-addr "" -admin ""`); every push to main builds, swaps (prev kept), restarts, health-checks; `identities.json` never touched | `.github/workflows/deploy.yml` | done, verified e2e |
 | Admin dashboard: observe (tick health, counts, events, hash, run line) + poke (pause, spawn, kick, save) + dev cheats (god/gem/orbs); lobby index at `/i/{id}/` | `server/admin.go` | done, tested; NO AUTH — public deploy disables it |
-| Web client: canvas render, drag-drop inventory, delta decoding + tick-timeline interpolation, VFX/damage numbers/audio stingers, PoE2 HUD + gem bar, WASD + click, minimap, join screen, party panel | `web/` | working, no build step |
+| Web client: canvas render, vector actor models (shaded per-archetype bodies, motion-derived facing), drag-drop inventory, delta decoding + tick-timeline interpolation, VFX/damage numbers/audio stingers, PoE2 HUD + gem bar (shared gem-icon SVGs), centered pick-3 draft dialog (auto-opens for gemless characters), WASD + click, minimap, join screen, party panel | `web/` | working, no build step |
 | AI: behavior registry (`melee_chaser`, `ranged_kiter`, `boss_brute`); territorial aggro: LoS/hearing, leash to `Actor.Home`, return-home | `sim/ai` | real, tested |
 | Phase order + command validation | `sim/sim.go` | done — this IS the determinism contract |
 | Wire types: versioned welcome (v18), JSON snapshots, binary delta codec | `protocol/` | done, tested |
@@ -131,7 +132,9 @@ All foundational machinery from DESIGN.md is real, not stubbed:
   the actor-ID/gen/pending-queue cutover is one mutex section.
 - Characters transfer only durables (def/level/XP/pools/bag/gear/gems);
   position, action, buffs, DoTs, `Home` die with the zone. Life ≤ 0 at
-  injection = "arrive refilled". No gems (legacy save) = re-grant starters.
+  injection = "arrive refilled". Injection never grants: a character
+  arrives with exactly what it recorded (`StartingUncut` fires only in
+  `sim.Spawn`, consuming three loot draws per gem at spawn time).
 - Support modifiers never touch the actor's sheet — they fold into the
   socketed skill's queries (`GemCtx`); cast contexts bake at the command
   gate. The uncut draft is rolled at drop time (three loot draws); cutting
@@ -205,6 +208,25 @@ remainder (town hub, stash, uniques) is the fun-first counterweight.
 
 ## Session log
 
+- **2026-07-02 (42)** — Pick-3 UI + first-skill choice (Jake: "the pick-3
+  is whelming; start with a pick-3 instead of fireball"). Sim:
+  `ActorDef.StartingUncut` — a fresh player spawns holding one level-1
+  uncut skill gem (3 loot draws in `sim.Spawn`; injection never grants)
+  instead of a cut Fireball; goldens re-recorded (spawn draws shift the
+  loot stream), scenario tests grant their skills explicitly. Hideout
+  seed now derives from the instance seed — a pinned hideout was dealing
+  every new exile the identical draft (caught live in verification).
+  Client: the cut dialog is a centered modal (scrim, Escape/outside-click
+  closes) with three big draft cards — shared faceted gem-icon SVGs,
+  kind tags, flavor text from `SKILL_META`, owned-gating — and it opens
+  itself for a gemless character (once per welcome). Gem icons replaced
+  the dots/gradients in the skill bar and gem panel. Actors are vector
+  models now: shaded spheres with motion-derived facing, walk bob,
+  shadows, and per-archetype accessories (zombie arms, ghoul claws,
+  archer bow, mage hood+staff, colossus horns+ribs, player head+sword)
+  — rarity rings, flashes, and telegraphs unchanged. Verified live in
+  Chrome twice over (two different drafts, Bone Arrow and Arc runs, arc
+  hits logged, death eject intact, zero console errors).
 - **2026-07-02 (41)** — World runover. Runs start in the hideout: fresh
   instances and post-run-over restarts wake at floor 0 — the same home
   every session (`hideoutSeed`-pinned) — with the portal leading to
@@ -230,8 +252,4 @@ remainder (town hub, stash, uniques) is the fun-first counterweight.
   machinery, leave moves you out; F panel lists online named players;
   60s empty-instance reap doubles as reconnect grace. `cmd/partybot`
   auto-accepts invites. Gems (v16) + parties (v17) merged as wire v18.
-- **2026-07-02 (37)** — Identity. Name claim mints a secret HttpOnly
-  cookie token; the token resumes the character (`-identities` JSON,
-  banked on disconnect + 30s). Guests stay ephemeral. One session per
-  name. Join screen in the client.
 - (older sessions pruned — git history is the archive)
