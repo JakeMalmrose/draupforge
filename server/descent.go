@@ -49,6 +49,8 @@ const (
 	guardianFloors = 3
 	bossDef        = "barrow_king"
 	bossFloors     = 5
+	apexDef        = "grave_tyrant"
+	apexFloors     = 10
 )
 
 // deriveSeed mixes a salt into a base seed (splitmix finalizer), so run
@@ -99,7 +101,11 @@ func (in *Instance) buildFloor(floor int) (*sim.Sim, error) {
 	// King (the telegraphed multi-stage boss), otherwise every
 	// guardianFloors-th floor a rare Bone Colossus. Both spawn two levels
 	// hot and leash tight: fight, or sneak the stairs at your peril.
-	if floor > 0 && floor%bossFloors == 0 {
+	if floor > 0 && floor%apexFloors == 0 {
+		if _, err := s.SpawnRareLeveled(apexDef, farthestWalkable(s.W.Grid), floor+3); err != nil {
+			return nil, fmt.Errorf("server: floor %d apex: %w", floor, err)
+		}
+	} else if floor > 0 && floor%bossFloors == 0 {
 		if _, err := s.SpawnRareLeveled(bossDef, farthestWalkable(s.W.Grid), floor+2); err != nil {
 			return nil, fmt.Errorf("server: floor %d boss: %w", floor, err)
 		}

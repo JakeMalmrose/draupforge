@@ -19,6 +19,7 @@ var deciders = map[string]decider{
 	"ranged_kiter": rangedKiter,
 	"boss_brute":   bossBrute,
 	"boss_king":    bossKing,
+	"boss_tyrant":  bossTyrant,
 	"minion_melee": minionMelee,
 }
 
@@ -148,6 +149,49 @@ func bossBrute(w *core.World, a *core.Actor) (core.Command, bool) {
 		return core.Command{
 			Actor: a.ID, Kind: core.CmdUseSkill,
 			Skill: a.Def.Skills[1], Point: tgt.Pos,
+		}, true
+	}
+	return core.Command{Actor: a.ID, Kind: core.CmdMove, Point: tgt.Pos}, true
+}
+
+// bossTyrant: the summoner boss. Skills are [quake, raise_thralls,
+// volley]. Priorities, all stateless: keep a pack of thralls up (below
+// half the raise threshold doubles when it's wounded — a bloodied Tyrant
+// floods the room), quake anything inside its ground, lob bones at range.
+func bossTyrant(w *core.World, a *core.Actor) (core.Command, bool) {
+	if a.Action.Kind == core.ActionSkill {
+		return core.Command{}, false
+	}
+	tgt := acquireTarget(w, a)
+	if tgt == nil {
+		return returnHome(a)
+	}
+	thralls := 0
+	for _, m := range w.Actors {
+		if !m.Dead && m.Owner == a.ID {
+			thralls++
+		}
+	}
+	wantThralls := 3
+	if a.Life*2 < a.MaxLife() {
+		wantThralls = 6 // bloodied: drown them
+	}
+	if thralls < wantThralls {
+		return core.Command{Actor: a.ID, Kind: core.CmdUseSkill, Skill: a.Def.Skills[1]}, true
+	}
+	quake := w.Content.Skills[a.Def.Skills[0]]
+	if space.Dist(a.Pos, tgt.Pos) <= quake.Range+tgt.Def.Radius {
+		return core.Command{Actor: a.ID, Kind: core.CmdUseSkill, Skill: quake.ID, TargetID: tgt.ID}, true
+	}
+	los := true
+	if w.Grid != nil {
+		_, blocked := w.Grid.SegmentHit(a.Pos, tgt.Pos)
+		los = !blocked
+	}
+	if los && len(a.Def.Skills) > 2 {
+		return core.Command{
+			Actor: a.ID, Kind: core.CmdUseSkill,
+			Skill: a.Def.Skills[2], Point: tgt.Pos,
 		}, true
 	}
 	return core.Command{Actor: a.ID, Kind: core.CmdMove, Point: tgt.Pos}, true

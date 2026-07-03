@@ -529,7 +529,7 @@ function drawTelegraphs(s) {
 // life bar while it's on screen — the fight should feel like an occasion,
 // so the bar appears when the boss does, not from across the floor.
 
-const BOSS_DEFS = { barrow_king: "The Barrow King" };
+const BOSS_DEFS = { barrow_king: "The Barrow King", grave_tyrant: "The Grave Tyrant" };
 
 function drawBossBar(s) {
   for (const a of s.to.actors.values()) {
@@ -918,6 +918,26 @@ const MODEL_PAINTERS = {
     ctx.stroke();
     eyes(r, ex, ey, "#4ad1c8"); // the summoner's spark
   },
+  grave_tyrant(r, ex, ey) {
+    bodySphere(r, "#3e4a52", 1.05);
+    ctx.strokeStyle = "#00000055"; // cracked stone hide
+    ctx.lineWidth = Math.max(r * 0.07, 1);
+    ctx.beginPath();
+    ctx.moveTo(-r * 0.7, -r * 0.1);
+    ctx.lineTo(-r * 0.2, r * 0.15);
+    ctx.lineTo(r * 0.1, -r * 0.25);
+    ctx.lineTo(r * 0.6, r * 0.05);
+    ctx.stroke();
+    ctx.fillStyle = "#8fa8b8"; // jagged crown of grave-stone
+    for (const side of [-1, -0.33, 0.33, 1]) {
+      ctx.beginPath();
+      ctx.moveTo(side * r * 0.55 - r * 0.12, -r * 0.6);
+      ctx.lineTo(side * r * 0.55, -r * 1.2);
+      ctx.lineTo(side * r * 0.55 + r * 0.12, -r * 0.6);
+      ctx.fill();
+    }
+    eyes(r, ex, ey, "#9fff9f");
+  },
   carrion_husk(r, ex, ey) {
     bodySphere(r, "#7a6a3a", 1.1); // swollen wider than tall
     ctx.fillStyle = "#5f7a2e88"; // the ghouls pressing at the skin
@@ -1086,6 +1106,8 @@ const DEF_COLORS = {
   bone_colossus: "#a89c82",
   barrow_king: "#6b5a7e",
   carrion_husk: "#7a6a3a",
+  grave_tyrant: "#3e4a52",
+  risen_thrall: "#5a6a52",
 };
 
 const AILMENT_RINGS = [
@@ -1437,6 +1459,7 @@ const IMPACT_VFX = {
   grave_volley: { core: "#e8d8f2", glow: "#5a4468", r: 0.8 },
   grave_storm: { core: "#f2e0c8", glow: "#7e3a2e", r: 0.8 },
   sweep: { core: "#ffe8c8", glow: "#c98a4a", r: 0.8 },
+  tyrant_quake: { core: "#d8e8e0", glow: "#3e4a52", r: 1.4 },
 };
 
 // Skills whose projectile impacts detonate: radius mirrors the server's

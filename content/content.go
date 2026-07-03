@@ -669,7 +669,45 @@ func skillDefs() []*core.SkillDef {
 	sweep.BaseMin[core.Physical] = fm.FromInt(9)
 	sweep.BaseMax[core.Physical] = fm.FromInt(14)
 
-	return []*core.SkillDef{fireball, slam, frostNova, spark, boneArrow, adrenaline, claws, arcBolt, arc, colossusSlam, boneVolley, barrowSlam, graveVolley, graveStorm, summonSkeleton, sweep}
+	// --- The Grave Tyrant's kit: the floor-10 apex fight, composing the
+	// staged machinery with the spawn queue.
+
+	// Expanding ripples from where the Tyrant stands: ring one is a
+	// warning, ring three owns the room. Dodge by leaving — or by stepping
+	// back in behind a ring that already broke.
+	tyrantQuake := &core.SkillDef{
+		ID:            "tyrant_quake",
+		Name:          "Tyrant's Quake",
+		Kind:          core.SkillStaged,
+		Tags:          stats.T(stats.TagAttack, stats.TagMelee, stats.TagPhysical),
+		Effectiveness: fm.One,
+		SpeedStat:     stats.AttackSpeed,
+		Range:         fm.FromInt(7), // AI engages inside this
+		Stages: []core.SkillStage{
+			{Ticks: 24, Effect: core.StageBlast, Aim: core.StageAimSelf, Radius: fm.FromMilli(2500)},
+			{Ticks: 15, Effect: core.StageBlast, Aim: core.StageAimSelf, Radius: fm.FromMilli(4500)},
+			{Ticks: 15, Effect: core.StageBlast, Aim: core.StageAimSelf, Radius: fm.FromMilli(6500), DamageScale: fm.FromMilli(1400)},
+			{Ticks: 30}, // recovery: the punish window
+		},
+	}
+	tyrantQuake.BaseMin[core.Physical] = fm.FromInt(18)
+	tyrantQuake.BaseMax[core.Physical] = fm.FromInt(26)
+
+	// The Tyrant doesn't fight alone for long.
+	raiseThralls := &core.SkillDef{
+		ID:            "raise_thralls",
+		Name:          "Raise Thralls",
+		Kind:          core.SkillSummon,
+		Tags:          stats.T(stats.TagSpell),
+		WindupTicks:   24, // 0.8s rite — your window to reposition
+		RecoveryTicks: 12,
+		SpeedStat:     stats.CastSpeed,
+		SummonDef:     "risen_thrall",
+		SummonCount:   3,
+		SummonCap:     6,
+	}
+
+	return []*core.SkillDef{fireball, slam, frostNova, spark, boneArrow, adrenaline, claws, arcBolt, arc, colossusSlam, boneVolley, barrowSlam, graveVolley, graveStorm, summonSkeleton, sweep, tyrantQuake, raiseThralls}
 }
 
 func baseStats(pairs map[stats.StatID]fm.Fixed) [stats.StatCount]fm.Fixed {
@@ -947,7 +985,59 @@ func actorDefs() []*core.ActorDef {
 		},
 	}
 
-	return []*core.ActorDef{player, zombie, archer, dummy, ghoul, mage, colossus, barrowKing, husk, skeleton}
+	// The apex fight: every 10th floor. Nearly immobile — the quake owns
+	// the ground around it and the thralls chase for it. Kill the adds and
+	// punish the recovery, or drown.
+	tyrant := &core.ActorDef{
+		ID:     "grave_tyrant",
+		Name:   "The Grave Tyrant",
+		Team:   core.TeamMonsters,
+		Radius: fm.FromMilli(1400),
+		BaseStats: baseStats(map[stats.StatID]fm.Fixed{
+			stats.Life:       fm.FromInt(900),
+			stats.MoveSpeed:  fm.FromMilli(1800),
+			stats.Accuracy:   fm.FromInt(150),
+			stats.Armour:     fm.FromInt(70),
+			stats.CritChance: fm.FromMilli(50),
+		}),
+		Skills:      []string{"tyrant_quake", "raise_thralls", "bone_volley"},
+		AI:          "boss_tyrant",
+		AggroRadius: fm.FromInt(20),
+		LeashRadius: fm.FromInt(15),
+		LootTable:   "tyrant_drops",
+		Level:       1,
+		XPValue:     2200,
+		PerLevel: []core.BuffMod{
+			{Stat: stats.Life, Layer: stats.LayerFlat, Value: fm.FromInt(50)},
+			{Stat: stats.Damage, Layer: stats.LayerIncreased, Value: fm.FromMilli(45)},
+		},
+	}
+
+	// The Tyrant's disposable dead: fast, frail, and endless. XP pays a
+	// little so clearing them isn't pure chore.
+	thrall := &core.ActorDef{
+		ID:     "risen_thrall",
+		Name:   "Risen Thrall",
+		Team:   core.TeamMonsters,
+		Radius: fm.FromMilli(420),
+		BaseStats: baseStats(map[stats.StatID]fm.Fixed{
+			stats.Life:       fm.FromInt(30),
+			stats.MoveSpeed:  fm.FromMilli(5400),
+			stats.Accuracy:   fm.FromInt(80),
+			stats.CritChance: fm.FromMilli(50),
+		}),
+		Skills:      []string{"ghoul_claws"},
+		AI:          "minion_melee",
+		AggroRadius: fm.FromInt(12),
+		Level:       1,
+		XPValue:     8,
+		PerLevel: []core.BuffMod{
+			{Stat: stats.Life, Layer: stats.LayerFlat, Value: fm.FromInt(4)},
+			{Stat: stats.Damage, Layer: stats.LayerIncreased, Value: fm.FromMilli(45)},
+		},
+	}
+
+	return []*core.ActorDef{player, zombie, archer, dummy, ghoul, mage, colossus, barrowKing, husk, skeleton, tyrant, thrall}
 }
 
 // affixDefs is the global affix pool. Slice order feeds the weighted roll —
@@ -1306,6 +1396,21 @@ func lootTableDefs() []*core.LootTableDef {
 			SkillGemPermille:   700,
 			SupportGemPermille: 500,
 			UniquePermille:     90,
+			Bases: []string{
+				"rusty_sword", "wooden_shield", "leather_cap", "leather_vest",
+				"leather_gloves", "leather_boots", "bone_amulet", "iron_ring",
+				"leather_belt",
+			},
+		},
+		{
+			// The Tyrant's vault: the deepest jackpot in the game — a fight
+			// this committed should have real unique odds.
+			ID:                 "tyrant_drops",
+			DropChance:         fm.One,
+			RarityWeights:      [3]uint32{0, 25, 75},
+			SkillGemPermille:   850,
+			SupportGemPermille: 650,
+			UniquePermille:     180,
 			Bases: []string{
 				"rusty_sword", "wooden_shield", "leather_cap", "leather_vest",
 				"leather_gloves", "leather_boots", "bone_amulet", "iron_ring",

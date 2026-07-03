@@ -11,8 +11,8 @@ tests, and session-log entries older than a few sessions (git history is the
 archive). If this file outgrows ~150 lines, it has stopped being a status doc
 and started being a changelog — cut it back.
 
-**Last updated: 2026-07-03** (session 55: fog of war — exploration is a
-verb now)
+**Last updated: 2026-07-03** (session 56: the Grave Tyrant — floor-10 apex
+boss that summons, composing this session's whole toolkit)
 
 ## Where things stand
 
@@ -95,7 +95,7 @@ All foundational machinery from DESIGN.md is real, not stubbed:
 | Minions: `Actor.Owner` (zone-local, saved+hashed), kill attribution up the chain (`World.CreditFor` — XP/flasks/orbs pay the summoner), `minion_melee` heel AI (mobile leash on the owner), `SkillSummon` w/ cap-despawns-oldest; Summon Skeleton cuttable gem (cap 3, minions at gem level); save v12 | `sim/core`, `sim/ai`, `sim/skills`, `content/`, `web/` | done, tested, verified live |
 | Phase order + command validation | `sim/sim.go` | done — this IS the determinism contract |
 | Wire types: versioned welcome (v18), JSON snapshots, binary delta codec | `protocol/` | done, tested |
-| Content tables | `content/` | 16 skills (8 cuttable incl. melee Sweep + Summon Skeleton, 3 staged), 10 supports, 10 actors, 32 affixes, 9 bases, 5 uniques, 7 drop tables, 4 monster mods, 4 buffs |
+| Content tables | `content/` | 18 skills (8 cuttable, 4 staged), 10 supports, 12 actors (3 bosses: Barrow King f%5, Grave Tyrant f%10), 32 affixes, 9 bases, 5 uniques, 8 drop tables, 4 monster mods, 4 buffs |
 | Debug client + determinism/golden replay tests | `cmd/headless`, `sim/sim_test.go` | done |
 
 ## Invariants the code currently honors (don't break casually)
@@ -213,6 +213,19 @@ dictates, and Jake's balance pass over the numbers.
 
 ## Session log
 
+- **2026-07-03 (56)** — The Grave Tyrant: floor-10 apex boss, and the
+  payoff for the whole session's machinery — it's a staged-skill boss
+  (DESIGN §15) that summons through the spawn queue (RISKS #2) minions that
+  credit nobody. Kit: Tyrant's Quake (three expanding self-centered blast
+  rings, 1.4× finisher — the ground is the threat), Raise Thralls (three
+  risen_thralls on the SkillSummon path, cap 6), and bone_volley at range.
+  `boss_tyrant` AI is stateless: keep a pack up first (wanting 6 not 3
+  below half life — a bloodied Tyrant floods the room), quake what's close,
+  lob bones otherwise. Outranks the King (floor 10 is %5 too), spawns rare
+  at floor+3, jackpot `tyrant_drops` (18‰ unique). Non-cuttable skills, so
+  goldens untouched. Client: grave-stone crown model, thrall model, boss
+  bar, quake VFX. Verified live on floor 10: raised its pack, lobbed
+  volleys, quaked when I closed, rings rendered; zero console errors.
 - **2026-07-03 (55)** — Fog of war, client-side (the "fine until fog of
   war" note finally cashed). Per-world `Uint8Array` reveal tracking: tiles
   within 9u of you reveal permanently (10Hz, on views), the current light
