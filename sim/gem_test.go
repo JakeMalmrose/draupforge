@@ -467,3 +467,81 @@ func TestCharacterCarriesGems(t *testing.T) {
 		t.Fatalf("bare character got %d gems, %d items — injection must not grant", len(c.Gems), len(c.Inventory))
 	}
 }
+
+// TestImmolateFireOnly: Immolate's more-fire multiplier lifts a fireball
+// (all fire) but its flat-fire add and 25% more both apply — the fire
+// specialist pays off on a fire skill.
+func TestImmolateFireOnly(t *testing.T) {
+	base := hitAmount(t, 78, nil)
+	boosted := hitAmount(t, 78, func(a *core.Actor, db *core.ContentDB) {
+		a.Gems[0].Supports[0] = db.Support("immolate")
+	})
+	// Fireball is pure fire, so both the +8 flat and the ×1.25 more apply;
+	// the boosted hit must exceed a plain ×1.25 (the flat adds on top).
+	if boosted <= fm.Mul(base, fm.FromMilli(1250)) {
+		t.Errorf("immolate hit = %d, want above ×1.25 of %d (flat fire on top)", boosted, base)
+	}
+}
+
+// TestRuthlessRequiresMelee: Ruthless is melee-gated — the cut-support
+// command refuses it on a projectile skill and accepts it on a melee one.
+func TestRuthlessRequiresMelee(t *testing.T) {
+	s := sim.New(content.DB(), 81)
+	player := mustSpawn(t, s, "player", 0, 0)
+	grantGems(t, s, player, "fireball", "sweep") // fireball projectile, sweep melee
+	a := s.W.ActorByID(player)
+	// One socket on each gem.
+	for i := range a.Gems {
+		a.Gems[i].Sockets = 1
+		a.Gems[i].Supports = []*core.SupportDef{nil}
+	}
+	ruthless := giveUncut(s, a, true, 1, "ruthless")
+
+	fbIdx, swIdx := -1, -1
+	for i := range a.Gems {
+		switch a.Gems[i].Skill.ID {
+		case "fireball":
+			fbIdx = i
+		case "sweep":
+			swIdx = i
+		}
+	}
+	// Onto fireball (projectile): refused.
+	s.Step([]core.Command{{Actor: player, Kind: core.CmdCutSupport, TargetID: ruthless, Choice: 0, GemIndex: fbIdx, Socket: 0}})
+	if a.Gems[fbIdx].Supports[0] != nil {
+		t.Fatal("Ruthless socketed into a projectile skill")
+	}
+	// Onto sweep (melee): accepted.
+	s.Step([]core.Command{{Actor: player, Kind: core.CmdCutSupport, TargetID: ruthless, Choice: 0, GemIndex: swIdx, Socket: 0}})
+	if s := a.Gems[swIdx].Supports[0]; s == nil || s.ID != "ruthless" {
+		t.Fatal("Ruthless refused on a melee skill")
+	}
+}
+
+// TestCannonadeFansWithoutPenalty: Cannonade adds a projectile and lifts
+// damage (unlike LMP/GMP which cut it).
+func TestCannonadeFansWithoutPenalty(t *testing.T) {
+	base := hitAmount(t, 78, nil)
+	boosted := hitAmount(t, 78, func(a *core.Actor, db *core.ContentDB) {
+		a.Gems[0].Supports[0] = db.Support("cannonade")
+	})
+	if want := fm.Mul(base, fm.FromMilli(1150)); boosted != want {
+		t.Errorf("cannonade hit = %d, want ×1.15 of %d", boosted, base)
+	}
+	// And it fans: two projectiles from one cast.
+	s := sim.New(content.DB(), 82)
+	player := mustSpawn(t, s, "player", 0, 0)
+	grantGems(t, s, player, "fireball")
+	a := s.W.ActorByID(player)
+	a.Gems[0].Supports[0] = s.W.Content.Support("cannonade")
+	castOnce(t, s, player, "fireball", space.V(fm.FromInt(20), 0))
+	live := 0
+	for _, p := range s.W.Projectiles {
+		if !p.Dead {
+			live++
+		}
+	}
+	if live != 2 {
+		t.Fatalf("cannonade fired %d projectiles, want 2", live)
+	}
+}

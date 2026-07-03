@@ -11,8 +11,8 @@ tests, and session-log entries older than a few sessions (git history is the
 archive). If this file outgrows ~150 lines, it has stopped being a status doc
 and started being a changelog — cut it back.
 
-**Last updated: 2026-07-03** (session 61: stun — big hits interrupt
-actions; the combat mechanics are complete)
+**Last updated: 2026-07-03** (session 62: support-gem pass — three new
+supports open melee, fire, and projectile directions)
 
 ## Where things stand
 
@@ -95,7 +95,7 @@ All foundational machinery from DESIGN.md is real, not stubbed:
 | Minions: `Actor.Owner` (zone-local, saved+hashed), kill attribution up the chain (`World.CreditFor` — XP/flasks/orbs pay the summoner), `minion_melee` heel AI (mobile leash on the owner), `SkillSummon` w/ cap-despawns-oldest; Summon Skeleton cuttable gem (cap 3, minions at gem level); save v12 | `sim/core`, `sim/ai`, `sim/skills`, `content/`, `web/` | done, tested, verified live |
 | Phase order + command validation | `sim/sim.go` | done — this IS the determinism contract |
 | Wire types: versioned welcome (v18), JSON snapshots, binary delta codec | `protocol/` | done, tested |
-| Content tables | `content/` | 18 skills (8 cuttable, 4 staged), 10 supports, 12 actors (3 bosses: Barrow King f%5, Grave Tyrant f%10), 32 affixes, 9 bases, 5 uniques, 8 drop tables, 4 monster mods, 4 buffs |
+| Content tables | `content/` | 18 skills (8 cuttable, 4 staged), 13 supports, 12 actors (3 bosses), 34 affixes (ILvl-tiered), 9 bases, 5 uniques, 8 drop tables, 4 monster mods, 4 buffs |
 | Debug client + determinism/golden replay tests | `cmd/headless`, `sim/sim_test.go` | done |
 
 ## Invariants the code currently honors (don't break casually)
@@ -215,6 +215,17 @@ dictates, and Jake's balance pass over the numbers.
 
 ## Session log
 
+- **2026-07-03 (62)** — Support-gem pass: three new supports, each opening
+  a build direction, all on the existing GemCtx fold (zero engine risk).
+  Ruthless (40% more melee damage, melee-gated) is the payoff Sweep and the
+  melee attacks wanted; Immolate (adds 8 fire + 25% more fire) is the fire/
+  ignite specialist, type-tagged so it only lifts the fire portion;
+  Cannonade (+1 projectile, 15% MORE damage, steep mana) is the aggressive
+  fan that doesn't pay LMP/GMP's damage penalty. Appended to the support
+  table so draft indices don't shift — goldens untouched. Pinned: the fold
+  math (Immolate exceeds a plain ×1.25 from its flat add, Cannonade is
+  exactly ×1.15 and fires two projectiles) and the melee gate (Ruthless
+  refused on a projectile skill, accepted on a melee one).
 - **2026-07-03 (61)** — Stun: the capstone combat mechanic, and the
   deliberate action-model interrupt RISKS #1 anticipated. A hit dealing
   ≥15% of the target's max life clears its current action and locks it out
