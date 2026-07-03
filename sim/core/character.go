@@ -26,12 +26,13 @@ type CharAffix struct {
 // injection because they double as sheet mod sources and would collide in a
 // fresh world. Uncut gems carry Gem instead of Base.
 type CharItem struct {
-	Base     string      `json:"base,omitempty"`
-	Rarity   uint8       `json:"rarity"`
-	Implicit fm.Fixed    `json:"implicit,omitempty"`
-	Affixes  []CharAffix `json:"affixes,omitempty"`
-	Gem      *CharUncut  `json:"gem,omitempty"`
-	Unique   string      `json:"unique,omitempty"` // UniqueDef ID
+	Base      string      `json:"base,omitempty"`
+	Rarity    uint8       `json:"rarity"`
+	Implicit  fm.Fixed    `json:"implicit,omitempty"`
+	ItemLevel int         `json:"ilvl,omitempty"`
+	Affixes   []CharAffix `json:"affixes,omitempty"`
+	Gem       *CharUncut  `json:"gem,omitempty"`
+	Unique    string      `json:"unique,omitempty"` // UniqueDef ID
 }
 
 // CharUncut is an uncut gem item's payload in character form.
@@ -143,7 +144,7 @@ func charItem(item Item) CharItem {
 			Support: item.Gem.Support, Level: item.Gem.Level, Choices: item.Gem.Choices,
 		}}
 	}
-	ci := CharItem{Base: item.Base.ID, Rarity: uint8(item.Rarity), Implicit: item.Implicit}
+	ci := CharItem{Base: item.Base.ID, Rarity: uint8(item.Rarity), Implicit: item.Implicit, ItemLevel: item.ItemLevel}
 	for _, af := range item.Affixes {
 		ci.Affixes = append(ci.Affixes, CharAffix{ID: af.Def.ID, Value: af.Value})
 	}
@@ -284,7 +285,7 @@ func decodeCharItem(db *ContentDB, affixes map[string]*AffixDef, ci CharItem) (I
 	if base == nil {
 		return Item{}, fmt.Errorf("core: character references unknown base item %q", ci.Base)
 	}
-	item := Item{Base: base, Rarity: Rarity(ci.Rarity), Implicit: ci.Implicit}
+	item := Item{Base: base, Rarity: Rarity(ci.Rarity), Implicit: ci.Implicit, ItemLevel: ci.ItemLevel}
 	for _, af := range ci.Affixes {
 		def := affixes[af.ID]
 		if def == nil {

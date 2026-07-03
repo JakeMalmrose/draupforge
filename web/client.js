@@ -2011,7 +2011,7 @@ function itemLines(item, where) {
     // as the kind line, flavor text last.
     const lines = [
       `<span class="tt-name rarity-unique">${item.unique.name}</span>`,
-      `<span class="tt-kind">unique ${prettify(item.base)}${where ? " · " + where : ""}</span>`,
+      `<span class="tt-kind">unique ${prettify(item.base)}${where ? " · " + where : ""}${item.ilvl ? " · ilvl " + item.ilvl : ""}</span>`,
     ];
     if (item.implicit) {
       lines.push(`<span class="tt-implicit">${prettify(item.implicit.id)}: ${item.implicit.value / 1000}</span>`);
@@ -2022,9 +2022,10 @@ function itemLines(item, where) {
     if (item.unique.desc) lines.push(`<span class="tt-plain">${item.unique.desc}</span>`);
     return lines;
   }
+  const ilvl = item.ilvl ? ` · ilvl ${item.ilvl}` : "";
   const lines = [
     `<span class="tt-name rarity-${item.rarity}">${prettify(item.base)}</span>`,
-    `<span class="tt-kind">${item.rarity}${where ? " · " + where : ""}</span>`,
+    `<span class="tt-kind">${item.rarity}${where ? " · " + where : ""}${ilvl}</span>`,
   ];
   if (item.implicit) {
     lines.push(`<span class="tt-implicit">${prettify(item.implicit.id)}: ${item.implicit.value / 1000}</span>`);

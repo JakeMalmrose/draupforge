@@ -702,6 +702,7 @@ func (w *bwriter) item(it ItemSnap) {
 	w.uv(it.ID)
 	w.str(it.Base)
 	w.str(it.Rarity)
+	w.uv(uint64(it.ItemLevel))
 	if it.Implicit != nil {
 		w.u8(1)
 		w.str(it.Implicit.ID)
@@ -808,7 +809,7 @@ func (r *breader) idset() map[uint64]bool {
 }
 
 func (r *breader) item() ItemSnap {
-	it := ItemSnap{ID: r.uv(), Base: r.str(), Rarity: r.str()}
+	it := ItemSnap{ID: r.uv(), Base: r.str(), Rarity: r.str(), ItemLevel: int(r.uv())}
 	if r.u8() == 1 {
 		it.Implicit = &AffixSnap{ID: r.str(), Value: r.sv()}
 	}

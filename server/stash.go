@@ -114,7 +114,7 @@ func charItemSnap(db *core.ContentDB, id uint64, ci core.CharItem) protocol.Item
 			Support: ci.Gem.Support, Level: ci.Gem.Level, Choices: ci.Gem.Choices,
 		}}
 	}
-	out := protocol.ItemSnap{ID: id, Base: ci.Base, Rarity: core.Rarity(ci.Rarity).String()}
+	out := protocol.ItemSnap{ID: id, Base: ci.Base, Rarity: core.Rarity(ci.Rarity).String(), ItemLevel: ci.ItemLevel}
 	if base := db.BaseItems[ci.Base]; base != nil && base.Implicit != nil && ci.Implicit != 0 {
 		out.Implicit = &protocol.AffixSnap{ID: base.Implicit.ID, Value: ci.Implicit.Milli()}
 	}

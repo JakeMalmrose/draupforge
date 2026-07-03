@@ -11,8 +11,8 @@ tests, and session-log entries older than a few sessions (git history is the
 archive). If this file outgrows ~150 lines, it has stopped being a status doc
 and started being a changelog — cut it back.
 
-**Last updated: 2026-07-03** (session 56: the Grave Tyrant — floor-10 apex
-boss that summons, composing this session's whole toolkit)
+**Last updated: 2026-07-03** (session 57: item level + depth-scaled affix
+tiers — deeper floors drop better gear)
 
 ## Where things stand
 
@@ -71,7 +71,7 @@ All foundational machinery from DESIGN.md is real, not stubbed:
 | Persistence: `World.Save`/`LoadWorld` (versioned JSON, bit-exact), admin `POST /api/save`, descent run envelope (v2); `-load` under the lobby seeds the first instance (validated at boot) | `sim/core/save.go`, `server/runsave.go`, `server/lobby.go` | done, tested, verified e2e |
 | Actions (windup/recovery) + projectiles; skill feel: splash w/ falloff, wall bounce, heading wiggle, hitscan chains | `sim/skills` | done, tested |
 | Staged skills (DESIGN §15): stage sequences w/ per-stage locked aims, blast/ring effects, telegraphs on the wire (v19); telegraphed blasts skip evasion; the Barrow King (boss_king AI, floors %5, rare, stateless enrage <50%) + boss bar + ground-telegraph rendering | `sim/skills`, `sim/ai`, `content/`, `server/descent.go`, `web/` | done, tested, verified live |
-| Loot: rarity weights, weighted affixes, group caps, per-slot pools (depth asserted at DB()), rolled implicits | `sim/items` | done, tested |
+| Loot: rarity weights, weighted affixes, group caps, per-slot pools, rolled implicits; item level (= dier's level, floor-scaled) gates affix tiers (ILvl-gated greater/grand tiers) — deeper drops roll strictly better; base tiers always fill (DB() asserts ILvl-0 depth); save v13, wire v21, ilvl on the tooltip | `sim/items`, `content/`, `web/` | done, tested, verified live |
 | Uniques: fixed-identity chase items (4 in content) with shape stats nothing else rolls (ExtraProjectiles/ExtraChains — the skill system reads them off the sheet); UniquePermille per table, orange styling + authored mod lines on the wire (v20); orbs refuse them; save v11 | `sim/items`, `sim/stats`, `content/`, `web/` | done, tested, verified live |
 | Currency: orb wallet (transmute/alch/chaos/jeweller) banked straight to the killer; `apply_orb` crafts bag items | `sim/items`, `web/` | done, tested |
 | Gems: cast only from cut gems; a fresh character spawns with `StartingUncut` draft-of-3 gems instead of a fixed starter; uncut drops carry a draft of 3 at the dier's level (cap 20); supports fold into the socketed skill's queries only (more/less, added flat, speed, mana, fans, chain, conversion); cast contexts bake at use; save v9 | `sim/core/gems.go`, `sim/items/gems.go`, `content/supports.go`, `web/` | done, tested, verified live |
@@ -180,8 +180,7 @@ load-bearing (top entry: the action model is one-thing-at-a-time).
 - Terrain travels as JSON rows in the welcome (~2KB at 48×48); fog of war
   is client-side reveal tracking over it — the server still sends the whole
   map, so a determined cheater can read the layout (not the monsters: those
-  are interest-culled server-side at 60u). Affix tiers are shallow and
-  pools don't scale with item level.
+  are interest-culled server-side at 60u).
 - The run is per-instance, single-player-first: any death ejects everyone,
   travel moves the whole instance (parties live and die together); one eject
   consumes one portal use however many died that tick.
@@ -213,6 +212,20 @@ dictates, and Jake's balance pass over the numbers.
 
 ## Session log
 
+- **2026-07-03 (57)** — Item level + depth-scaled affix tiers (the loot
+  loop finally rewards depth). Every drop carries an item level = the
+  dier's level, which is floor-scaled — so a floor-14 kill drops ilvl-14
+  gear and a floor-1 kill drops ilvl-1. Affixes gained an `ILvl` gate; the
+  weighted roll only considers tiers the item level unlocks. Content: the
+  `_greater` life/armour/resist tiers moved behind ILvl 5/8, and new
+  `_grand` life/armour tiers unlock at ILvl 12 — deeper drops roll
+  strictly better. Every group keeps an ILvl-0 base tier so a floor-1 item
+  never starves (DB() now asserts base-tier depth). Replay-relevant (new
+  filter + item level in the hash) → goldens re-recorded; save v13, wire
+  v21 (ilvl on the item snap), `ilvl N` on the tooltip. Pinned: ilvl-1
+  never rolls a gated tier, ilvl-20 does. Verified live on floor 14: a
+  level-14 monster dropped ilvl-14, an admin level-1 dummy dropped ilvl-1,
+  the tooltip renders the tier and the level; zero console errors.
 - **2026-07-03 (56)** — The Grave Tyrant: floor-10 apex boss, and the
   payoff for the whole session's machinery — it's a staged-skill boss
   (DESIGN §15) that summons through the spawn queue (RISKS #2) minions that

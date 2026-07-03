@@ -231,7 +231,7 @@ func itemSnap(item core.Item) protocol.ItemSnap {
 			Support: item.Gem.Support, Level: item.Gem.Level, Choices: item.Gem.Choices,
 		}}
 	}
-	out := protocol.ItemSnap{ID: uint64(item.ID), Base: item.Base.ID, Rarity: item.Rarity.String()}
+	out := protocol.ItemSnap{ID: uint64(item.ID), Base: item.Base.ID, Rarity: item.Rarity.String(), ItemLevel: item.ItemLevel}
 	if imp := item.Base.Implicit; imp != nil {
 		out.Implicit = &protocol.AffixSnap{ID: imp.ID, Value: item.Implicit.Milli()}
 	}

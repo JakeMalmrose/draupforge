@@ -16,7 +16,7 @@ func TestRollItemConstraints(t *testing.T) {
 	// Roll a pile of items across seeds and check every invariant.
 	for seed := uint64(0); seed < 200; seed++ {
 		w := core.NewWorld(db, seed)
-		item := items.RollItem(w, table)
+		item := items.RollItem(w, table, 20)
 
 		if item.Base == nil {
 			t.Fatal("item rolled with nil base")
@@ -63,8 +63,8 @@ func TestRollItemDeterministic(t *testing.T) {
 	db := content.DB()
 	table := db.LootTables["zombie_drops"]
 
-	a := items.RollItem(core.NewWorld(db, 7), table)
-	b := items.RollItem(core.NewWorld(db, 7), table)
+	a := items.RollItem(core.NewWorld(db, 7), table, 20)
+	b := items.RollItem(core.NewWorld(db, 7), table, 20)
 	if a.Base.ID != b.Base.ID || a.Rarity != b.Rarity || len(a.Affixes) != len(b.Affixes) {
 		t.Fatal("same seed rolled different items")
 	}
@@ -81,7 +81,7 @@ func TestRollItemImplicit(t *testing.T) {
 
 	for seed := uint64(0); seed < 100; seed++ {
 		w := core.NewWorld(db, seed)
-		item := items.RollItem(w, table)
+		item := items.RollItem(w, table, 20)
 		imp := item.Base.Implicit
 		if imp == nil {
 			t.Fatalf("seed %d: base %s has no implicit — every v1 base should", seed, item.Base.ID)
@@ -99,14 +99,14 @@ func TestRollRarityWeights(t *testing.T) {
 		return &core.LootTableDef{ID: "t", Bases: []string{"iron_ring"}, RarityWeights: weights}
 	}
 	for seed := uint64(0); seed < 50; seed++ {
-		if r := items.RollItem(core.NewWorld(db, seed), always([3]uint32{1, 0, 0})).Rarity; r != core.RarityNormal {
+		if r := items.RollItem(core.NewWorld(db, seed), always([3]uint32{1, 0, 0}), 20).Rarity; r != core.RarityNormal {
 			t.Fatalf("seed %d: all-normal weights rolled %v", seed, r)
 		}
-		if r := items.RollItem(core.NewWorld(db, seed), always([3]uint32{0, 0, 1})).Rarity; r != core.RarityRare {
+		if r := items.RollItem(core.NewWorld(db, seed), always([3]uint32{0, 0, 1}), 20).Rarity; r != core.RarityRare {
 			t.Fatalf("seed %d: all-rare weights rolled %v", seed, r)
 		}
 		// All-zero weights (content forgot) degrade to normal instead of panicking.
-		if r := items.RollItem(core.NewWorld(db, seed), always([3]uint32{})).Rarity; r != core.RarityNormal {
+		if r := items.RollItem(core.NewWorld(db, seed), always([3]uint32{}), 20).Rarity; r != core.RarityNormal {
 			t.Fatalf("seed %d: zero weights rolled %v", seed, r)
 		}
 	}
@@ -124,7 +124,7 @@ func TestRollItemStarvedPoolEmitsEvent(t *testing.T) {
 		},
 	}
 	w := core.NewWorld(db, 3)
-	item := items.RollItem(w, db.LootTables["starved"])
+	item := items.RollItem(w, db.LootTables["starved"], 20)
 	if len(item.Affixes) != 1 {
 		t.Fatalf("starved rare rolled %d affixes, want 1", len(item.Affixes))
 	}
@@ -153,7 +153,7 @@ func TestAffixesRespectSlotFamilies(t *testing.T) {
 		w := core.NewWorld(db, 99)
 		table := rareOnly(base)
 		for i := 0; i < 150; i++ {
-			item := items.RollItem(w, table)
+			item := items.RollItem(w, table, 20)
 			for _, af := range item.Affixes {
 				if !af.Def.AllowedOn(def.Slot) {
 					t.Fatalf("%s rolled %s, not allowed on family %d", base, af.Def.ID, def.Slot)
@@ -169,5 +169,48 @@ func TestAffixesRespectSlotFamilies(t *testing.T) {
 	}
 	if !sawMoveSpeedOnBoots {
 		t.Error("150 rare boots never rolled move speed — pool wiring suspect")
+	}
+}
+
+// TestItemLevelGatesTiers: low-level drops never carry an affix tier gated
+// above their item level, and deep drops can — so depth means better gear.
+func TestItemLevelGatesTiers(t *testing.T) {
+	db := content.DB()
+	// A body-armour-only table maximizes the tiered life/armour affixes.
+	table := &core.LootTableDef{
+		ID: "t", DropChance: fm.One, Bases: []string{"leather_vest"},
+		RarityWeights: [3]uint32{0, 0, 1}, // always rare — six affixes
+	}
+	gated := map[string]int{
+		"flat_life_greater": 5, "flat_life_grand": 12,
+		"flat_armour_greater": 5, "flat_armour_grand": 12,
+	}
+
+	sawLowGated, sawHighTier := false, false
+	for seed := uint64(0); seed < 400; seed++ {
+		low := items.RollItem(core.NewWorld(db, seed), table, 1)
+		if low.ItemLevel != 1 {
+			t.Fatalf("item level = %d, want 1", low.ItemLevel)
+		}
+		for _, af := range low.Affixes {
+			if min, ok := gated[af.Def.ID]; ok && min > 1 {
+				t.Fatalf("ilvl-1 item rolled %s (gated at ilvl %d)", af.Def.ID, min)
+			}
+			if af.Def.ID == "flat_life" {
+				sawLowGated = true // the base tier is available low
+			}
+		}
+		high := items.RollItem(core.NewWorld(db, seed), table, 20)
+		for _, af := range high.Affixes {
+			if af.Def.ID == "flat_life_grand" || af.Def.ID == "flat_armour_grand" {
+				sawHighTier = true
+			}
+		}
+	}
+	if !sawLowGated {
+		t.Fatal("never rolled the base life tier at ilvl 1 — pool starved?")
+	}
+	if !sawHighTier {
+		t.Fatal("400 ilvl-20 rares never rolled a grand tier — gate never opens?")
 	}
 }

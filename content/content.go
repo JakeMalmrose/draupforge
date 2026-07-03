@@ -71,15 +71,18 @@ func DB() *core.ContentDB {
 	// Per-slot pools must stay deep enough to fill a rare (3 prefixes + 3
 	// suffixes from distinct groups) on every family a base occupies —
 	// starving a pool is a content bug, caught here instead of at drop time.
+	// Only ILvl-0 (base tier) affixes count: a floor-1 item unlocks nothing
+	// higher, so the base tiers alone must cover a rare or a low-level drop
+	// starves.
 	for _, b := range db.BaseItems {
 		groups := [2]map[string]bool{{}, {}}
 		for _, af := range db.Affixes {
-			if af.AllowedOn(b.Slot) {
+			if af.ILvl == 0 && af.AllowedOn(b.Slot) {
 				groups[af.Kind][af.Group] = true
 			}
 		}
 		if len(groups[core.Prefix]) < 3 || len(groups[core.Suffix]) < 3 {
-			panic("content: affix pool too shallow for " + b.ID)
+			panic("content: base-tier affix pool too shallow for " + b.ID)
 		}
 	}
 	for _, t := range lootTableDefs() {
@@ -1126,7 +1129,13 @@ func affixDefs() []*core.AffixDef {
 		{
 			ID: "flat_life_greater", Group: "life", Kind: core.Prefix,
 			Stat: stats.Life, Layer: stats.LayerFlat,
-			Min: fm.FromInt(26), Max: fm.FromInt(45), Weight: 35,
+			Min: fm.FromInt(26), Max: fm.FromInt(45), Weight: 35, ILvl: 5,
+			Families: lifes,
+		},
+		{
+			ID: "flat_life_grand", Group: "life", Kind: core.Prefix,
+			Stat: stats.Life, Layer: stats.LayerFlat,
+			Min: fm.FromInt(46), Max: fm.FromInt(75), Weight: 18, ILvl: 12,
 			Families: lifes,
 		},
 		{
@@ -1144,7 +1153,13 @@ func affixDefs() []*core.AffixDef {
 		{
 			ID: "flat_armour_greater", Group: "armour", Kind: core.Prefix,
 			Stat: stats.Armour, Layer: stats.LayerFlat,
-			Min: fm.FromInt(41), Max: fm.FromInt(75), Weight: 25,
+			Min: fm.FromInt(41), Max: fm.FromInt(75), Weight: 25, ILvl: 5,
+			Families: armours,
+		},
+		{
+			ID: "flat_armour_grand", Group: "armour", Kind: core.Prefix,
+			Stat: stats.Armour, Layer: stats.LayerFlat,
+			Min: fm.FromInt(76), Max: fm.FromInt(120), Weight: 12, ILvl: 12,
 			Families: armours,
 		},
 		{
@@ -1181,7 +1196,7 @@ func affixDefs() []*core.AffixDef {
 		{
 			ID: "fire_resistance_greater", Group: "fire_res", Kind: core.Suffix,
 			Stat: stats.FireRes, Layer: stats.LayerFlat,
-			Min: fm.FromMilli(210), Max: fm.FromMilli(300), Weight: 30, // 21–30%
+			Min: fm.FromMilli(210), Max: fm.FromMilli(300), Weight: 30, ILvl: 8, // 21–30%
 			Families: resists,
 		},
 		{
@@ -1193,7 +1208,7 @@ func affixDefs() []*core.AffixDef {
 		{
 			ID: "cold_resistance_greater", Group: "cold_res", Kind: core.Suffix,
 			Stat: stats.ColdRes, Layer: stats.LayerFlat,
-			Min: fm.FromMilli(210), Max: fm.FromMilli(300), Weight: 30,
+			Min: fm.FromMilli(210), Max: fm.FromMilli(300), Weight: 30, ILvl: 8,
 			Families: resists,
 		},
 		{
@@ -1205,7 +1220,7 @@ func affixDefs() []*core.AffixDef {
 		{
 			ID: "lightning_resistance_greater", Group: "lightning_res", Kind: core.Suffix,
 			Stat: stats.LightningRes, Layer: stats.LayerFlat,
-			Min: fm.FromMilli(210), Max: fm.FromMilli(300), Weight: 30,
+			Min: fm.FromMilli(210), Max: fm.FromMilli(300), Weight: 30, ILvl: 8,
 			Families: resists,
 		},
 		{

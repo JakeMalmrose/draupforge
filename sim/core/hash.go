@@ -35,6 +35,11 @@ func (s *hasher) item(item *Item) {
 	s.str(item.Base.ID)
 	s.u64(uint64(item.Rarity))
 	s.i64(item.Implicit.Milli())
+	// Conditional like everything new: item-level-0 items (old saves,
+	// scenario grants) keep their pre-item-level stream.
+	if item.ItemLevel != 0 {
+		s.u64(uint64(item.ItemLevel))
+	}
 	for _, af := range item.Affixes {
 		s.str(af.Def.ID)
 		s.i64(af.Value.Milli())
