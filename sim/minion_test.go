@@ -210,3 +210,44 @@ func TestBonelordRaisesTheCap(t *testing.T) {
 		t.Fatalf("%d minions with Bonelord's cap, want 4", got)
 	}
 }
+
+// TestTyrantRaisesThenFights: the apex boss keeps a thrall pack up before
+// anything else, then quakes what stands on its ground; a bloodied Tyrant
+// doubles the pack.
+func TestTyrantRaisesThenFights(t *testing.T) {
+	s := sim.New(content.DB(), 7)
+	tyrant := mustSpawn(t, s, "grave_tyrant", 0, 0)
+	mustSpawn(t, s, "player", 4000, 0)
+
+	s.Step(nil) // AI decides: no thralls yet → raise
+	ty := s.W.ActorByID(tyrant)
+	if ty.Action.Kind != core.ActionSkill || ty.Action.Skill.ID != "raise_thralls" {
+		t.Fatalf("thrall-less tyrant chose %v, want raise_thralls", ty.Action.Skill)
+	}
+	for ty.Action.Kind == core.ActionSkill {
+		s.Step(nil)
+	}
+	if got := len(minionsOf(s, tyrant)); got != 3 {
+		t.Fatalf("%d thralls after the rite, want 3", got)
+	}
+	for _, m := range minionsOf(s, tyrant) {
+		if m.Def.ID != "risen_thrall" || m.Team != core.TeamMonsters {
+			t.Fatalf("thrall = %s team %v, want a monster-team risen_thrall", m.Def.ID, m.Team)
+		}
+	}
+
+	s.Step(nil) // pack is up, player in quake range → quake
+	if ty.Action.Kind != core.ActionSkill || ty.Action.Skill.ID != "tyrant_quake" {
+		t.Fatalf("packed tyrant chose %v, want tyrant_quake", ty.Action.Skill)
+	}
+
+	// Bloodied: wants six. Clear the action, wound it, re-decide.
+	for ty.Action.Kind == core.ActionSkill {
+		s.Step(nil)
+	}
+	ty.Life = fm.Div(ty.MaxLife(), fm.FromInt(3))
+	s.Step(nil)
+	if ty.Action.Kind != core.ActionSkill || ty.Action.Skill.ID != "raise_thralls" {
+		t.Fatalf("bloodied tyrant with 3 thralls chose %v, want raise_thralls", ty.Action.Skill)
+	}
+}

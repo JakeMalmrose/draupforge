@@ -466,6 +466,21 @@ func TestBossFloorsSpawnTheKing(t *testing.T) {
 	if find(s6, guardianDef) == nil {
 		t.Error("floor 6 has no guardian")
 	}
+	// Floor 10: the apex outranks the king (10 is also %5).
+	s10, err := in.buildFloor(10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	apex := find(s10, apexDef)
+	if apex == nil {
+		t.Fatal("floor 10 has no apex boss")
+	}
+	if apex.Level != 13 {
+		t.Errorf("apex level = %d, want floor+3 = 13", apex.Level)
+	}
+	if find(s10, bossDef) != nil {
+		t.Error("floor 10 spawned the king alongside the apex")
+	}
 }
 
 // TestRunSaveRoundTrip: the run envelope restores a mid-run instance —
