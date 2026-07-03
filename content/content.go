@@ -1287,6 +1287,14 @@ func affixDefs() []*core.AffixDef {
 			Min: fm.FromMilli(20), Max: fm.FromMilli(50), Weight: 30, ILvl: 4, // 2–5%
 			Families: []core.SlotFamily{core.FamilyWeapon, core.FamilyRing, core.FamilyAmulet},
 		},
+		{
+			// Extra block, stacking on the shield's implicit — the tank's
+			// chase suffix, offhand-only and ILvl-gated.
+			ID: "increased_block", Group: "block", Kind: core.Suffix,
+			Stat: stats.Block, Layer: stats.LayerFlat,
+			Min: fm.FromMilli(50), Max: fm.FromMilli(120), Weight: 35, ILvl: 6, // +5–12%
+			Families: []core.SlotFamily{core.FamilyOffhand},
+		},
 	}
 }
 
@@ -1300,8 +1308,10 @@ func baseItemDefs() []*core.BaseItemDef {
 			Min: fm.FromMilli(50), Max: fm.FromMilli(100), // 5–10%
 		}},
 		{ID: "wooden_shield", Name: "Wooden Shield", Slot: core.FamilyOffhand, Implicit: &core.ImplicitDef{
-			ID: "armour", Stat: stats.Armour, Layer: stats.LayerFlat,
-			Min: fm.FromInt(10), Max: fm.FromInt(25),
+			// A shield's identity is block — the reason to give up a second
+			// weapon or a caster offhand.
+			ID: "block", Stat: stats.Block, Layer: stats.LayerFlat,
+			Min: fm.FromMilli(150), Max: fm.FromMilli(250), // 15–25% block
 		}},
 		{ID: "leather_cap", Name: "Leather Cap", Slot: core.FamilyHelmet, Implicit: &core.ImplicitDef{
 			ID: "evasion", Stat: stats.Evasion, Layer: stats.LayerFlat,

@@ -11,8 +11,8 @@ tests, and session-log entries older than a few sessions (git history is the
 archive). If this file outgrows ~150 lines, it has stopped being a status doc
 and started being a changelog — cut it back.
 
-**Last updated: 2026-07-03** (session 58: life leech — sustain from damage
-dealt, the first of the absent defensive mechanics)
+**Last updated: 2026-07-03** (session 59: block — shields negate hits, the
+counterplay layer)
 
 ## Where things stand
 
@@ -66,7 +66,7 @@ All foundational machinery from DESIGN.md is real, not stubbed:
 | Space: tile grid (clearance-eroded walkability), DDA raycast, deterministic A* + smoothing, rooms-and-corridors mapgen off RNGMap | `sim/space` | done, tested |
 | Stat algebra (flat/inc/more/override + tags) | `sim/stats` | done, tested, memoized |
 | World/Actor/Hit/defs, RNG, state hashing | `sim/core` | done |
-| Damage pipeline (incl. live conversion stage) + DoTs + regen + life leech (PostHit: a fraction of hit damage refills the attacker, capped, hits-only, no self-leech) | `sim/combat` | done, tested |
+| Damage pipeline (incl. live conversion stage) + DoTs + regen + life leech (PostHit) + block (post-evasion: a defender's Block chance negates the whole hit, 75% cap, conditional RNG draw pinned) | `sim/combat` | done, tested |
 | Statuses: ignite/chill/shock ailments + content buffs (refresh-not-stack, pending-buff queue) | `sim/combat` | done, tested |
 | Persistence: `World.Save`/`LoadWorld` (versioned JSON, bit-exact), admin `POST /api/save`, descent run envelope (v2); `-load` under the lobby seeds the first instance (validated at boot) | `sim/core/save.go`, `server/runsave.go`, `server/lobby.go` | done, tested, verified e2e |
 | Actions (windup/recovery) + projectiles; skill feel: splash w/ falloff, wall bounce, heading wiggle, hitscan chains | `sim/skills` | done, tested |
@@ -156,9 +156,9 @@ load-bearing (top entry: the action model is one-thing-at-a-time).
 
 ## Known shortcuts (deliberate, fine for now)
 
-- Block, stun, ES recharge: absent (life leech shipped session 58 — a
-  sheet stat applied in the pipeline PostHit stage, off a gear suffix).
-  Chill doesn't slow an action
+- Stun, ES recharge: absent. Life leech (58) and block (59) shipped —
+  block is the shield's identity now (its implicit rolls 15–25% block, an
+  offhand suffix stacks more, 75% cap). Chill doesn't slow an action
   already in flight (tick counts bind at use time); movement slows now.
 - Corpses compact away at tick end — fine until on-corpse mechanics matter.
 - Inventory is a flat ID-addressed bag, no stacking; bag arrangement is
@@ -214,6 +214,18 @@ dictates, and Jake's balance pass over the numbers.
 
 ## Session log
 
+- **2026-07-03 (59)** — Block: the counterplay layer, and the shield's new
+  reason to exist. A `Block` sheet stat — a defender's chance to negate an
+  entire hit — rolled in the pipeline right after evasion, before any
+  damage (`EvBlock`, 75% cap so it's never a certainty). Conditional
+  consumption like the ailments (only defenders with Block > 0 draw),
+  pinned by `TestBlockRNGConsumption` — old replays stay byte-stable.
+  Content: the wooden shield's implicit is now 15–25% block (was flat
+  armour — block IS the shield now), and a new offhand block suffix stacks
+  5–12% more (ILvl 6). Client: a steel-blue parry-arc spark on the blocker
+  and a "blocked" log line. Goldens re-recorded (the shield implicit
+  changed). Verified with a probe: a 25%-block shield turned ~31% of real
+  zombie swings through the full sim.
 - **2026-07-03 (58)** — Life leech: the first of the absent sustain
   mechanics (DESIGN §3 reserved the PostHit slot for it). A `LifeLeech`
   sheet stat — fraction of a hit's dealt damage returned to the attacker

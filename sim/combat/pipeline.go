@@ -10,11 +10,12 @@ import (
 )
 
 const (
-	maxResist    = fm.Fixed(750) // 75% resistance cap
-	maxArmourRed = fm.Fixed(900) // 90% physical reduction cap
-	minHitChance = fm.Fixed(50)  // attacks always have ≥5% to hit
-	igniteFrac   = fm.Fixed(500) // ignite dps = 50% of the fire hit
-	igniteTicks  = 4 * core.TicksPerSecond
+	maxResist      = fm.Fixed(750) // 75% resistance cap
+	maxArmourRed   = fm.Fixed(900) // 90% physical reduction cap
+	minHitChance   = fm.Fixed(50)  // attacks always have ≥5% to hit
+	igniteFrac     = fm.Fixed(500) // ignite dps = 50% of the fire hit
+	igniteTicks    = 4 * core.TicksPerSecond
+	maxBlockChance = fm.Fixed(750) // 75% block cap — never a certainty
 )
 
 // ResolveHits drains the world's pending-hit queue in order.
@@ -44,6 +45,18 @@ func resolve(w *core.World, h *core.Hit) {
 		h.Evaded = true
 		w.Emit(core.Event{Kind: core.EvMiss, Actor: att.ID, Other: def.ID, Note: h.Skill.ID})
 		return
+	}
+
+	// Stage: block. A defender with block chance rolls to negate the whole
+	// hit — after evasion, before any damage rolls. Conditional consumption
+	// (only defenders with Block > 0 draw), pinned like the ailments;
+	// capped so block is never a certainty.
+	if bc := def.Sheet.Eval(stats.Block, tags); bc > 0 {
+		if w.RNGCombat.Chance(fm.Min(bc, maxBlockChance)) {
+			h.Blocked = true
+			w.Emit(core.Event{Kind: core.EvBlock, Actor: att.ID, Other: def.ID, Note: h.Skill.ID})
+			return
+		}
 	}
 
 	// Stage: base roll + added + conversion + inc/more (the order DESIGN.md

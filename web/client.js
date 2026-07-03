@@ -281,6 +281,10 @@ function onView(view) {
       }
       if (ev.other === myId) shakeUntil = performance.now() + SHAKE_MS;
     }
+    if (ev.kind === "block") {
+      const blocker = findEnt(ev.other);
+      if (blocker) spawnBlockSpark(blocker.pos, view.tick * tickMs);
+    }
     if (ev.kind === "death") {
       const dier = findEnt(ev.actor);
       if (dier) spawnDeathPop(dier.pos, view.tick * tickMs, dier);
@@ -1560,6 +1564,24 @@ function spawnImpact(pos, st, v) {
   });
 }
 
+// A block: a quick steel-blue arc sweeping across the blocker — the shield
+// turning the blow.
+function spawnBlockSpark(pos, st) {
+  spawnEffect(st, 260, (t) => {
+    const p = worldToScreen(pos.x, pos.y);
+    const r = SCALE * 0.7;
+    ctx.globalAlpha = (1 - t) * 0.9;
+    ctx.strokeStyle = "#bcd4e8";
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, r, -0.9 + t * 0.6, 0.9 + t * 0.6); // a widening parry arc
+    ctx.stroke();
+    ctx.strokeStyle = "#e8f2ff";
+    ctx.lineWidth = 1;
+    ctx.stroke();
+  });
+}
+
 // Camera shake when something connects with *you*.
 let shakeUntil = 0;
 const SHAKE_MS = 220;
@@ -2616,6 +2638,9 @@ function logEvent(ev) {
       break;
     case "miss":
       text = `${nameOf(ev.actor)} missed ${nameOf(ev.other)}`;
+      break;
+    case "block":
+      text = `${nameOf(ev.other)} blocked ${nameOf(ev.actor)}`;
       break;
     case "death":
       text = `${nameOf(ev.actor)} died`;
