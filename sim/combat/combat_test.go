@@ -273,3 +273,64 @@ func TestNoLeechWithoutStat(t *testing.T) {
 		t.Fatalf("leech-less attacker healed to %v", att.Life)
 	}
 }
+
+// TestBlockNegatesHit: a defender with block chance can turn a hit into no
+// damage (EvBlock), and the block roll is conditional — a no-block defender
+// draws exactly the RNG a plain hit does, so old replays stay byte-stable.
+func TestBlockNegatesHit(t *testing.T) {
+	w := testWorld()
+	att := w.SpawnActor(actorDef(100, nil), space.V(0, 0))
+	// Certain block (clamped to the 75% cap): the hit must sometimes land
+	// and sometimes not; with an always-true roll it never lands.
+	def := w.SpawnActor(actorDef(1000, map[stats.StatID]fm.Fixed{stats.Block: fm.One}), space.V(fm.One, 0))
+	sk := spellDef(30, 30, core.Fire)
+
+	blocks, hits := 0, 0
+	for i := 0; i < 200; i++ {
+		before := def.Life
+		w.QueueHit(core.Hit{Attacker: att.ID, Defender: def.ID, Skill: sk, Tags: sk.Tags.With(stats.TagHit)})
+		combat.ResolveHits(w)
+		got := false
+		for _, ev := range w.Events() {
+			if ev.Kind == core.EvBlock {
+				got = true
+			}
+		}
+		if got {
+			blocks++
+			if def.Life != before {
+				t.Fatal("a blocked hit still dealt damage")
+			}
+		} else {
+			hits++
+			if def.Life >= before {
+				t.Fatal("an unblocked hit dealt nothing")
+			}
+			def.Life = fm.FromInt(1000) // reset the pool between landed hits
+		}
+		w.BeginTick() // clear events between iterations
+	}
+	// 75% cap → roughly 3:1 blocks to hits; just assert both happen.
+	if blocks == 0 || hits == 0 {
+		t.Fatalf("block never varied: %d blocks, %d hits", blocks, hits)
+	}
+}
+
+// TestBlockRNGConsumption: a no-block defender consumes exactly the RNG a
+// plain hit would — block draws only when Block > 0.
+func TestBlockRNGConsumption(t *testing.T) {
+	state := func(block fm.Fixed) [4]uint64 {
+		w := testWorld()
+		att := w.SpawnActor(actorDef(100, nil), space.V(0, 0))
+		def := w.SpawnActor(actorDef(1000, map[stats.StatID]fm.Fixed{stats.Block: block}), space.V(fm.One, 0))
+		queueAndResolve(w, att, def, spellDef(10, 10, core.Fire))
+		return w.RNGCombat.State()
+	}
+	plain := state(0)
+	if state(0) != plain {
+		t.Fatal("non-determinism in the baseline")
+	}
+	if state(fm.Half) == plain {
+		t.Fatal("a block chance consumed no extra RNG — the block roll vanished")
+	}
+}

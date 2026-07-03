@@ -537,6 +537,7 @@ type Hit struct {
 	Damage  [DamageTypeCount]fm.Fixed
 	Crit    bool
 	Evaded  bool
+	Blocked bool
 	Ignited bool
 	Chilled bool
 	Shocked bool

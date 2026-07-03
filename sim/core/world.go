@@ -109,6 +109,9 @@ const (
 	// EvSpawn fires when a queued mid-tick spawn materializes: Actor = the
 	// newcomer, Other = the cause (the dier for on-death adds), Note = def.
 	EvSpawn
+	// EvBlock fires when a defender blocks a hit (Actor = attacker,
+	// Other = defender): the hit dealt nothing.
+	EvBlock
 )
 
 func (k EventKind) String() string {
@@ -145,6 +148,8 @@ func (k EventKind) String() string {
 		return "gem"
 	case EvSpawn:
 		return "spawn"
+	case EvBlock:
+		return "block"
 	default:
 		return "unequip"
 	}
