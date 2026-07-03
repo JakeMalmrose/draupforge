@@ -106,6 +106,9 @@ const (
 	// (Amount = new level), "support:support_id:skill_id", or
 	// "socket:skill_id" (Amount = new socket count).
 	EvGem
+	// EvSpawn fires when a queued mid-tick spawn materializes: Actor = the
+	// newcomer, Other = the cause (the dier for on-death adds), Note = def.
+	EvSpawn
 )
 
 func (k EventKind) String() string {
@@ -140,6 +143,8 @@ func (k EventKind) String() string {
 		return "orb"
 	case EvGem:
 		return "gem"
+	case EvSpawn:
+		return "spawn"
 	default:
 		return "unequip"
 	}
@@ -179,6 +184,14 @@ type World struct {
 	// since effect points fire in the action phase. Same pattern as hits so
 	// skills stays a leaf package.
 	PendingBuffs []PendingBuff
+
+	// Actor spawns queued this tick (on-death adds; minions someday),
+	// materialized in queue order by DrainSpawns at root sim's fixed spawn
+	// phase — after combat and deaths, before compaction. Mid-tick systems
+	// never insert actors directly: IDs mint at drain, the newcomers take
+	// no action and eat no hit on their birth tick, and iteration order
+	// stays stable while a tick is in flight (RISKS #2, designed here).
+	PendingSpawns []PendingSpawn
 
 	// Independent streams so adding a roll in one system doesn't reshuffle
 	// the others in replays.
@@ -293,6 +306,42 @@ type PendingBuff struct {
 }
 
 func (w *World) QueueBuff(b PendingBuff) { w.PendingBuffs = append(w.PendingBuffs, b) }
+
+// PendingSpawn is one queued mid-tick actor creation.
+type PendingSpawn struct {
+	Def *ActorDef
+	Pos space.Vec2
+	// Level overrides the def's (0 keeps it) — adds inherit their parent's.
+	Level int
+	// Source is the causing entity (the dier, the summoner) for the event.
+	Source EntityID
+}
+
+func (w *World) QueueSpawn(s PendingSpawn) { w.PendingSpawns = append(w.PendingSpawns, s) }
+
+// DrainSpawns materializes queued spawns in queue order: positions clamp
+// to walkable ground, IDs mint here (deterministic in queue order), pools
+// fill at the leveled maxima, and each birth emits EvSpawn. Root sim calls
+// this at its fixed phase; nothing else may.
+func (w *World) DrainSpawns() {
+	for _, ps := range w.PendingSpawns {
+		pos := ps.Pos
+		if w.Grid != nil {
+			if p, ok := w.Grid.NearestWalkable(pos); ok {
+				pos = p
+			} else {
+				continue // nowhere legal to stand; the add is simply lost
+			}
+		}
+		a := w.SpawnActor(ps.Def, pos)
+		if ps.Level > 0 {
+			a.SetLevel(ps.Level)
+			a.Life, a.Mana, a.ES = a.MaxLife(), a.MaxMana(), a.MaxES()
+		}
+		w.Emit(Event{Kind: EvSpawn, Actor: a.ID, Other: ps.Source, Note: ps.Def.ID})
+	}
+	w.PendingSpawns = w.PendingSpawns[:0]
+}
 
 func (w *World) Emit(e Event) {
 	e.Tick = w.Tick

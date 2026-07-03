@@ -21,16 +21,19 @@ on `SkillKind`, and every action — staged or not — still owns the actor
 completely. Channel/movement-skill/interrupt each still need the same
 design-first treatment.
 
-## 2. No mid-tick entity creation
+## 2. Mid-tick entity creation — mitigated (session 51), edges remain
 
-Nothing can add an actor to the world during a tick — spawning happens from
-the host between ticks. Minions, totems, spawn-on-death adds, and
-split-on-hit monsters all need it, and the genre guarantees we'll want
-them. The hazards are ordering: AoE hits queue in live actor-slice
-iteration order, IDs are assigned at insert, compaction runs at tick end.
-The fix is a deliberate spawn queue drained at a fixed phase — design it
-before the first minion skill, because retrofitting changes hit order and
-re-records every golden.
+The spawn queue exists: `World.QueueSpawn` collects mid-tick creations and
+`DrainSpawns` materializes them in queue order at root sim's fixed phase —
+after combat, loot, and XP, before compaction — so IDs stay deterministic,
+newcomers take no action and eat no hit on their birth tick, and saves
+refuse a pending queue. On-death adds (the Carrion Husk) prove it.
+
+Still deliberate about what it does NOT cover: spawns that must act the
+tick they appear (trap triggers), player-owned minions (team/ownership/
+command routing are undesigned), and projectile/ground-effect creation
+mid-phase. Each of those is a design decision, not a retrofit — the queue
+gives them a place to land.
 
 ## Smaller, recoverable (listed for honesty)
 

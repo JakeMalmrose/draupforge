@@ -277,6 +277,12 @@ type ActorDef struct {
 	// fresh character picks its own first skill instead of inheriting one.
 	// Granted by sim.Spawn, not at injection: transfers carry the bag.
 	StartingUncut int
+	// DeathSpawnDef/DeathSpawnCount: on death, this many adds of that def
+	// are queued at the corpse (fixed offsets, the dier's level) and
+	// materialize at the tick's spawn phase — the splitter archetype.
+	// content.DB() rejects cyclic chains; the adds grant their own XP.
+	DeathSpawnDef   string
+	DeathSpawnCount int
 }
 
 type AffixKind uint8

@@ -161,8 +161,9 @@ type dropSave struct {
 // Save serializes the world at a tick boundary.
 func (w *World) Save() ([]byte, error) {
 	// w.events may still hold last tick's drained events (BeginTick recycles
-	// the slice) — only unresolved hits or buffs mean we're genuinely mid-tick.
-	if len(w.PendingHits) > 0 || len(w.PendingBuffs) > 0 {
+	// the slice) — only unresolved hits, buffs, or spawns mean we're
+	// genuinely mid-tick.
+	if len(w.PendingHits) > 0 || len(w.PendingBuffs) > 0 || len(w.PendingSpawns) > 0 {
 		return nil, errors.New("core: world can only be saved at a tick boundary")
 	}
 	sf := saveFile{

@@ -226,8 +226,47 @@ func (s *Sim) Step(cmds []core.Command) {
 	combat.TickStatuses(w)         // chill/shock timers; modifiers off at expiry
 	items.RollLoot(w)              // reacts to this tick's death events
 	progress.AwardXP(w)            // ditto: XP and level-ups off the same deaths
+	queueDeathSpawns(w)            // splitters queue their adds off the same deaths
+	w.DrainSpawns()                // queued spawns materialize — the LAST actor phase:
+	//                                newcomers take no action and eat no hit today
 
 	w.EndTick()
+}
+
+// deathSpawnOffsets fans on-death adds around the corpse — fixed pattern,
+// no RNG, clamped to walkable at drain. Cycles through for large counts.
+var deathSpawnOffsets = []space.Vec2{
+	space.V(fm.FromMilli(800), 0),
+	space.V(fm.FromMilli(-800), 0),
+	space.V(0, fm.FromMilli(800)),
+	space.V(0, fm.FromMilli(-800)),
+	space.V(fm.FromMilli(600), fm.FromMilli(600)),
+	space.V(fm.FromMilli(-600), fm.FromMilli(-600)),
+}
+
+// queueDeathSpawns scans this tick's deaths for splitter defs and queues
+// their adds at the corpse, at the dier's level. Runs after XP/loot so the
+// kill pays out before the room refills.
+func queueDeathSpawns(w *core.World) {
+	for _, ev := range w.Events() {
+		if ev.Kind != core.EvDeath {
+			continue
+		}
+		a := w.ActorByID(ev.Actor)
+		if a == nil || a.Def.DeathSpawnCount <= 0 {
+			continue
+		}
+		def := w.Content.Actors[a.Def.DeathSpawnDef]
+		if def == nil {
+			continue // content.DB() validates; a foreign DB just no-ops
+		}
+		for i := 0; i < a.Def.DeathSpawnCount; i++ {
+			off := deathSpawnOffsets[i%len(deathSpawnOffsets)]
+			w.QueueSpawn(core.PendingSpawn{
+				Def: def, Pos: a.Pos.Add(off), Level: a.Level, Source: a.ID,
+			})
+		}
+	}
 }
 
 // applyCommands is the validation gate: every command is checked against the
