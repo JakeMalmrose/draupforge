@@ -35,6 +35,7 @@ func (in *Instance) processStash(wants []stashWant) {
 	if len(wants) == 0 || in.run == 0 || in.floor != 0 {
 		return
 	}
+	in.surgery = true // replay: bag mutations happen outside Step
 	for _, w := range wants {
 		c := w.c
 		if c.token == "" {

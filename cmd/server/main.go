@@ -33,12 +33,14 @@ func main() {
 	identities := flag.String("identities", "identities.json", "named-player store; \"\" keeps identities in memory only")
 	startFloor := flag.Int("startfloor", 0, "floor runs begin on (0 = the hideout) — a dev shortcut to deep floors")
 	origins := flag.String("origins", "", "extra allowed WebSocket origins, comma-separated host[:port] patterns (default: same-origin only)")
+	replayDir := flag.String("replaydir", "", "record every world as a replayable segment in this directory (cmd/headless -replay re-executes one)")
 	flag.Parse()
 
 	cfg := server.Config{
 		Addr: *addr, HTTPAddr: *httpAddr, AdminAddr: *adminAddr, StaticDir: *webDir,
 		Seed: *seed, SendEvery: *sendEvery, InterestRadius: *interest * 1000,
 		Portals: *portals, IdentityPath: *identities, StartFloor: *startFloor,
+		ReplayDir: *replayDir,
 	}
 	if *origins != "" {
 		for _, o := range strings.Split(*origins, ",") {

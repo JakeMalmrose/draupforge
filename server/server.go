@@ -103,6 +103,10 @@ type Config struct {
 	// * wildcards OK). Empty means same-origin only — browsers on other
 	// hosts are refused; non-browser clients send no Origin and pass.
 	WSOrigins []string
+	// ReplayDir, if set, records every world this instance runs as a
+	// replayable segment (replay.go) — a live bug becomes a local repro
+	// via cmd/headless -replay. Off by default.
+	ReplayDir string
 }
 
 type Instance struct {
@@ -118,6 +122,14 @@ type Instance struct {
 	id int
 	// mapSnap is the terrain encoded once per world; rides every welcome.
 	mapSnap *protocol.MapSnap
+
+	// replay records this instance's worlds when cfg.ReplayDir is set;
+	// nil otherwise. surgery marks the world mutated outside Step (joins,
+	// leaves, swaps, grace, admin ops, stash) — the recorder rotates to a
+	// fresh segment before the next Step, so every segment spans a pure
+	// command-driven stretch. Both tick-goroutine-only.
+	replay  *replayLog
+	surgery bool
 
 	// tickCount drives periodic host-layer work (character banking); it is
 	// process time, not world time — world swaps don't reset it.
@@ -493,6 +505,11 @@ func (in *Instance) ListenAndServe(ctx context.Context) error {
 // run drives the tick loop until ctx ends — the whole life of an instance
 // in lobby mode, where the lobby owns all listeners.
 func (in *Instance) runLoop(ctx context.Context) {
+	if in.cfg.ReplayDir != "" {
+		in.replay = &replayLog{dir: in.cfg.ReplayDir, id: in.id}
+		in.surgery = true // first tick opens the first segment
+		defer in.replay.close()
+	}
 	ticker := time.NewTicker(in.cfg.TickInterval)
 	defer ticker.Stop()
 	for {
@@ -731,13 +748,26 @@ func (in *Instance) tick() {
 	for _, c := range leaves {
 		rosterChanged = in.removeClient(c) || rosterChanged
 	}
+	if len(ops)+len(joins)+len(leaves) > 0 {
+		in.surgery = true // replay: world possibly touched outside Step
+	}
 
 	if !in.paused {
 		// Stable sort by actor: fair, and preserves each client's own command
 		// order. Arrival interleaving across clients is network timing — the
 		// server's ordering is the authoritative one.
 		sort.SliceStable(cmds, func(i, j int) bool { return cmds[i].Actor < cmds[j].Actor })
+		if in.replay != nil && in.surgery {
+			// Everything between the last Step and here (joins, leaves,
+			// swaps, grace, admin, stash) is outside the command record —
+			// start a fresh segment from this boundary.
+			in.replay.rotate(in.sim.W)
+			in.surgery = false
+		}
 		in.sim.Step(cmds)
+		if in.replay != nil {
+			in.replay.record(in.sim.W.Tick, cmds)
+		}
 
 		// Harvest this step's events before any run logic: a floor swap
 		// replaces the world, and the old world's last events (the death
