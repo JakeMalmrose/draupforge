@@ -505,7 +505,7 @@ function render() {
 
 async function poll() {
   try {
-    st = await api("/api/status");
+    st = await api("api/status");
     render();
   } catch (e) {
     document.getElementById("tickline").innerHTML = '<span class="err">' + e.message + "</span>";
@@ -513,13 +513,13 @@ async function poll() {
 }
 
 document.getElementById("pausebtn").onclick = async () => {
-  await api("/api/pause", { paused: !st.paused });
+  await api("api/pause", { paused: !st.paused });
   poll();
 };
 document.getElementById("spawnbtn").onclick = async () => {
   const msg = document.getElementById("spawnmsg");
   try {
-    const r = await api("/api/spawn", {
+    const r = await api("api/spawn", {
       def: document.getElementById("def").value,
       X: Math.round(parseFloat(document.getElementById("sx").value || "0") * 1000),
       Y: Math.round(parseFloat(document.getElementById("sy").value || "0") * 1000),
@@ -533,13 +533,13 @@ document.getElementById("spawnbtn").onclick = async () => {
 document.getElementById("savebtn").onclick = async () => {
   const msg = document.getElementById("savemsg");
   try {
-    const r = await api("/api/save", { path: document.getElementById("savepath").value || "" });
+    const r = await api("api/save", { path: document.getElementById("savepath").value || "" });
     msg.textContent = "wrote " + r.path + " (tick " + r.tick + ", " + fmtBytes(r.bytes) + ")";
   } catch (e) {
     msg.innerHTML = '<span class="err">' + e.message + "</span>";
   }
 };
-window.kick = async (actor) => { await api("/api/kick", { actor }); poll(); };
+window.kick = async (actor) => { await api("api/kick", { actor }); poll(); };
 window.useActor = (actor) => { document.getElementById("cactor").value = actor; };
 
 // Cheats act on the actor field, falling back to the first connected client —
@@ -562,19 +562,19 @@ async function cheat(msgId, fn) {
 }
 
 document.getElementById("godbtn").onclick = () => cheat("godmsg", async (actor) => {
-  const r = await api("/api/god", { actor });
+  const r = await api("api/god", { actor });
   return "#" + actor + (r.god ? " is unhittable" : " is mortal again");
 });
 document.getElementById("gembtn").onclick = () => cheat("gemmsg", async (actor) => {
   const skill = document.getElementById("cskill").value;
   const level = parseInt(document.getElementById("clevel").value, 10) || 1;
-  await api("/api/gem", { actor, skill, level });
+  await api("api/gem", { actor, skill, level });
   return "cut " + skill + " " + level + " onto #" + actor;
 });
 document.getElementById("orbbtn").onclick = () => cheat("orbmsg", async (actor) => {
   const orb = document.getElementById("corb").value;
   const count = parseInt(document.getElementById("ccount").value, 10) || 1;
-  const r = await api("/api/orbs", { actor, orb, count });
+  const r = await api("api/orbs", { actor, orb, count });
   return "#" + actor + " has " + r.count + " " + orb;
 });
 

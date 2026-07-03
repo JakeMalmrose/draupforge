@@ -1,0 +1,30 @@
+# CI: the full suite gates every PR and every push to main — deploy.yml
+# builds whatever lands on main, so nothing should land untested. Runs on
+# GitHub-hosted runners to keep the nuc's self-hosted runner free for
+# deploys (switch `runs-on` to [self-hosted, draupforge] if minutes bite).
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test (with race detector)
+        run: go test -race ./...
+
+      - name: Client JS syntax
+        run: |
+          for f in web/*.js; do node --check "$f"; done
