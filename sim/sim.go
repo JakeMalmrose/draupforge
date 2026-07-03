@@ -278,6 +278,11 @@ func applyCommands(w *core.World, cmds []core.Command) {
 		if a == nil || a.Dead {
 			continue
 		}
+		// A stunned actor can't act — every command is dropped for the
+		// lockout window (Upkeep already decremented StunTicks this tick).
+		if a.Stunned() {
+			continue
+		}
 		switch c.Kind {
 		case core.CmdMove:
 			if a.Action.Kind == core.ActionSkill {

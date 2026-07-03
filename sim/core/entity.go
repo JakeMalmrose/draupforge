@@ -152,6 +152,12 @@ type Actor struct {
 	// clear). Zero means "recharging now" (or no ES to recharge).
 	RechargeDelay uint32
 
+	// StunTicks combines a stun's lockout and its re-stun immunity tail
+	// into one countdown: the first StunLockTicks the actor can't act
+	// (Stunned), the rest is immunity (can act, can't be re-stunned). Set
+	// only from 0, decremented each tick. Zone-local like RechargeDelay.
+	StunTicks uint32
+
 	// Equipment by concrete slot; nil = empty. Equipped items grant their
 	// affixes as sheet modifiers sourced by the item's ID.
 	Equipment [EquipSlotCount]*Item
@@ -204,6 +210,30 @@ const (
 	FlaskUseCost     int32 = 30
 	FlaskGainPerKill int32 = 10
 )
+
+// Stun economy (open for tuning): a hit dealing StunThresholdPermille of
+// the target's max life stuns; StunLockTicks is the can't-act window and
+// StunImmuneTicks the immunity tail that follows (StunTicks spans both).
+const (
+	StunThresholdPermille = 150 // 15% of max life in one hit
+	StunLockTicks         = 9   // 0.3s frozen
+	StunImmuneTicks       = 15  // 0.5s can't be re-stunned after
+)
+
+// Stunned reports whether the actor is in its can't-act window.
+func (a *Actor) Stunned() bool { return a.StunTicks > StunImmuneTicks }
+
+// TryStun applies a stun if the actor is eligible (not boss-immune, not
+// already in a stun/immunity window): clears the current action and starts
+// the combined lockout+immunity countdown. Reports whether it landed.
+func (a *Actor) TryStun() bool {
+	if a.Def.StunImmune || a.StunTicks != 0 {
+		return false
+	}
+	a.StunTicks = StunLockTicks + StunImmuneTicks
+	a.Action = Action{}
+	return true
+}
 
 // LevelModSource is the sheet source for per-level growth modifiers: bit 62
 // alone, disjoint from entity IDs (top bits clear), ailment sources (bit 63

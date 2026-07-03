@@ -112,6 +112,9 @@ const (
 	// EvBlock fires when a defender blocks a hit (Actor = attacker,
 	// Other = defender): the hit dealt nothing.
 	EvBlock
+	// EvStun fires when a hit stuns its target (Actor = attacker,
+	// Other = defender): the target's action was interrupted.
+	EvStun
 )
 
 func (k EventKind) String() string {
@@ -150,6 +153,8 @@ func (k EventKind) String() string {
 		return "spawn"
 	case EvBlock:
 		return "block"
+	case EvStun:
+		return "stun"
 	default:
 		return "unequip"
 	}

@@ -372,3 +372,72 @@ func TestESRechargeAfterDelay(t *testing.T) {
 		t.Fatalf("a hit didn't reset the recharge delay (ES = %v)", a.ES)
 	}
 }
+
+// TestStunInterruptsAndLocks: a hit above the threshold clears the target's
+// action and locks it out; below the threshold does nothing; boss-immune
+// actors never stun.
+func TestStunInterruptsAndLocks(t *testing.T) {
+	w := testWorld()
+	att := w.SpawnActor(actorDef(100, nil), space.V(0, 0))
+	// Target with 100 max life → 15% threshold = 15 damage.
+	def := w.SpawnActor(actorDef(100, nil), space.V(fm.One, 0))
+	def.Action = core.Action{Kind: core.ActionSkill} // mid-action
+
+	// A 10-damage hit is under threshold: no stun, action intact.
+	queueAndResolve(w, att, def, spellDef(10, 10, core.Fire))
+	if def.Stunned() || def.Action.Kind != core.ActionSkill {
+		t.Fatal("a sub-threshold hit stunned the target")
+	}
+
+	// A 25-damage hit exceeds 15: stun, action cleared.
+	def.Action = core.Action{Kind: core.ActionSkill}
+	queueAndResolve(w, att, def, spellDef(25, 25, core.Fire))
+	if !def.Stunned() {
+		t.Fatal("an over-threshold hit didn't stun")
+	}
+	if def.Action.Kind != core.ActionIdle {
+		t.Fatal("stun didn't clear the interrupted action")
+	}
+	sawStun := false
+	for _, ev := range w.Events() {
+		if ev.Kind == core.EvStun {
+			sawStun = true
+		}
+	}
+	if !sawStun {
+		t.Fatal("no EvStun emitted")
+	}
+
+	// The lockout counts down through Upkeep, then the immunity tail lets
+	// it act again (Stunned false) before StunTicks fully clears.
+	for i := 0; i < core.StunLockTicks; i++ {
+		combat.Upkeep(w)
+	}
+	if def.Stunned() {
+		t.Fatal("still locked after the lock window elapsed")
+	}
+	if def.StunTicks == 0 {
+		t.Fatal("immunity tail vanished with the lockout")
+	}
+
+	// Re-stun is refused during the immunity tail.
+	def.Action = core.Action{Kind: core.ActionSkill}
+	queueAndResolve(w, att, def, spellDef(25, 25, core.Fire))
+	if def.Action.Kind == core.ActionIdle {
+		t.Fatal("a hit re-stunned during the immunity window")
+	}
+}
+
+// TestBossStunImmunity: a def with StunImmune never stuns, however big the hit.
+func TestBossStunImmunity(t *testing.T) {
+	w := testWorld()
+	att := w.SpawnActor(actorDef(100, nil), space.V(0, 0))
+	bossDef := actorDef(100, nil)
+	bossDef.StunImmune = true
+	boss := w.SpawnActor(bossDef, space.V(fm.One, 0))
+	boss.Action = core.Action{Kind: core.ActionSkill}
+	queueAndResolve(w, att, boss, spellDef(90, 90, core.Fire)) // 90% of life
+	if boss.Stunned() || boss.Action.Kind != core.ActionSkill {
+		t.Fatal("a stun-immune boss got stunned")
+	}
+}

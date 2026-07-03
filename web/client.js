@@ -285,6 +285,10 @@ function onView(view) {
       const blocker = findEnt(ev.other);
       if (blocker) spawnBlockSpark(blocker.pos, view.tick * tickMs);
     }
+    if (ev.kind === "stun") {
+      const t = findEnt(ev.other);
+      if (t) spawnStunStars(t.pos, view.tick * tickMs, t.radius);
+    }
     if (ev.kind === "death") {
       const dier = findEnt(ev.actor);
       if (dier) spawnDeathPop(dier.pos, view.tick * tickMs, dier);
@@ -1582,6 +1586,26 @@ function spawnBlockSpark(pos, st) {
   });
 }
 
+// A stun: three little stars circling above the reeling target for the
+// lockout's length.
+function spawnStunStars(pos, st, radiusMilli) {
+  const above = toUnits(radiusMilli || 500) + 0.4;
+  spawnEffect(st, 500, (t) => {
+    const p = worldToScreen(pos.x, pos.y);
+    const cy = p.y - above * SCALE;
+    ctx.globalAlpha = t < 0.8 ? 1 : (1 - t) * 5;
+    ctx.fillStyle = "#f5e25f";
+    for (let i = 0; i < 3; i++) {
+      const ang = t * 6 + (i * Math.PI * 2) / 3;
+      const sx = p.x + Math.cos(ang) * SCALE * 0.5;
+      const sy = cy + Math.sin(ang) * SCALE * 0.18;
+      ctx.beginPath();
+      ctx.arc(sx, sy, Math.max(1.5, SCALE * 0.08), 0, Math.PI * 2);
+      ctx.fill();
+    }
+  });
+}
+
 // Camera shake when something connects with *you*.
 let shakeUntil = 0;
 const SHAKE_MS = 220;
@@ -2641,6 +2665,9 @@ function logEvent(ev) {
       break;
     case "block":
       text = `${nameOf(ev.other)} blocked ${nameOf(ev.actor)}`;
+      break;
+    case "stun":
+      text = `${nameOf(ev.other)} is stunned`;
       break;
     case "death":
       text = `${nameOf(ev.actor)} died`;

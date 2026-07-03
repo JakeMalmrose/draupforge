@@ -893,6 +893,7 @@ func actorDefs() []*core.ActorDef {
 		}),
 		Skills:      []string{"colossus_slam", "bone_volley"},
 		AI:          "boss_brute",
+		StunImmune:  true,
 		AggroRadius: fm.FromInt(18),
 		LeashRadius: fm.FromInt(14), // a guardian guards; it won't chase across the floor
 		LootTable:   "boss_drops",
@@ -923,6 +924,7 @@ func actorDefs() []*core.ActorDef {
 		}),
 		Skills:      []string{"barrow_slam", "grave_volley", "grave_storm"},
 		AI:          "boss_king",
+		StunImmune:  true,
 		AggroRadius: fm.FromInt(20),
 		LeashRadius: fm.FromInt(16), // holds its barrow like the colossus holds stairs
 		LootTable:   "king_drops",
@@ -1005,6 +1007,7 @@ func actorDefs() []*core.ActorDef {
 		}),
 		Skills:      []string{"tyrant_quake", "raise_thralls", "bone_volley"},
 		AI:          "boss_tyrant",
+		StunImmune:  true,
 		AggroRadius: fm.FromInt(20),
 		LeashRadius: fm.FromInt(15),
 		LootTable:   "tyrant_drops",
