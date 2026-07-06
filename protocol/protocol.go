@@ -11,7 +11,7 @@ package protocol
 // v18 unifies two parallel branches that both claimed v16 (gems on main,
 // identity on the multiplayer branch; parties took v17) — jumping past all
 // of them so no deployed client can match a wrong meaning.
-const Version = 21 // v21: item level (v20: unique items)
+const Version = 22 // v22: character-sheet frames (v21: item level)
 
 // Command is the wire form of player intent. Kind is one of "move",
 // "use_skill", "stop", the item verbs "pickup", "equip", "unequip",
@@ -303,6 +303,42 @@ type ServerMsg struct {
 	// Stash is the receiving client's hideout bank: on welcomes (named
 	// players only) and its own "stash" frames after every stash verb.
 	Stash *StashSnap `json:"stash,omitempty"`
+	// Sheet is the receiving client's computed character sheet, sent as a
+	// "sheet" frame in answer to a "sheet" verb (the C panel). Derived
+	// data the client can't compute — the stat engine lives server-side.
+	Sheet *SheetSnap `json:"sheet,omitempty"`
+}
+
+// SheetSnap is one player's character sheet: evaluated stat lines plus
+// per-gem combat numbers. Lines are server-authored (name + value) so new
+// stats appear on the panel without a wire change.
+type SheetSnap struct {
+	Stats []SheetStatSnap `json:"stats"`
+	Gems  []SheetGemSnap  `json:"gems,omitempty"`
+}
+
+// SheetStatSnap is one evaluated stat line. Val is milli fixed-point; Pct
+// marks fraction-flavored stats (0.15 = 15%) for display.
+type SheetStatSnap struct {
+	Name string `json:"name"`
+	Val  int64  `json:"val"`
+	Pct  bool   `json:"pct,omitempty"`
+}
+
+// SheetGemSnap is one cut gem's computed numbers: nominal average non-crit
+// hit (milli), cast time in milliseconds (windup + recovery at the actor's
+// current speed), mana cost (milli), and the fan/chain shape after
+// supports and gear.
+type SheetGemSnap struct {
+	Skill    string   `json:"skill"`
+	Name     string   `json:"name"`
+	Level    int      `json:"level"`
+	ManaCost int64    `json:"mana_cost"`
+	CastMs   int64    `json:"cast_ms"`
+	AvgHit   int64    `json:"avg_hit,omitempty"`
+	Fans     int      `json:"fans,omitempty"`
+	Chains   int      `json:"chains,omitempty"`
+	Supports []string `json:"supports,omitempty"`
 }
 
 // StashSnap is one identity's stash as the client sees it. Item IDs are

@@ -11,8 +11,8 @@ tests, and session-log entries older than a few sessions (git history is the
 archive). If this file outgrows ~150 lines, it has stopped being a status doc
 and started being a changelog — cut it back.
 
-**Last updated: 2026-07-06** (session 64: item presentation — quantized
-rolls, readable mod lines, honest rarity colors, a boots icon that reads)
+**Last updated: 2026-07-06** (session 67: the character sheet — C panel
+with evaluated stats + per-gem combat numbers, wire v22)
 
 ## Where things stand
 
@@ -215,6 +215,17 @@ dictates, and Jake's balance pass over the numbers.
 
 ## Session log
 
+- **2026-07-06 (67)** — The character sheet (C): finally a way to see your
+  stats. Server-computed — `sim.BuildSheet` evaluates stat lines off the
+  live sheet (pools, defenses, resists, crit, regen, leech) plus per-gem
+  combat numbers: nominal average hit via the new `combat.NominalHit`
+  (mirrors rollDamage step for step with roll averages instead of RNG —
+  pure, pinned read-only by `TestBuildSheetReadOnly`), cast time at
+  current speed, DPS, mana cost, fan/chain shape after supports and gear.
+  Flow is the stash pattern: a host-layer "sheet" verb, answered after the
+  tick with a "sheet" JSON frame (wire v22, binary codec untouched); the
+  C panel re-requests on an 800ms pulse while open, two tabs (Character /
+  Gems). Goldens unmoved.
 - **2026-07-06 (66)** — Loot ergonomics. Sim: multiple drops from one death
   scatter onto a ~1.1u eight-point ring around the corpse (widening per
   lap, clamped to walkable like queued spawns, first drop on the corpse) —

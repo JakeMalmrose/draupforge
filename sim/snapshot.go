@@ -4,10 +4,13 @@ import (
 	"fmt"
 
 	"github.com/JakeMalmrose/draupforge/protocol"
+	"github.com/JakeMalmrose/draupforge/sim/combat"
 	"github.com/JakeMalmrose/draupforge/sim/core"
 	fm "github.com/JakeMalmrose/draupforge/sim/fixmath"
 	"github.com/JakeMalmrose/draupforge/sim/progress"
+	"github.com/JakeMalmrose/draupforge/sim/skills"
 	"github.com/JakeMalmrose/draupforge/sim/space"
+	"github.com/JakeMalmrose/draupforge/sim/stats"
 )
 
 // BuildSnapshot encodes the full world plus this tick's events — the
@@ -360,4 +363,67 @@ func DecodeCommand(c protocol.Command) (core.Command, error) {
 		return core.Command{}, fmt.Errorf("protocol: unknown command kind %q", c.Kind)
 	}
 	return out, nil
+}
+
+// BuildSheet evaluates one player's character sheet: stat lines off the
+// live sheet plus per-gem combat numbers (nominal average hit, cast time
+// at current speed, fan/chain shape). Read-only and RNG-free — the host
+// layer calls it between ticks to answer "sheet" verbs. Nil for unknown
+// or dead-and-compacted actors.
+func BuildSheet(w *core.World, id core.EntityID) *protocol.SheetSnap {
+	a := w.ActorByID(id)
+	if a == nil {
+		return nil
+	}
+	ev := func(st stats.StatID) int64 { return a.Sheet.Eval(st, stats.TagSet{}).Milli() }
+	sheet := &protocol.SheetSnap{
+		Stats: []protocol.SheetStatSnap{
+			{Name: "maximum life", Val: ev(stats.Life)},
+			{Name: "maximum mana", Val: ev(stats.Mana)},
+			{Name: "energy shield", Val: ev(stats.EnergyShield)},
+			{Name: "armour", Val: ev(stats.Armour)},
+			{Name: "evasion", Val: ev(stats.Evasion)},
+			{Name: "accuracy", Val: ev(stats.Accuracy)},
+			{Name: "block chance", Val: ev(stats.Block), Pct: true},
+			{Name: "fire resistance", Val: ev(stats.FireRes), Pct: true},
+			{Name: "cold resistance", Val: ev(stats.ColdRes), Pct: true},
+			{Name: "lightning resistance", Val: ev(stats.LightningRes), Pct: true},
+			{Name: "chaos resistance", Val: ev(stats.ChaosRes), Pct: true},
+			{Name: "critical strike chance", Val: ev(stats.CritChance), Pct: true},
+			{Name: "critical strike multiplier", Val: ev(stats.CritMulti), Pct: true},
+			{Name: "movement speed", Val: ev(stats.MoveSpeed)},
+			{Name: "life regen per second", Val: ev(stats.LifeRegen)},
+			{Name: "mana regen per second", Val: ev(stats.ManaRegen)},
+			{Name: "life leech", Val: ev(stats.LifeLeech), Pct: true},
+		},
+	}
+	for i := range a.Gems {
+		g := &a.Gems[i]
+		sk := g.Skill
+		ctx := g.Ctx()
+		speed := speedWithSupports(a, sk, ctx)
+		ticks := int64(skills.ScaleTicks(sk.WindupTicks, speed)) +
+			int64(skills.ScaleTicks(sk.RecoveryTicks, speed))
+		gs := protocol.SheetGemSnap{
+			Skill: sk.ID, Name: sk.Name, Level: g.Level,
+			ManaCost: g.ManaCost().Milli(),
+			CastMs:   ticks * 1000 / core.TicksPerSecond,
+		}
+		if avg := combat.NominalHit(a, sk, ctx); avg > 0 {
+			gs.AvgHit = avg.Milli()
+		}
+		if sk.Kind == core.SkillProjectile {
+			gs.Fans = 1 + ctx.ExtraProjectiles() + int(a.Sheet.Eval(stats.ExtraProjectiles, sk.Tags).Int())
+		}
+		if sk.Kind == core.SkillChain {
+			gs.Chains = 1 + sk.Chains + ctx.Chains() + int(a.Sheet.Eval(stats.ExtraChains, sk.Tags).Int())
+		}
+		for _, sup := range g.Supports {
+			if sup != nil {
+				gs.Supports = append(gs.Supports, sup.Name)
+			}
+		}
+		sheet.Gems = append(sheet.Gems, gs)
+	}
+	return sheet
 }

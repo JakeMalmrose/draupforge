@@ -104,6 +104,9 @@ function connect() {
       } else if (msg.type === "stash") {
         stash = msg.stash || null;
         if (!panel.classList.contains("hidden")) renderPanel(me(), true);
+      } else if (msg.type === "sheet") {
+        sheet = msg.sheet || null;
+        renderCharSheet();
       } else if (msg.type === "error") {
         // Refused (duplicate session, say). Back to the join screen, which
         // offers the ways forward: another name, or guest mode.
@@ -1998,8 +2001,85 @@ window.addEventListener("keydown", (e) => {
       document.getElementById("social").classList.toggle("hidden");
       renderSocial();
       break;
+    case "c":
+      toggleCharSheet();
+      break;
   }
 });
+
+// --------------------------------------------------- character sheet (C)
+//
+// The sheet is server-computed (the stat engine lives there); the client
+// just asks. While the panel is open it re-requests on a slow pulse so
+// equip/level/buff changes show up without any delta machinery.
+
+let sheet = null; // latest SheetSnap
+let sheetTab = "stats";
+let sheetTimer = 0;
+const charsheetEl = document.getElementById("charsheet");
+
+function toggleCharSheet() {
+  const open = !charsheetEl.classList.toggle("hidden");
+  clearInterval(sheetTimer);
+  if (open) {
+    send({ kind: "sheet" });
+    sheetTimer = setInterval(() => send({ kind: "sheet" }), 800);
+    renderCharSheet();
+  }
+}
+
+document.getElementById("cs-tab-stats").onclick = () => { sheetTab = "stats"; renderCharSheet(); };
+document.getElementById("cs-tab-gems").onclick = () => { sheetTab = "gems"; renderCharSheet(); };
+
+// fmtSheetVal renders one milli fixed-point stat value: percent-flavored
+// stats read ×100, plain ones at one decimal max.
+function fmtSheetVal(v, pct) {
+  if (pct) return `${Math.round(v / 10)}%`;
+  return `${+(v / 1000).toFixed(1)}`;
+}
+
+function renderCharSheet() {
+  if (charsheetEl.classList.contains("hidden")) return;
+  document.getElementById("cs-tab-stats").classList.toggle("active", sheetTab === "stats");
+  document.getElementById("cs-tab-gems").classList.toggle("active", sheetTab === "gems");
+  const body = document.getElementById("charsheet-body");
+  if (!sheet) {
+    body.innerHTML = '<span class="cs-sub">…</span>';
+    return;
+  }
+  // Server-authored names and our own content tables only — innerHTML is
+  // safe here, same as the tooltip.
+  if (sheetTab === "stats") {
+    body.innerHTML = (sheet.stats || [])
+      .map((s) => `<div class="cs-row"><span>${s.name}</span><span class="cs-val">${fmtSheetVal(s.val, s.pct)}</span></div>`)
+      .join("");
+    return;
+  }
+  const gems = sheet.gems || [];
+  if (!gems.length) {
+    body.innerHTML = '<span class="cs-sub">no gems cut</span>';
+    return;
+  }
+  body.innerHTML = gems
+    .map((g) => {
+      const rows = [];
+      if (g.avg_hit) rows.push(["average hit", `${+(g.avg_hit / 1000).toFixed(1)}`]);
+      rows.push(["cast time", `${+(g.cast_ms / 1000).toFixed(2)}s`]);
+      if (g.avg_hit && g.cast_ms) {
+        // avg_hit is milli damage, cast_ms milliseconds — the millis cancel.
+        rows.push(["damage per second", `${+(g.avg_hit / g.cast_ms).toFixed(1)}`]);
+      }
+      rows.push(["mana cost", `${+(g.mana_cost / 1000).toFixed(1)}`]);
+      if (g.fans > 1) rows.push(["projectiles", g.fans]);
+      if (g.chains > 1) rows.push(["chain targets", g.chains]);
+      const sups = (g.supports || []).length
+        ? `<div class="cs-sub">${g.supports.join(" · ")}</div>` : "";
+      return `<div class="cs-gem"><h3>${g.name} <span class="cs-sub">lv ${g.level}</span></h3>${sups}` +
+        rows.map(([k, v]) => `<div class="cs-row"><span>${k}</span><span class="cs-val">${v}</span></div>`).join("") +
+        `</div>`;
+    })
+    .join("");
+}
 
 // ------------------------------------------------------------ UI panel
 //
