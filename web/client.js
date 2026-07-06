@@ -947,6 +947,45 @@ const MODEL_PAINTERS = {
     ctx.stroke();
     eyes(r, ex, ey, "#4ad1c8"); // the summoner's spark
   },
+  skeleton_marksman(r, ex, ey) {
+    bodySphere(r, "#cfc4a8", 0.85); // bone-pale, same stock as the warrior
+    ctx.strokeStyle = "#00000038"; // ribs
+    ctx.lineWidth = 1;
+    for (let i = 0; i <= 1; i++) {
+      ctx.beginPath();
+      ctx.arc(0, r * 0.1 + i * r * 0.28, r * 0.55, Math.PI * 0.2, Math.PI * 0.8);
+      ctx.stroke();
+    }
+    // The bow: an arc held out toward the facing, string across it.
+    const bx = ex * r * 0.9, by = ey * r * 0.9;
+    const ang = Math.atan2(ey, ex);
+    ctx.strokeStyle = "#8a6a3a";
+    ctx.lineWidth = Math.max(r * 0.12, 1.2);
+    ctx.beginPath();
+    ctx.arc(bx, by, r * 0.55, ang - Math.PI / 2.6, ang + Math.PI / 2.6);
+    ctx.stroke();
+    ctx.strokeStyle = "#b8b0a066";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(bx + Math.cos(ang - Math.PI / 2.6) * r * 0.55, by + Math.sin(ang - Math.PI / 2.6) * r * 0.55);
+    ctx.lineTo(bx + Math.cos(ang + Math.PI / 2.6) * r * 0.55, by + Math.sin(ang + Math.PI / 2.6) * r * 0.55);
+    ctx.stroke();
+    eyes(r, ex, ey, "#4ad1c8"); // the summoner's spark
+  },
+  raging_spirit(r, ex, ey) {
+    bodySphere(r, "#d8cdb0", 0.8); // a small skull...
+    // ...wreathed in flame: three licks trailing opposite the facing.
+    ctx.fillStyle = "#e8842caa";
+    for (const [ox, oy, s] of [[-0.4, -0.5, 0.55], [0.35, -0.6, 0.45], [0, -0.85, 0.6]]) {
+      ctx.beginPath();
+      ctx.moveTo(ox * r - r * s * 0.35, oy * r);
+      ctx.quadraticCurveTo(ox * r, oy * r - r * s * 1.4, ox * r + r * s * 0.35, oy * r);
+      ctx.fill();
+    }
+    ctx.fillStyle = "#00000055"; // the grin
+    ctx.fillRect(-r * 0.35, r * 0.35, r * 0.7, r * 0.16);
+    eyes(r, ex, ey, "#e8842c"); // burning sockets
+  },
   grave_tyrant(r, ex, ey) {
     bodySphere(r, "#3e4a52", 1.05);
     ctx.strokeStyle = "#00000055"; // cracked stone hide
@@ -1837,6 +1876,10 @@ const SKILL_META = {
     desc: "A swift physical arrow — long reach, and it scales with your weapon." },
   summon_skeleton: { color: "#e8dfc8", aimed: false, kind: "Summon",
     desc: "Raise a skeleton warrior that fights at your side. Keep up to three." },
+  summon_marksman: { color: "#d8c89a", aimed: false, kind: "Summon",
+    desc: "Raise a skeleton marksman that shoots over your warriors' shoulders. Keep up to two." },
+  summon_raging_spirit: { color: "#e8842c", aimed: false, kind: "Summon",
+    desc: "Loose a flaming skull that hunts for eight seconds, then gutters out. Keep up to five." },
   sweep: { color: "#c98a4a", aimed: false, kind: "Attack",
     desc: "Spin your weapon in a full circle — everything in reach takes the hit." },
 };

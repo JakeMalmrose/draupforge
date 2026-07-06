@@ -15,12 +15,13 @@ type decider func(w *core.World, a *core.Actor) (core.Command, bool)
 // deciders is the behavior registry, keyed by ActorDef.AI. Lookup-only —
 // the decide loop iterates actors, never this map.
 var deciders = map[string]decider{
-	"melee_chaser": meleeChaser,
-	"ranged_kiter": rangedKiter,
-	"boss_brute":   bossBrute,
-	"boss_king":    bossKing,
-	"boss_tyrant":  bossTyrant,
-	"minion_melee": minionMelee,
+	"melee_chaser":  meleeChaser,
+	"ranged_kiter":  rangedKiter,
+	"boss_brute":    bossBrute,
+	"boss_king":     bossKing,
+	"boss_tyrant":   bossTyrant,
+	"minion_melee":  minionMelee,
+	"minion_ranged": minionRanged,
 }
 
 // Decide produces this tick's AI commands in actor slice order.
@@ -205,17 +206,20 @@ var (
 	minionLeash     = fm.FromInt(10)
 )
 
-// minionMelee: fight what threatens the owner, otherwise heel. The leash
-// anchors to the owner's CURRENT position (mobile territory); an orphaned
-// minion (owner gone or dead) fights on unleashed like a plain chaser.
-func minionMelee(w *core.World, a *core.Actor) (core.Command, bool) {
-	if a.Action.Kind == core.ActionSkill {
-		return core.Command{}, false
-	}
+// liveOwner resolves a minion's summoner; nil once the owner is gone or
+// dead — an orphaned minion fights on unleashed like a plain chaser.
+func liveOwner(w *core.World, a *core.Actor) *core.Actor {
 	owner := w.ActorByID(a.Owner)
 	if owner != nil && owner.Dead {
-		owner = nil
+		return nil
 	}
+	return owner
+}
+
+// minionTarget: the nearest enemy inside the minion's aggro radius that is
+// also within the leash of the live owner — the pack fights around its
+// summoner, not across the map. Shared by both minion deciders.
+func minionTarget(w *core.World, a, owner *core.Actor) *core.Actor {
 	var tgt *core.Actor
 	var bestDist fm.Fixed
 	for _, o := range w.Actors {
@@ -233,13 +237,60 @@ func minionMelee(w *core.World, a *core.Actor) (core.Command, bool) {
 			tgt, bestDist = o, d
 		}
 	}
-	if tgt != nil {
+	return tgt
+}
+
+// minionMelee: fight what threatens the owner, otherwise heel. The leash
+// anchors to the owner's CURRENT position (mobile territory).
+func minionMelee(w *core.World, a *core.Actor) (core.Command, bool) {
+	if a.Action.Kind == core.ActionSkill {
+		return core.Command{}, false
+	}
+	owner := liveOwner(w, a)
+	if tgt := minionTarget(w, a, owner); tgt != nil {
 		skID := a.Def.Skills[0]
 		sk := w.Content.Skills[skID]
 		if space.Dist(a.Pos, tgt.Pos) <= sk.Range+a.Def.Radius+tgt.Def.Radius {
 			return core.Command{Actor: a.ID, Kind: core.CmdUseSkill, Skill: skID, TargetID: tgt.ID}, true
 		}
 		return core.Command{Actor: a.ID, Kind: core.CmdMove, Point: tgt.Pos}, true
+	}
+	if owner != nil && space.Dist(a.Pos, owner.Pos) > minionFollowGap {
+		return core.Command{Actor: a.ID, Kind: core.CmdMove, Point: owner.Pos}, true
+	}
+	return core.Command{}, false
+}
+
+// minionRanged: the marksman's decider — shoot what threatens the owner
+// from PreferredRange, heel otherwise. Same owner-anchored leash as
+// minionMelee; the firing logic is rangedKiter's (LoS-gated approach,
+// back off when crowded, cornered = stand and fight).
+func minionRanged(w *core.World, a *core.Actor) (core.Command, bool) {
+	if a.Action.Kind == core.ActionSkill {
+		return core.Command{}, false
+	}
+	owner := liveOwner(w, a)
+	if tgt := minionTarget(w, a, owner); tgt != nil {
+		los := true
+		if w.Grid != nil {
+			_, blocked := w.Grid.SegmentHit(a.Pos, tgt.Pos)
+			los = !blocked
+		}
+		d := space.Dist(a.Pos, tgt.Pos)
+		pr := a.Def.PreferredRange
+		if !los || d > pr {
+			return core.Command{Actor: a.ID, Kind: core.CmdMove, Point: tgt.Pos}, true
+		}
+		if d < fm.Div(pr, fm.FromInt(3)) {
+			if pt, ok := retreatPoint(w, a, tgt); ok {
+				return core.Command{Actor: a.ID, Kind: core.CmdMove, Point: pt}, true
+			}
+			// Cornered: stand and fight.
+		}
+		return core.Command{
+			Actor: a.ID, Kind: core.CmdUseSkill,
+			Skill: a.Def.Skills[0], Point: tgt.Pos,
+		}, true
 	}
 	if owner != nil && space.Dist(a.Pos, owner.Pos) > minionFollowGap {
 		return core.Command{Actor: a.ID, Kind: core.CmdMove, Point: owner.Pos}, true

@@ -327,6 +327,9 @@ type PendingSpawn struct {
 	Source EntityID
 	// Owner marks the newcomer a minion of that actor (0 = independent).
 	Owner EntityID
+	// Lifespan > 0 stamps the newcomer short-lived: it despawns quietly
+	// after that many ticks (Actor.LifespanTicks).
+	Lifespan uint32
 }
 
 // CreditFor resolves who a kill pays: the deepest live owner above the
@@ -362,6 +365,7 @@ func (w *World) DrainSpawns() {
 		}
 		a := w.SpawnActor(ps.Def, pos)
 		a.Owner = ps.Owner
+		a.LifespanTicks = ps.Lifespan
 		if ps.Level > 0 {
 			a.SetLevel(ps.Level)
 			a.Life, a.Mana, a.ES = a.MaxLife(), a.MaxMana(), a.MaxES()

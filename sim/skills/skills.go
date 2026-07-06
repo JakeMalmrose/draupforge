@@ -325,7 +325,7 @@ func fire(w *core.World, a *core.Actor) {
 			off := summonOffsets[i%len(summonOffsets)]
 			w.QueueSpawn(core.PendingSpawn{
 				Def: def, Pos: a.Pos.Add(off), Level: level,
-				Source: a.ID, Owner: a.ID,
+				Source: a.ID, Owner: a.ID, Lifespan: sk.SummonTTL,
 			})
 		}
 	case core.SkillChain:
