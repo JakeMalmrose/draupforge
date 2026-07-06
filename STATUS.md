@@ -215,6 +215,16 @@ dictates, and Jake's balance pass over the numbers.
 
 ## Session log
 
+- **2026-07-06 (66)** — Loot ergonomics. Sim: multiple drops from one death
+  scatter onto a ~1.1u eight-point ring around the corpse (widening per
+  lap, clamped to walkable like queued spawns, first drop on the corpse) —
+  pure data, zero RNG draws, so the loot stream is untouched; pinned by
+  `TestDropsScatter`, goldens re-recorded (drop positions moved). Client:
+  ground labels lay out as a climbing column instead of overprinting
+  (bottom-most keeps its spot), each laid-out label is itself a click
+  target for its exact item, and bare-ground clicks resolve to the nearest
+  drop instead of first-found — together the fix for "the boss died on the
+  stairs and clicking the pile descends".
 - **2026-07-06 (65)** — Entity separation widened: the de-overlap pass now
   includes player-owned minions (anything with `Owner != 0`) alongside
   monsters, so a skeleton army reads as an army instead of a single-file

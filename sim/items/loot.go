@@ -6,6 +6,7 @@ package items
 import (
 	"github.com/JakeMalmrose/draupforge/sim/core"
 	fm "github.com/JakeMalmrose/draupforge/sim/fixmath"
+	"github.com/JakeMalmrose/draupforge/sim/space"
 )
 
 // Affix count rules per rarity: magic items roll 1–2 affixes capped at one
@@ -41,6 +42,7 @@ func RollLoot(w *core.World) {
 		// pay both), permilles scaled by the dier's rarity like orbs.
 		// Zero-chance tables consume nothing.
 		mult := rarityMult(a.Rarity)
+		scatter := 0 // per-death drop counter; positions the loot ring
 		for _, g := range [2]struct {
 			permille uint32
 			support  bool
@@ -50,7 +52,8 @@ func RollLoot(w *core.World) {
 			}
 			if w.RNGLoot.Uint64n(1000) < uint64(g.permille)*mult {
 				item := RollUncutGem(w, g.support, a.Level)
-				d := w.SpawnDrop(a.Pos, item)
+				d := w.SpawnDrop(dropPos(w, a.Pos, scatter), item)
+				scatter++
 				w.Emit(core.Event{Kind: core.EvDrop, Actor: a.ID, Other: d.ID, Note: item.Name()})
 			}
 		}
@@ -72,10 +75,40 @@ func RollLoot(w *core.World) {
 			// Item level is the dier's level (floor-scaled), gating which
 			// affix tiers can appear — deeper kills drop better gear.
 			item := RollItem(w, table, a.Level)
-			d := w.SpawnDrop(a.Pos, item)
+			d := w.SpawnDrop(dropPos(w, a.Pos, scatter), item)
+			scatter++
 			w.Emit(core.Event{Kind: core.EvDrop, Actor: a.ID, Other: d.ID, Note: item.Base.ID})
 		}
 	}
+}
+
+// dropOffsets ring a corpse at ~1.1u, eight compass points. Pure data —
+// scatter consumes no RNG, so the loot stream is untouched. 778 ≈ 1100/√2.
+var dropOffsets = [8]space.Vec2{
+	{X: 1100, Y: 0}, {X: 778, Y: 778}, {X: 0, Y: 1100}, {X: -778, Y: 778},
+	{X: -1100, Y: 0}, {X: -778, Y: -778}, {X: 0, Y: -1100}, {X: 778, Y: -778},
+}
+
+// dropPos places the k-th drop from one death: the first sits on the
+// corpse, later ones ring it so a boss pile doesn't stack into a single
+// unclickable point (or bury the stairs it died on). Each full lap widens
+// the ring. Off-grid positions clamp to the nearest walkable tile, like
+// queued spawns; a corpse with nowhere walkable around it just piles up.
+func dropPos(w *core.World, base space.Vec2, k int) space.Vec2 {
+	if k == 0 {
+		return base
+	}
+	i := (k - 1) % len(dropOffsets)
+	lap := int64(k-1) / int64(len(dropOffsets))
+	pos := base.Add(dropOffsets[i].Scale(fm.One + fm.FromMilli(lap*600)))
+	if w.Grid != nil {
+		p, ok := w.Grid.NearestWalkable(pos)
+		if !ok {
+			return base
+		}
+		return p
+	}
+	return pos
 }
 
 // RollItem generates one item from a loot table. A unique check runs first

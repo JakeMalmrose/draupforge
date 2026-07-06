@@ -11,6 +11,7 @@ import (
 	"github.com/JakeMalmrose/draupforge/content"
 	"github.com/JakeMalmrose/draupforge/sim"
 	"github.com/JakeMalmrose/draupforge/sim/core"
+	fm "github.com/JakeMalmrose/draupforge/sim/fixmath"
 	"github.com/JakeMalmrose/draupforge/sim/items"
 	"github.com/JakeMalmrose/draupforge/sim/space"
 )
@@ -120,6 +121,36 @@ func TestRaritySaveRoundTrip(t *testing.T) {
 			if a.Mods[j] != b.Mods[j] {
 				t.Fatalf("actor %d mod %d resolved to a different def", a.ID, j)
 			}
+		}
+	}
+}
+
+// TestDropsScatter: multiple drops from one death ring the corpse instead
+// of stacking on a single point — a boss pile must stay clickable item by
+// item (and never bury the stairs it died on).
+func TestDropsScatter(t *testing.T) {
+	s := sim.New(content.DB(), 40)
+	id := mustSpawn(t, s, "training_dummy", 20000, 20000)
+	a := s.W.ActorByID(id)
+	a.ApplyMonsterMods(core.RarityRare, s.W.Content.MonsterMods[:2])
+	killer := mustSpawn(t, s, "player", 25000, 20000)
+	a.Dead = true
+	s.W.Emit(core.Event{Kind: core.EvDeath, Actor: a.ID, Other: killer})
+	items.RollLoot(s.W)
+
+	if len(s.W.Drops) < 3 {
+		t.Fatalf("rare dummy dropped %d items, want >= 3", len(s.W.Drops))
+	}
+	seen := map[space.Vec2]int{}
+	for _, d := range s.W.Drops {
+		seen[d.Pos]++
+	}
+	if len(seen) < len(s.W.Drops) {
+		t.Fatalf("drops stacked: %d drops on %d distinct positions", len(s.W.Drops), len(seen))
+	}
+	for pos := range seen {
+		if d := space.Dist(pos, a.Pos); d > fm.FromInt(4) {
+			t.Fatalf("drop scattered too far: %v units from the corpse", d)
 		}
 	}
 }
