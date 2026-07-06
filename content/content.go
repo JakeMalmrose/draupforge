@@ -1298,6 +1298,16 @@ func affixDefs() []*core.AffixDef {
 			Min: fm.FromMilli(50), Max: fm.FromMilli(120), Step: fm.FromMilli(10), Weight: 35, ILvl: 6, // +5–12%
 			Families: []core.SlotFamily{core.FamilyOffhand},
 		},
+		{
+			// Light radius: further reach into the fog of war. Pure
+			// presentation — the client sums equipped rolls into its lit
+			// circle; nothing sim-side reads it. Appended last: the affix
+			// table is ordered, reordering is replay-relevant.
+			ID: "light_radius", Group: "light_radius", Kind: core.Suffix,
+			Stat: stats.LightRadius, Layer: stats.LayerFlat,
+			Min: fm.FromMilli(500), Max: fm.FromMilli(1500), Step: fm.FromMilli(500), Weight: 40, // +0.5–1.5u
+			Families: []core.SlotFamily{core.FamilyHelmet, core.FamilyAmulet, core.FamilyRing},
+		},
 	}
 }
 

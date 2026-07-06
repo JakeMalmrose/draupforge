@@ -47,6 +47,11 @@ const (
 	ExtraChains      // additional chain-skill targets
 	ExtraMinions     // additional summon capacity per summon skill
 
+	// LightRadius: units added to the lit circle. Pure presentation — the
+	// client sums equipped rolls into its fog radius; no sim system reads
+	// it. It lives in the enum because the affix machinery mods a sheet.
+	LightRadius
+
 	StatCount
 )
 
