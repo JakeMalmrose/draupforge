@@ -583,3 +583,37 @@ body {
 }
 #invite-toast button:hover { border-color: #3d6fd1; }
 #invite-toast button.ghost { background: none; border-color: transparent; color: #55504a; }
+
+/* Character sheet (C): evaluated stats + per-gem combat numbers. */
+#charsheet {
+  position: fixed;
+  right: 16px; top: 120px;
+  width: 280px; max-height: 70vh;
+  overflow-y: auto;
+  background: rgba(16, 16, 22, 0.95);
+  border: 1px solid #3a3a45;
+  border-radius: 4px;
+  padding: 12px;
+  font-size: 13px; color: #cfc9bf;
+  user-select: none;
+  -webkit-user-select: none;
+}
+#charsheet .hint { font-size: 11px; color: #55504a; margin-top: 10px; }
+#charsheet-tabs { display: flex; gap: 6px; margin-bottom: 10px; }
+.cs-tab {
+  flex: 1;
+  background: none; border: 1px solid #3a3a45; border-radius: 3px;
+  color: #8d8678; font: inherit; font-size: 12px;
+  padding: 4px 0; cursor: pointer;
+  text-transform: uppercase; letter-spacing: 1px;
+}
+.cs-tab.active { color: #e8dfc8; border-color: #6a6455; background: rgba(60, 56, 44, 0.3); }
+.cs-row {
+  display: flex; justify-content: space-between;
+  padding: 2px 0;
+  border-bottom: 1px solid #1e1e26;
+}
+.cs-row .cs-val { color: #e8dfc8; }
+.cs-gem { margin-bottom: 12px; }
+.cs-gem h3 { font-size: 13px; margin: 0 0 3px; }
+.cs-gem .cs-sub { font-size: 11px; color: #8d8678; margin-bottom: 4px; }

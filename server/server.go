@@ -265,6 +265,9 @@ type client struct {
 	wantLeave   bool
 	// stashOps buffers stash verbs in arrival order (hideout bank; stash.go).
 	stashOps []stashOp
+	// wantSheet buffers a "sheet" verb: the client's C panel wants the
+	// computed character sheet after this tick.
+	wantSheet bool
 
 	// lastChar is the freshest character extraction for this client's
 	// actor, taken after every step — death compacts the actor away before
@@ -628,9 +631,9 @@ func readLoop(ctx context.Context, c *client) {
 			continue
 		case "descend", "plant_portal", "enter_portal",
 			"invite", "accept_invite", "decline_invite", "leave_party",
-			"stash_put", "stash_take":
-			// Run, social, and stash verbs are host-layer, like ack — the
-			// sim never sees them.
+			"stash_put", "stash_take", "sheet":
+			// Run, social, stash, and sheet verbs are host-layer, like ack —
+			// the sim never sees them.
 			c.mu.Lock()
 			switch wc.Kind {
 			case "descend":
@@ -651,6 +654,8 @@ func readLoop(ctx context.Context, c *client) {
 				c.stashOps = append(c.stashOps, stashOp{item: core.EntityID(wc.Target)})
 			case "stash_take":
 				c.stashOps = append(c.stashOps, stashOp{take: true, idx: wc.Choice})
+			case "sheet":
+				c.wantSheet = true
 			}
 			c.mu.Unlock()
 			continue
@@ -687,7 +692,7 @@ func (in *Instance) tick() {
 	ops := in.adminOps
 	in.joins, in.leaves, in.pending, in.adminOps = nil, nil, nil, nil
 	in.mu.Unlock()
-	var descends, portals, plants []*client
+	var descends, portals, plants, sheets []*client
 	var social []socialWant
 	var stashes []stashWant
 	for _, c := range in.clients {
@@ -714,6 +719,10 @@ func (in *Instance) tick() {
 		if len(c.stashOps) > 0 {
 			stashes = append(stashes, stashWant{c: c, ops: c.stashOps})
 			c.stashOps = nil
+		}
+		if c.wantSheet {
+			c.wantSheet = false
+			sheets = append(sheets, c)
 		}
 		c.mu.Unlock()
 	}
@@ -791,6 +800,17 @@ func (in *Instance) tick() {
 		// The descent: deaths, stairs, portals — may swap the world and
 		// re-welcome everyone (descent.go).
 		in.runTick(fresh, descends, portals, plants)
+
+		// Character sheets last, off the settled world: read-only, so no
+		// surgery flag — the replay never notices a sheet request.
+		for _, c := range sheets {
+			if sheet := sim.BuildSheet(in.sim.W, c.actor); sheet != nil {
+				frame, _ := json.Marshal(protocol.ServerMsg{Type: "sheet", Sheet: sheet})
+				if !c.send(frame, false) {
+					c.tr.Close()
+				}
+			}
+		}
 	}
 	// (Paused: cmds are dropped, not queued — a long pause must not release
 	// a flood of stale intent on resume.)
