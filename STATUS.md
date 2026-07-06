@@ -11,8 +11,8 @@ tests, and session-log entries older than a few sessions (git history is the
 archive). If this file outgrows ~150 lines, it has stopped being a status doc
 and started being a changelog — cut it back.
 
-**Last updated: 2026-07-03** (session 63: audio juice — block/stun/spawn
-SFX + a harder screen shake when the stun is yours)
+**Last updated: 2026-07-06** (session 64: item presentation — quantized
+rolls, readable mod lines, honest rarity colors, a boots icon that reads)
 
 ## Where things stand
 
@@ -215,6 +215,22 @@ dictates, and Jake's balance pass over the numbers.
 
 ## Session log
 
+- **2026-07-06 (64)** — Item presentation. Three fronts: (1) affix/implicit
+  rolls quantize in the engine — `AffixDef.Step`/`ImplicitDef.Step` snap
+  every roll onto a Min + k·Step lattice (whole percents for resists and
+  increased-stats, whole points for flat life/armour, 0.1 steps for the
+  regen/move-speed oddballs), uniform across steps and still exactly one
+  RNG draw so the loot stream never shifts; pinned by
+  `TestRollValuesLandOnStep`, goldens re-recorded (values moved). (2) The
+  client formats mod lines semantically — `modLine`/`MOD_FMT` turn
+  "fire_resistance: 0.17" into "+17% to fire resistance" for every content
+  affix and implicit, with a magnitude-guessing fallback for ids newer than
+  the client. (3) Rarity honesty: normal ground labels drop the gold tint
+  (grey-white now — gold was reading as rare), rare/unique/gem labels go
+  bold, and uniques finally throw the tallest light shaft (they had none).
+  Boots icon redrawn as an actual boot. Verified live: dummy farm, tooltips
+  checked across normal/rare/unique + a synthetic all-affix rare, zero
+  console errors.
 - **2026-07-03 (63)** — Audio juice: the three mechanic events that had
   visuals but no sound (block, stun, spawn) get SFX in `sfxForEvent`, and
   getting stunned yourself now rattles the screen at 1.5× the hit-shake —

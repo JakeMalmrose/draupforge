@@ -317,7 +317,11 @@ type AffixDef struct {
 	Tags  stats.TagSet
 
 	Min, Max fm.Fixed
-	Weight   uint32
+	// Step quantizes the roll: values land on Min + k·Step, so a resist
+	// rolls whole percents and a flat armour whole points — the tooltip
+	// never has to lie about sub-display precision. 0 = raw milli rolls.
+	Step   fm.Fixed
+	Weight uint32
 
 	// ILvl is the minimum item level this affix can roll on (0 = always).
 	// Higher tiers of a group carry higher gates, so deeper drops unlock
@@ -371,6 +375,7 @@ type ImplicitDef struct {
 	Tags  stats.TagSet
 
 	Min, Max fm.Fixed
+	Step     fm.Fixed // roll quantum, like AffixDef.Step (0 = raw milli)
 }
 
 type BaseItemDef struct {

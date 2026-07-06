@@ -1077,208 +1077,208 @@ func affixDefs() []*core.AffixDef {
 		{
 			ID: "flat_fire_damage", Group: "added_fire", Kind: core.Prefix,
 			Stat: stats.Damage, Layer: stats.LayerFlat, Tags: stats.T(stats.TagFire),
-			Min: fm.FromInt(2), Max: fm.FromInt(5), Weight: 100,
+			Min: fm.FromInt(2), Max: fm.FromInt(5), Step: fm.One, Weight: 100,
 			Families: flatDmg,
 		},
 		{
 			ID: "flat_cold_damage", Group: "added_cold", Kind: core.Prefix,
 			Stat: stats.Damage, Layer: stats.LayerFlat, Tags: stats.T(stats.TagCold),
-			Min: fm.FromInt(2), Max: fm.FromInt(5), Weight: 100,
+			Min: fm.FromInt(2), Max: fm.FromInt(5), Step: fm.One, Weight: 100,
 			Families: flatDmg,
 		},
 		{
 			ID: "flat_lightning_damage", Group: "added_lightning", Kind: core.Prefix,
 			Stat: stats.Damage, Layer: stats.LayerFlat, Tags: stats.T(stats.TagLightning),
-			Min: fm.FromInt(1), Max: fm.FromInt(7), Weight: 100,
+			Min: fm.FromInt(1), Max: fm.FromInt(7), Step: fm.One, Weight: 100,
 			Families: flatDmg,
 		},
 		{
 			ID: "flat_phys_damage", Group: "added_phys", Kind: core.Prefix,
 			Stat: stats.Damage, Layer: stats.LayerFlat, Tags: stats.T(stats.TagPhysical),
-			Min: fm.FromInt(2), Max: fm.FromInt(4), Weight: 90,
+			Min: fm.FromInt(2), Max: fm.FromInt(4), Step: fm.One, Weight: 90,
 			Families: flatDmg,
 		},
 		{
 			ID: "increased_spell_damage", Group: "spell_damage", Kind: core.Prefix,
 			Stat: stats.Damage, Layer: stats.LayerIncreased, Tags: stats.T(stats.TagSpell),
-			Min: fm.FromMilli(80), Max: fm.FromMilli(150), Weight: 70, // 8–15%
+			Min: fm.FromMilli(80), Max: fm.FromMilli(150), Step: fm.FromMilli(10), Weight: 70, // 8–15%
 			Families: caster,
 		},
 		{
 			ID: "increased_fire_damage", Group: "fire_damage", Kind: core.Prefix,
 			Stat: stats.Damage, Layer: stats.LayerIncreased, Tags: stats.T(stats.TagFire),
-			Min: fm.FromMilli(100), Max: fm.FromMilli(200), Weight: 60, // 10–20%
+			Min: fm.FromMilli(100), Max: fm.FromMilli(200), Step: fm.FromMilli(10), Weight: 60, // 10–20%
 			Families: incEle,
 		},
 		{
 			ID: "increased_cold_damage", Group: "cold_damage", Kind: core.Prefix,
 			Stat: stats.Damage, Layer: stats.LayerIncreased, Tags: stats.T(stats.TagCold),
-			Min: fm.FromMilli(100), Max: fm.FromMilli(200), Weight: 60,
+			Min: fm.FromMilli(100), Max: fm.FromMilli(200), Step: fm.FromMilli(10), Weight: 60,
 			Families: incEle,
 		},
 		{
 			ID: "increased_lightning_damage", Group: "lightning_damage", Kind: core.Prefix,
 			Stat: stats.Damage, Layer: stats.LayerIncreased, Tags: stats.T(stats.TagLightning),
-			Min: fm.FromMilli(100), Max: fm.FromMilli(200), Weight: 60,
+			Min: fm.FromMilli(100), Max: fm.FromMilli(200), Step: fm.FromMilli(10), Weight: 60,
 			Families: incEle,
 		},
 		// --- prefixes: defences and pools
 		{
 			ID: "flat_life", Group: "life", Kind: core.Prefix,
 			Stat: stats.Life, Layer: stats.LayerFlat,
-			Min: fm.FromInt(10), Max: fm.FromInt(25), Weight: 100,
+			Min: fm.FromInt(10), Max: fm.FromInt(25), Step: fm.One, Weight: 100,
 			Families: lifes,
 		},
 		{
 			ID: "flat_life_greater", Group: "life", Kind: core.Prefix,
 			Stat: stats.Life, Layer: stats.LayerFlat,
-			Min: fm.FromInt(26), Max: fm.FromInt(45), Weight: 35, ILvl: 5,
+			Min: fm.FromInt(26), Max: fm.FromInt(45), Step: fm.One, Weight: 35, ILvl: 5,
 			Families: lifes,
 		},
 		{
 			ID: "flat_life_grand", Group: "life", Kind: core.Prefix,
 			Stat: stats.Life, Layer: stats.LayerFlat,
-			Min: fm.FromInt(46), Max: fm.FromInt(75), Weight: 18, ILvl: 12,
+			Min: fm.FromInt(46), Max: fm.FromInt(75), Step: fm.One, Weight: 18, ILvl: 12,
 			Families: lifes,
 		},
 		{
 			ID: "flat_mana", Group: "mana", Kind: core.Prefix,
 			Stat: stats.Mana, Layer: stats.LayerFlat,
-			Min: fm.FromInt(8), Max: fm.FromInt(18), Weight: 90,
+			Min: fm.FromInt(8), Max: fm.FromInt(18), Step: fm.One, Weight: 90,
 			Families: manas,
 		},
 		{
 			ID: "flat_armour", Group: "armour", Kind: core.Prefix,
 			Stat: stats.Armour, Layer: stats.LayerFlat,
-			Min: fm.FromInt(15), Max: fm.FromInt(40), Weight: 80,
+			Min: fm.FromInt(15), Max: fm.FromInt(40), Step: fm.One, Weight: 80,
 			Families: armours,
 		},
 		{
 			ID: "flat_armour_greater", Group: "armour", Kind: core.Prefix,
 			Stat: stats.Armour, Layer: stats.LayerFlat,
-			Min: fm.FromInt(41), Max: fm.FromInt(75), Weight: 25, ILvl: 5,
+			Min: fm.FromInt(41), Max: fm.FromInt(75), Step: fm.One, Weight: 25, ILvl: 5,
 			Families: armours,
 		},
 		{
 			ID: "flat_armour_grand", Group: "armour", Kind: core.Prefix,
 			Stat: stats.Armour, Layer: stats.LayerFlat,
-			Min: fm.FromInt(76), Max: fm.FromInt(120), Weight: 12, ILvl: 12,
+			Min: fm.FromInt(76), Max: fm.FromInt(120), Step: fm.One, Weight: 12, ILvl: 12,
 			Families: armours,
 		},
 		{
 			ID: "flat_evasion", Group: "evasion", Kind: core.Prefix,
 			Stat: stats.Evasion, Layer: stats.LayerFlat,
-			Min: fm.FromInt(15), Max: fm.FromInt(40), Weight: 80,
+			Min: fm.FromInt(15), Max: fm.FromInt(40), Step: fm.One, Weight: 80,
 			Families: evasions,
 		},
 		{
 			ID: "flat_energy_shield", Group: "energy_shield", Kind: core.Prefix,
 			Stat: stats.EnergyShield, Layer: stats.LayerFlat,
-			Min: fm.FromInt(10), Max: fm.FromInt(25), Weight: 70,
+			Min: fm.FromInt(10), Max: fm.FromInt(25), Step: fm.One, Weight: 70,
 			Families: esSlots,
 		},
 		{
 			ID: "life_regen", Group: "life_regen", Kind: core.Prefix,
 			Stat: stats.LifeRegen, Layer: stats.LayerFlat,
-			Min: fm.FromInt(1), Max: fm.FromInt(3), Weight: 60,
+			Min: fm.FromInt(1), Max: fm.FromInt(3), Step: fm.One, Weight: 60,
 			Families: regens,
 		},
 		{
 			ID: "mana_regen", Group: "mana_regen", Kind: core.Prefix,
 			Stat: stats.ManaRegen, Layer: stats.LayerFlat,
-			Min: fm.FromMilli(500), Max: fm.FromMilli(1500), Weight: 60,
+			Min: fm.FromMilli(500), Max: fm.FromMilli(1500), Step: fm.FromMilli(100), Weight: 60,
 			Families: regens,
 		},
 		// --- suffixes: resistances
 		{
 			ID: "fire_resistance", Group: "fire_res", Kind: core.Suffix,
 			Stat: stats.FireRes, Layer: stats.LayerFlat,
-			Min: fm.FromMilli(100), Max: fm.FromMilli(200), Weight: 100, // 10–20%
+			Min: fm.FromMilli(100), Max: fm.FromMilli(200), Step: fm.FromMilli(10), Weight: 100, // 10–20%
 			Families: resists,
 		},
 		{
 			ID: "fire_resistance_greater", Group: "fire_res", Kind: core.Suffix,
 			Stat: stats.FireRes, Layer: stats.LayerFlat,
-			Min: fm.FromMilli(210), Max: fm.FromMilli(300), Weight: 30, ILvl: 8, // 21–30%
+			Min: fm.FromMilli(210), Max: fm.FromMilli(300), Step: fm.FromMilli(10), Weight: 30, ILvl: 8, // 21–30%
 			Families: resists,
 		},
 		{
 			ID: "cold_resistance", Group: "cold_res", Kind: core.Suffix,
 			Stat: stats.ColdRes, Layer: stats.LayerFlat,
-			Min: fm.FromMilli(100), Max: fm.FromMilli(200), Weight: 100,
+			Min: fm.FromMilli(100), Max: fm.FromMilli(200), Step: fm.FromMilli(10), Weight: 100,
 			Families: resists,
 		},
 		{
 			ID: "cold_resistance_greater", Group: "cold_res", Kind: core.Suffix,
 			Stat: stats.ColdRes, Layer: stats.LayerFlat,
-			Min: fm.FromMilli(210), Max: fm.FromMilli(300), Weight: 30, ILvl: 8,
+			Min: fm.FromMilli(210), Max: fm.FromMilli(300), Step: fm.FromMilli(10), Weight: 30, ILvl: 8,
 			Families: resists,
 		},
 		{
 			ID: "lightning_resistance", Group: "lightning_res", Kind: core.Suffix,
 			Stat: stats.LightningRes, Layer: stats.LayerFlat,
-			Min: fm.FromMilli(100), Max: fm.FromMilli(200), Weight: 100,
+			Min: fm.FromMilli(100), Max: fm.FromMilli(200), Step: fm.FromMilli(10), Weight: 100,
 			Families: resists,
 		},
 		{
 			ID: "lightning_resistance_greater", Group: "lightning_res", Kind: core.Suffix,
 			Stat: stats.LightningRes, Layer: stats.LayerFlat,
-			Min: fm.FromMilli(210), Max: fm.FromMilli(300), Weight: 30, ILvl: 8,
+			Min: fm.FromMilli(210), Max: fm.FromMilli(300), Step: fm.FromMilli(10), Weight: 30, ILvl: 8,
 			Families: resists,
 		},
 		{
 			ID: "chaos_resistance", Group: "chaos_res", Kind: core.Suffix,
 			Stat: stats.ChaosRes, Layer: stats.LayerFlat,
-			Min: fm.FromMilli(50), Max: fm.FromMilli(150), Weight: 40, // 5–15%
+			Min: fm.FromMilli(50), Max: fm.FromMilli(150), Step: fm.FromMilli(10), Weight: 40, // 5–15%
 			Families: resists,
 		},
 		// --- suffixes: offense and utility
 		{
 			ID: "crit_chance", Group: "crit", Kind: core.Suffix,
 			Stat: stats.CritChance, Layer: stats.LayerFlat,
-			Min: fm.FromMilli(10), Max: fm.FromMilli(30), Weight: 60, // 1–3%
+			Min: fm.FromMilli(10), Max: fm.FromMilli(30), Step: fm.FromMilli(10), Weight: 60, // 1–3%
 			Families: crits,
 		},
 		{
 			ID: "crit_multi", Group: "crit_multi", Kind: core.Suffix,
 			Stat: stats.CritMulti, Layer: stats.LayerFlat,
-			Min: fm.FromMilli(100), Max: fm.FromMilli(250), Weight: 40, // +10–25%
+			Min: fm.FromMilli(100), Max: fm.FromMilli(250), Step: fm.FromMilli(10), Weight: 40, // +10–25%
 			Families: crits,
 		},
 		{
 			ID: "increased_cast_speed", Group: "cast_speed", Kind: core.Suffix,
 			Stat: stats.CastSpeed, Layer: stats.LayerIncreased,
-			Min: fm.FromMilli(50), Max: fm.FromMilli(100), Weight: 60, // 5–10%
+			Min: fm.FromMilli(50), Max: fm.FromMilli(100), Step: fm.FromMilli(10), Weight: 60, // 5–10%
 			Families: caster,
 		},
 		{
 			ID: "increased_attack_speed", Group: "attack_speed", Kind: core.Suffix,
 			Stat: stats.AttackSpeed, Layer: stats.LayerIncreased,
-			Min: fm.FromMilli(50), Max: fm.FromMilli(100), Weight: 60,
+			Min: fm.FromMilli(50), Max: fm.FromMilli(100), Step: fm.FromMilli(10), Weight: 60,
 			Families: attacks,
 		},
 		{
 			ID: "increased_move_speed", Group: "move_speed", Kind: core.Suffix,
 			Stat: stats.MoveSpeed, Layer: stats.LayerIncreased,
-			Min: fm.FromMilli(40), Max: fm.FromMilli(80), Weight: 40, // 4–8%
+			Min: fm.FromMilli(40), Max: fm.FromMilli(80), Step: fm.FromMilli(10), Weight: 40, // 4–8%
 			Families: boots,
 		},
 		{
 			ID: "flat_accuracy", Group: "accuracy", Kind: core.Suffix,
 			Stat: stats.Accuracy, Layer: stats.LayerFlat,
-			Min: fm.FromInt(20), Max: fm.FromInt(50), Weight: 70,
+			Min: fm.FromInt(20), Max: fm.FromInt(50), Step: fm.One, Weight: 70,
 			Families: accs,
 		},
 		{
 			ID: "ignite_chance", Group: "ignite_chance", Kind: core.Suffix,
 			Stat: stats.IgniteChance, Layer: stats.LayerFlat,
-			Min: fm.FromMilli(50), Max: fm.FromMilli(100), Weight: 40, // 5–10%
+			Min: fm.FromMilli(50), Max: fm.FromMilli(100), Step: fm.FromMilli(10), Weight: 40, // 5–10%
 			Families: procs,
 		},
 		{
 			ID: "shock_chance", Group: "shock_chance", Kind: core.Suffix,
 			Stat: stats.ShockChance, Layer: stats.LayerFlat,
-			Min: fm.FromMilli(50), Max: fm.FromMilli(100), Weight: 40,
+			Min: fm.FromMilli(50), Max: fm.FromMilli(100), Step: fm.FromMilli(10), Weight: 40,
 			Families: procs,
 		},
 		{
@@ -1287,7 +1287,7 @@ func affixDefs() []*core.AffixDef {
 			// it's ILvl-gated.
 			ID: "life_leech", Group: "life_leech", Kind: core.Suffix,
 			Stat: stats.LifeLeech, Layer: stats.LayerFlat,
-			Min: fm.FromMilli(20), Max: fm.FromMilli(50), Weight: 30, ILvl: 4, // 2–5%
+			Min: fm.FromMilli(20), Max: fm.FromMilli(50), Step: fm.FromMilli(10), Weight: 30, ILvl: 4, // 2–5%
 			Families: []core.SlotFamily{core.FamilyWeapon, core.FamilyRing, core.FamilyAmulet},
 		},
 		{
@@ -1295,7 +1295,7 @@ func affixDefs() []*core.AffixDef {
 			// chase suffix, offhand-only and ILvl-gated.
 			ID: "increased_block", Group: "block", Kind: core.Suffix,
 			Stat: stats.Block, Layer: stats.LayerFlat,
-			Min: fm.FromMilli(50), Max: fm.FromMilli(120), Weight: 35, ILvl: 6, // +5–12%
+			Min: fm.FromMilli(50), Max: fm.FromMilli(120), Step: fm.FromMilli(10), Weight: 35, ILvl: 6, // +5–12%
 			Families: []core.SlotFamily{core.FamilyOffhand},
 		},
 	}
@@ -1308,41 +1308,41 @@ func baseItemDefs() []*core.BaseItemDef {
 		{ID: "rusty_sword", Name: "Rusty Sword", Slot: core.FamilyWeapon, Implicit: &core.ImplicitDef{
 			// Untagged increased damage so every build cares about its weapon.
 			ID: "increased_damage", Stat: stats.Damage, Layer: stats.LayerIncreased,
-			Min: fm.FromMilli(50), Max: fm.FromMilli(100), // 5–10%
+			Min: fm.FromMilli(50), Max: fm.FromMilli(100), Step: fm.FromMilli(10), // 5–10%
 		}},
 		{ID: "wooden_shield", Name: "Wooden Shield", Slot: core.FamilyOffhand, Implicit: &core.ImplicitDef{
 			// A shield's identity is block — the reason to give up a second
 			// weapon or a caster offhand.
 			ID: "block", Stat: stats.Block, Layer: stats.LayerFlat,
-			Min: fm.FromMilli(150), Max: fm.FromMilli(250), // 15–25% block
+			Min: fm.FromMilli(150), Max: fm.FromMilli(250), Step: fm.FromMilli(10), // 15–25% block
 		}},
 		{ID: "leather_cap", Name: "Leather Cap", Slot: core.FamilyHelmet, Implicit: &core.ImplicitDef{
 			ID: "evasion", Stat: stats.Evasion, Layer: stats.LayerFlat,
-			Min: fm.FromInt(10), Max: fm.FromInt(20),
+			Min: fm.FromInt(10), Max: fm.FromInt(20), Step: fm.One,
 		}},
 		{ID: "leather_vest", Name: "Leather Vest", Slot: core.FamilyBody, Implicit: &core.ImplicitDef{
 			ID: "armour", Stat: stats.Armour, Layer: stats.LayerFlat,
-			Min: fm.FromInt(15), Max: fm.FromInt(30),
+			Min: fm.FromInt(15), Max: fm.FromInt(30), Step: fm.One,
 		}},
 		{ID: "leather_gloves", Name: "Leather Gloves", Slot: core.FamilyGloves, Implicit: &core.ImplicitDef{
 			ID: "accuracy", Stat: stats.Accuracy, Layer: stats.LayerFlat,
-			Min: fm.FromInt(20), Max: fm.FromInt(40),
+			Min: fm.FromInt(20), Max: fm.FromInt(40), Step: fm.One,
 		}},
 		{ID: "leather_boots", Name: "Leather Boots", Slot: core.FamilyBoots, Implicit: &core.ImplicitDef{
 			ID: "move_speed", Stat: stats.MoveSpeed, Layer: stats.LayerFlat,
-			Min: fm.FromMilli(200), Max: fm.FromMilli(400), // +0.2–0.4 u/s
+			Min: fm.FromMilli(200), Max: fm.FromMilli(400), Step: fm.FromMilli(100), // +0.2–0.4 u/s
 		}},
 		{ID: "bone_amulet", Name: "Bone Amulet", Slot: core.FamilyAmulet, Implicit: &core.ImplicitDef{
 			ID: "fire_resistance", Stat: stats.FireRes, Layer: stats.LayerFlat,
-			Min: fm.FromMilli(50), Max: fm.FromMilli(100), // 5–10%
+			Min: fm.FromMilli(50), Max: fm.FromMilli(100), Step: fm.FromMilli(10), // 5–10%
 		}},
 		{ID: "iron_ring", Name: "Iron Ring", Slot: core.FamilyRing, Implicit: &core.ImplicitDef{
 			ID: "mana", Stat: stats.Mana, Layer: stats.LayerFlat,
-			Min: fm.FromInt(5), Max: fm.FromInt(10),
+			Min: fm.FromInt(5), Max: fm.FromInt(10), Step: fm.One,
 		}},
 		{ID: "leather_belt", Name: "Leather Belt", Slot: core.FamilyBelt, Implicit: &core.ImplicitDef{
 			ID: "life", Stat: stats.Life, Layer: stats.LayerFlat,
-			Min: fm.FromInt(10), Max: fm.FromInt(20),
+			Min: fm.FromInt(10), Max: fm.FromInt(20), Step: fm.One,
 		}},
 	}
 }

@@ -214,3 +214,35 @@ func TestItemLevelGatesTiers(t *testing.T) {
 		t.Fatal("400 ilvl-20 rares never rolled a grand tier — gate never opens?")
 	}
 }
+
+func TestRollValuesLandOnStep(t *testing.T) {
+	db := content.DB()
+	table := db.LootTables["dummy_drops"]
+
+	// Every content affix and implicit declares a Step; rolled values must
+	// land exactly on the Min + k·Step lattice so tooltips never have to
+	// round. Rolled across many seeds to cover the whole pool.
+	for seed := uint64(0); seed < 300; seed++ {
+		w := core.NewWorld(db, seed)
+		item := items.RollItem(w, table, 20)
+
+		if imp := item.Base.Implicit; imp != nil && item.Implicit != 0 {
+			if imp.Step <= 0 {
+				t.Fatalf("implicit %s has no Step", imp.ID)
+			}
+			if (item.Implicit-imp.Min)%imp.Step != 0 {
+				t.Errorf("seed %d: implicit %s rolled %d off the %d-step lattice from %d",
+					seed, imp.ID, item.Implicit, imp.Step, imp.Min)
+			}
+		}
+		for _, af := range item.Affixes {
+			if af.Def.Step <= 0 {
+				t.Fatalf("affix %s has no Step", af.Def.ID)
+			}
+			if (af.Value-af.Def.Min)%af.Def.Step != 0 {
+				t.Errorf("seed %d: affix %s rolled %d off the %d-step lattice from %d",
+					seed, af.Def.ID, af.Value, af.Def.Step, af.Def.Min)
+			}
+		}
+	}
+}

@@ -1168,14 +1168,15 @@ function dropLabel(item) {
 function drawDrop(d) {
   const p = worldToScreen(d.pos.x, d.pos.y);
   const color = dropColor(d.item);
-  const shafted = d.item.gem || d.item.rarity === "magic" || d.item.rarity === "rare";
+  const shafted = d.item.gem || (d.item.rarity && d.item.rarity !== "normal");
 
-  // Magic/rare/gem drops throw a pulsing light shaft, readable across a
-  // room — a rare monster's triple drop should look like an event on the
-  // floor, and an uncut gem is one.
+  // Magic/rare/unique/gem drops throw a pulsing light shaft, readable
+  // across a room — a rare monster's triple drop should look like an event
+  // on the floor, and an uncut gem is one. Height climbs with rarity;
+  // normal gear stays quiet on purpose.
   if (shafted) {
     const pulse = 0.55 + 0.25 * Math.sin(renderClock / 280 + d.id);
-    const h = d.item.rarity === "rare" || d.item.gem ? 52 : 38;
+    const h = d.item.rarity === "unique" ? 66 : d.item.rarity === "rare" || d.item.gem ? 52 : 38;
     const grad = ctx.createLinearGradient(p.x, p.y, p.x, p.y - h);
     grad.addColorStop(0, color + "cc");
     grad.addColorStop(1, color + "00");
@@ -1194,8 +1195,12 @@ function drawDrop(d) {
   ctx.strokeStyle = "#000000aa";
   ctx.strokeRect(-6, -6, 12, 12);
   ctx.restore();
-  ctx.fillStyle = !d.item.gem && d.item.rarity === "normal" ? "#b8a44a" : color;
-  ctx.font = "11px Georgia";
+  // The label wears the rarity color straight: normal gear reads as quiet
+  // grey-white (never gold — that's rare territory), and the loud tiers
+  // get bold so a rare on the floor pops even in a pile.
+  const loud = d.item.gem || d.item.rarity === "rare" || d.item.rarity === "unique";
+  ctx.fillStyle = color;
+  ctx.font = loud ? "bold 11px Georgia" : "11px Georgia";
   ctx.textAlign = "center";
   ctx.fillText(dropLabel(d.item), p.x, p.y - 12);
 }
@@ -2031,7 +2036,9 @@ const ICONS = {
     '<rect x="4.5" y="9" width="5" height="3.5" rx="1.5" fill="currentColor"/>' +
     '<rect x="8" y="18" width="9" height="3" fill="currentColor"/></svg>',
   leather_boots:
-    '<svg viewBox="0 0 24 24"><path d="M7 3 H13 V13 H20 V20 H7 Z" fill="currentColor"/></svg>',
+    '<svg viewBox="0 0 24 24"><path d="M5 2.5 H11.5 V12 C11.5 13.8 12.6 14.9 14.2 15.4 L18 16.7 ' +
+    'C19.7 17.3 21 18 21 19 L5 19 Z" fill="currentColor"/>' +
+    '<rect x="5" y="20.2" width="16" height="1.8" rx="0.9" fill="currentColor"/></svg>',
   bone_amulet:
     '<svg viewBox="0 0 24 24"><path d="M5 4 A 9 9 0 0 0 19 4" fill="none" stroke="currentColor" stroke-width="2"/>' +
     '<rect x="9" y="11" width="6" height="6" transform="rotate(45 12 14)" fill="currentColor"/></svg>',
@@ -2050,6 +2057,76 @@ const ICON_GEM =
   '<path d="M5 8 H19 M12 2.5 L9.5 8 L8 21 M12 2.5 L14.5 8 L16 21" stroke="#0b0b10" stroke-width="1" fill="none"/></svg>';
 
 const prettify = (id) => id.replace(/_/g, " ");
+
+// --- mod lines. Affix/implicit values arrive as milli fixed-point; percent-
+// flavored stats store fractions (120 milli = 12%), flat ones store the
+// number itself (25000 milli = 25). Each known id renders the way an ARPG
+// player expects — "+12% to fire resistance", "+31 to maximum life" — with
+// display rounding as a belt-and-braces for old items rolled before the
+// engine quantized (new rolls land exactly on these steps).
+const MOD_FMT = (() => {
+  const pc = (v) => `${Math.round(v / 10)}%`;
+  const num = (v) => `${Math.round(v / 1000)}`;
+  const dec = (v) => `${+(v / 1000).toFixed(1)}`;
+  const addsDmg = (t) => (v) => `adds ${num(v)} ${t} damage`;
+  const incDmg = (t) => (v) => `${pc(v)} increased ${t}damage`;
+  const res = (t) => (v) => `+${pc(v)} to ${t} resistance`;
+  const maxLife = (v) => `+${num(v)} to maximum life`;
+  const armour = (v) => `+${num(v)} to armour`;
+  const maxMana = (v) => `+${num(v)} to maximum mana`;
+  const fireRes = res("fire");
+  const block = (v) => `${pc(v)} chance to block`;
+  return {
+    flat_fire_damage: addsDmg("fire"),
+    flat_cold_damage: addsDmg("cold"),
+    flat_lightning_damage: addsDmg("lightning"),
+    flat_phys_damage: addsDmg("physical"),
+    increased_spell_damage: incDmg("spell "),
+    increased_fire_damage: incDmg("fire "),
+    increased_cold_damage: incDmg("cold "),
+    increased_lightning_damage: incDmg("lightning "),
+    flat_life: maxLife, flat_life_greater: maxLife, flat_life_grand: maxLife,
+    flat_mana: maxMana,
+    flat_armour: armour, flat_armour_greater: armour, flat_armour_grand: armour,
+    flat_evasion: (v) => `+${num(v)} to evasion`,
+    flat_energy_shield: (v) => `+${num(v)} to energy shield`,
+    life_regen: (v) => `+${num(v)} life per second`,
+    mana_regen: (v) => `+${dec(v)} mana per second`,
+    fire_resistance: fireRes, fire_resistance_greater: fireRes,
+    cold_resistance: res("cold"), cold_resistance_greater: res("cold"),
+    lightning_resistance: res("lightning"), lightning_resistance_greater: res("lightning"),
+    chaos_resistance: res("chaos"),
+    crit_chance: (v) => `+${pc(v)} critical strike chance`,
+    crit_multi: (v) => `+${pc(v)} critical strike multiplier`,
+    increased_cast_speed: (v) => `${pc(v)} increased cast speed`,
+    increased_attack_speed: (v) => `${pc(v)} increased attack speed`,
+    increased_move_speed: (v) => `${pc(v)} increased movement speed`,
+    flat_accuracy: (v) => `+${num(v)} to accuracy`,
+    ignite_chance: (v) => `+${pc(v)} chance to ignite`,
+    shock_chance: (v) => `+${pc(v)} chance to shock`,
+    life_leech: (v) => `${pc(v)} of damage leeched as life`,
+    increased_block: (v) => `+${pc(v)} chance to block`,
+    // implicit-only ids
+    increased_damage: incDmg(""),
+    block,
+    evasion: (v) => `+${num(v)} to evasion`,
+    armour,
+    accuracy: (v) => `+${num(v)} to accuracy`,
+    move_speed: (v) => `+${dec(v)} movement speed`,
+    mana: maxMana,
+    life: maxLife,
+  };
+})();
+
+// modLine renders one affix/implicit. Unknown ids (content newer than this
+// client) fall back to the prettified id with a magnitude guess: fractions
+// under 1 read as percents, everything else as a plain number.
+function modLine(id, value) {
+  const f = MOD_FMT[id];
+  if (f) return f(value);
+  const whole = Math.abs(value) >= 1000;
+  return `${prettify(id)}: ${whole ? +(value / 1000).toFixed(1) : Math.round(value / 10) + "%"}`;
+}
 
 // --- tooltip (item names and affix ids come from our own content tables,
 // never from other players, so innerHTML is safe here)
@@ -2075,7 +2152,7 @@ function itemLines(item, where) {
       `<span class="tt-kind">unique ${prettify(item.base)}${where ? " · " + where : ""}${item.ilvl ? " · ilvl " + item.ilvl : ""}</span>`,
     ];
     if (item.implicit) {
-      lines.push(`<span class="tt-implicit">${prettify(item.implicit.id)}: ${item.implicit.value / 1000}</span>`);
+      lines.push(`<span class="tt-implicit">${modLine(item.implicit.id, item.implicit.value)}</span>`);
     }
     for (const m of item.unique.mods || []) {
       lines.push(`<span class="tt-affix rarity-unique">${m}</span>`);
@@ -2089,10 +2166,10 @@ function itemLines(item, where) {
     `<span class="tt-kind">${item.rarity}${where ? " · " + where : ""}${ilvl}</span>`,
   ];
   if (item.implicit) {
-    lines.push(`<span class="tt-implicit">${prettify(item.implicit.id)}: ${item.implicit.value / 1000}</span>`);
+    lines.push(`<span class="tt-implicit">${modLine(item.implicit.id, item.implicit.value)}</span>`);
   }
   for (const af of item.affixes || []) {
-    lines.push(`<span class="tt-affix">${prettify(af.id)}: ${af.value / 1000}</span>`);
+    lines.push(`<span class="tt-affix">${modLine(af.id, af.value)}</span>`);
   }
   if (!(item.affixes || []).length) lines.push('<span class="tt-plain">no affixes</span>');
   return lines;
