@@ -35,6 +35,13 @@ func resolve(w *core.World, h *core.Hit) {
 	if att == nil || def == nil || def.Dead {
 		return
 	}
+	// Anti-shotgun: one cast damages each target once. A volley hit on a
+	// defender the volley already damaged drops before any roll — the
+	// decision reads only hashed state, so RNG consumption stays
+	// deterministic (same discipline as the telegraphed-skip).
+	if h.Volley != 0 && def.HitByVolley(h.Volley) {
+		return
+	}
 	tags := h.Tags
 
 	// Stage: hit check. Attacks roll accuracy vs evasion; spells always
@@ -76,6 +83,12 @@ func resolve(w *core.World, h *core.Hit) {
 		note += ":aoe"
 	}
 	applyDamage(w, att, def, total, note, h.Crit)
+
+	// The volley is spent only when damage actually lands — an evaded or
+	// blocked sibling leaves the target fair game for the next one.
+	if h.Volley != 0 && total > 0 {
+		def.MarkVolley(h.Volley)
+	}
 
 	// Stage: life leech — a fraction of the hit's dealt damage refills the
 	// attacker (hits only; DoTs run a separate path). Instant and capped at

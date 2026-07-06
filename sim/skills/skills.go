@@ -271,9 +271,17 @@ func fire(w *core.World, a *core.Actor) {
 			n = 1
 		}
 		// Left-to-right fan centered on the aim; n==1 keeps the exact
-		// pre-gem math (rotate(v, 0) is identity).
+		// pre-gem math (rotate(v, 0) is identity). A real fan (n > 1)
+		// shares one volley id, so the cast can damage each target at most
+		// once — no shotgunning; extra projectiles buy coverage. The id
+		// comes off the entity-ID counter purely for uniqueness.
+		var volley uint64
+		if n > 1 {
+			volley = uint64(w.AllocID())
+		}
 		for i := 0; i < n; i++ {
-			w.SpawnProjectileGem(a, sk, a.Pos, rotate(vel, i-(n-1)/2), a.Action.Gem)
+			p := w.SpawnProjectileGem(a, sk, a.Pos, rotate(vel, i-(n-1)/2), a.Action.Gem)
+			p.Volley = volley
 		}
 	case core.SkillMelee:
 		tgt := w.ActorByID(a.Action.TargetID)
@@ -402,6 +410,12 @@ func UpdateProjectiles(w *core.World) {
 			if a.Dead || a.Team == p.Team || hitBefore(p.HitIDs, a.ID) {
 				continue
 			}
+			// Anti-shotgun pass-through: a sibling of this volley already
+			// damaged this actor, so the projectile flies past it — extra
+			// projectiles reach the enemies behind instead.
+			if p.Volley != 0 && a.HitByVolley(p.Volley) {
+				continue
+			}
 			pt, t, ok := space.SegCircleHit(p.Pos, next, a.Pos, a.Def.Radius+p.Skill.ProjRadius)
 			if !ok || t >= wallT {
 				continue
@@ -419,6 +433,7 @@ func UpdateProjectiles(w *core.World) {
 				Skill:    p.Skill,
 				Tags:     p.Skill.Tags.With(stats.TagHit),
 				Gem:      p.Gem,
+				Volley:   p.Volley,
 			})
 			explode(w, p, best)
 			// Chain: redirect at the impact point toward the nearest fresh
@@ -512,6 +527,7 @@ func explode(w *core.World, p *core.Projectile, direct *core.Actor) {
 			Tags:      p.Skill.Tags.With(stats.TagHit),
 			Gem:       p.Gem,
 			AreaScale: scale,
+			Volley:    p.Volley,
 		})
 	}
 }
