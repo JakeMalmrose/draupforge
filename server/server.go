@@ -1131,10 +1131,25 @@ func (in *Instance) Handler() http.Handler {
 	mux.HandleFunc("/ws", in.HandleWS)
 	mux.HandleFunc("/api/claim", in.ids.handleClaim)
 	mux.HandleFunc("/api/whoami", in.ids.handleWhoami)
+	mux.HandleFunc("/api/forget", in.ids.handleForget(in.kickToken))
 	if in.cfg.StaticDir != "" {
 		mux.Handle("/", http.FileServer(http.Dir(in.cfg.StaticDir)))
 	}
 	return mux
+}
+
+// kickToken severs this instance's session holding token, if any — the
+// standalone-mode counterpart of Lobby.kickToken, run on the tick
+// goroutine like the admin kick.
+func (in *Instance) kickToken(tok string) {
+	in.runOnTick(func() (any, error) {
+		for _, c := range in.clients {
+			if c.token == tok {
+				c.tr.Close() // readLoop files the leave
+			}
+		}
+		return nil, nil
+	})
 }
 
 // serveHTTP hosts Handler until ctx ends.

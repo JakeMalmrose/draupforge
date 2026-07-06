@@ -173,3 +173,73 @@ func TestNamedSessionOverWire(t *testing.T) {
 		t.Fatalf("guest welcome = %+v, want anonymous", guest)
 	}
 }
+
+// TestForgetAPI: the reset lever. Deleting frees the name for a fresh
+// claim (the whole point — a bricked character shouldn't squat its name),
+// kicks the live session, and expires the cookie.
+func TestForgetAPI(t *testing.T) {
+	base := startIdentityServer(t)
+	cookie := claim(t, base, "Doomed")
+
+	// A live session holds the name.
+	ws, welcome := dialCookie(t, base, cookie)
+	if welcome.Name != "Doomed" {
+		t.Fatalf("welcome name = %q, want Doomed", welcome.Name)
+	}
+
+	req, _ := http.NewRequest("POST", base+"/api/forget", nil)
+	req.AddCookie(cookie)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out struct{ Deleted string }
+	json.NewDecoder(resp.Body).Decode(&out)
+	resp.Body.Close()
+	if out.Deleted != "Doomed" {
+		t.Fatalf("forget deleted %q, want Doomed", out.Deleted)
+	}
+	expired := false
+	for _, c := range resp.Cookies() {
+		if c.Name == "draupforge_token" && c.MaxAge < 0 {
+			expired = true
+		}
+	}
+	if !expired {
+		t.Error("forget did not expire the token cookie")
+	}
+
+	// The live session is severed: reads fail once the kick lands.
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	closed := false
+	for i := 0; i < 200; i++ {
+		if _, _, err := ws.Read(ctx); err != nil {
+			closed = true
+			break
+		}
+	}
+	if !closed {
+		t.Fatal("session survived its identity's deletion")
+	}
+
+	// The stale cookie is a guest now...
+	req, _ = http.NewRequest("GET", base+"/api/whoami", nil)
+	req.AddCookie(cookie)
+	wr, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var who struct{ Name string }
+	json.NewDecoder(wr.Body).Decode(&who)
+	wr.Body.Close()
+	if who.Name != "" {
+		t.Fatalf("whoami after forget = %q, want empty", who.Name)
+	}
+
+	// ...and the name is claimable again, as a brand-new character.
+	fresh := claim(t, base, "Doomed")
+	if fresh.Value == cookie.Value {
+		t.Fatal("re-claim returned the deleted token")
+	}
+}
