@@ -22,7 +22,7 @@ import (
 // SaveVersion gates restores: a format change bumps it, and old files fail
 // loudly instead of misloading. Saves are durable state — unlike replays,
 // they must never depend on re-execution of the code that wrote them.
-const SaveVersion = 15 // v15: minion lifespans (v14: ES recharge + stun timers)
+const SaveVersion = 16 // v16: anti-shotgun volleys (v15: minion lifespans)
 
 type saveFile struct {
 	Version     int              `json:"version"`
@@ -125,7 +125,7 @@ type actorSave struct {
 	Level     int          `json:"level"`
 	XP        int64        `json:"xp,omitempty"`
 	Rarity    uint8        `json:"rarity,omitempty"`
-	MonMods   []string     `json:"mon_mods,omitempty"`  // MonsterModDef IDs
+	MonMods   []string     `json:"mon_mods,omitempty"` // MonsterModDef IDs
 	Passives  []string     `json:"passives,omitempty"` // PassiveDef IDs
 	Flasks    []int32      `json:"flasks,omitempty"`   // charges per flask slot
 	Orbs      []int32      `json:"orbs,omitempty"`     // wallet, OrbKind order
@@ -138,7 +138,8 @@ type actorSave struct {
 	Recharge  uint32       `json:"recharge,omitempty"` // ES recharge delay ticks
 	Stun      uint32       `json:"stun,omitempty"`     // stun lockout+immunity ticks
 	Lifespan  uint32       `json:"lifespan,omitempty"` // short-lived minion ticks left
-	Equipment []*itemSave  `json:"equipment"` // EquipSlotCount entries, null = empty
+	Volleys   []uint64     `json:"volleys,omitempty"`  // anti-shotgun memory, newest first
+	Equipment []*itemSave  `json:"equipment"`          // EquipSlotCount entries, null = empty
 	Inventory []itemSave   `json:"inventory,omitempty"`
 }
 
@@ -155,6 +156,7 @@ type projectileSave struct {
 	GemSupports []string `json:"gem_supports,omitempty"`
 	ChainsLeft  int      `json:"chains_left,omitempty"`
 	HitIDs      []uint64 `json:"hit_ids,omitempty"`
+	Volley      uint64   `json:"volley,omitempty"` // anti-shotgun cast id
 }
 
 type dropSave struct {
@@ -197,7 +199,7 @@ func (w *World) Save() ([]byte, error) {
 			ID: uint64(p.ID), Source: uint64(p.Source), Team: uint8(p.Team),
 			Skill: p.Skill.ID, Pos: p.Pos, Vel: p.Vel, TicksLeft: p.TicksLeft,
 			GemLevel: p.Gem.Level, GemSupports: supportIDs(p.Gem.Supports),
-			ChainsLeft: p.ChainsLeft,
+			ChainsLeft: p.ChainsLeft, Volley: p.Volley,
 		}
 		for _, id := range p.HitIDs {
 			ps.HitIDs = append(ps.HitIDs, uint64(id))
@@ -242,6 +244,11 @@ func encodeActor(a *Actor) actorSave {
 	}
 	if a.Action.Skill != nil {
 		as.Action.Skill = a.Action.Skill.ID
+	}
+	for _, v := range a.RecentVolleys {
+		if v != 0 {
+			as.Volleys = append(as.Volleys, v)
+		}
 	}
 	as.Action.GemLevel = a.Action.Gem.Level
 	as.Action.GemSupports = supportIDs(a.Action.Gem.Supports)
@@ -386,7 +393,7 @@ func LoadWorld(db *ContentDB, data []byte) (*World, error) {
 		p := &Projectile{
 			ID: EntityID(ps.ID), Source: EntityID(ps.Source), Team: Team(ps.Team),
 			Skill: sk, Pos: ps.Pos, Vel: ps.Vel, TicksLeft: ps.TicksLeft,
-			Gem: ctx, ChainsLeft: ps.ChainsLeft,
+			Gem: ctx, ChainsLeft: ps.ChainsLeft, Volley: ps.Volley,
 		}
 		for _, id := range ps.HitIDs {
 			p.HitIDs = append(p.HitIDs, EntityID(id))
@@ -456,6 +463,12 @@ func decodeActor(db *ContentDB, affixes map[string]*AffixDef, as actorSave) (*Ac
 			StageTicks:    as.Action.StageTicks,
 			StageAim:      as.Action.StageAim,
 		},
+	}
+	for i, v := range as.Volleys {
+		if i >= len(a.RecentVolleys) {
+			break
+		}
+		a.RecentVolleys[i] = v
 	}
 	if as.Action.Skill != "" {
 		sk := db.Skills[as.Action.Skill]

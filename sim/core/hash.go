@@ -93,6 +93,11 @@ func (w *World) Hash() uint64 {
 		if a.LifespanTicks != 0 {
 			s.u64(uint64(a.LifespanTicks))
 		}
+		for _, v := range a.RecentVolleys {
+			if v != 0 {
+				s.u64(v)
+			}
+		}
 		s.u64(uint64(a.Level))
 		s.i64(a.XP)
 		// Rarity hashes only when rolled — normal actors keep the
@@ -207,6 +212,9 @@ func (w *World) Hash() uint64 {
 			for _, id := range p.HitIDs {
 				s.u64(uint64(id))
 			}
+		}
+		if p.Volley != 0 {
+			s.u64(p.Volley)
 		}
 	}
 

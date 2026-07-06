@@ -11,8 +11,8 @@ tests, and session-log entries older than a few sessions (git history is the
 archive). If this file outgrows ~150 lines, it has stopped being a status doc
 and started being a changelog — cut it back.
 
-**Last updated: 2026-07-06** (session 69: the minion pack grows — Summon
-Marksman (ranged) and Summon Raging Spirit (short-lived melee), save v15)
+**Last updated: 2026-07-06** (session 70: balance — anti-shotgun volleys
+(one cast damages a target once, save v16) + a ~25% defensive gear trim)
 
 ## Where things stand
 
@@ -215,6 +215,20 @@ dictates, and Jake's balance pass over the numbers.
 
 ## Session log
 
+- **2026-07-06 (70)** — The balance patch, two fronts from playtesting.
+  (1) Anti-shotgun: one cast damages each target at most once. A real fan
+  (n > 1) shares a `Projectile.Volley` id; a target the volley already
+  damaged is flown past at collision time (extra projectiles reach what's
+  behind) and any sibling hit — direct or splash — drops at the top of
+  the pipeline before any roll, reading only hashed state so RNG
+  consumption stays deterministic. The volley is spent only when damage
+  lands (evaded/blocked siblings don't count); memory is a 4-slot ring on
+  the actor (`RecentVolleys`, saved v16 + conditionally hashed). Pinned:
+  a GMP fan hits once, a second cast hits again, solo casts carry no
+  volley. (2) Defensive gear trim ~25%: life/armour/evasion/ES flats,
+  all resist tiers, regen, leech (2–5%→1–3%), block suffix and the
+  shield's block implicit all shaved — "invincible-adjacent after
+  non-normal gear" was the note. Offense untouched. Goldens re-recorded.
 - **2026-07-06 (69)** — Two new minion skills on the session-52 machinery.
   Summon Marksman: the first ranged minion (cap 2) — `minion_ranged` AI
   shoots bone arrows from PreferredRange with rangedKiter's firing logic

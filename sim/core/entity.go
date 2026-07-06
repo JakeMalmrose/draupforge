@@ -164,6 +164,12 @@ type Actor struct {
 	// like RechargeDelay; set once by DrainSpawns from the summon's TTL.
 	LifespanTicks uint32
 
+	// RecentVolleys is the anti-shotgun memory: the last few projectile
+	// volleys that damaged this actor, newest first (0 = empty slot). One
+	// cast damages a target once; projectile TTLs are short, so a tiny
+	// ring is plenty. Zone-local combat state like StunTicks.
+	RecentVolleys [4]uint64
+
 	// Equipment by concrete slot; nil = empty. Equipped items grant their
 	// affixes as sheet modifiers sourced by the item's ID.
 	Equipment [EquipSlotCount]*Item
@@ -239,6 +245,25 @@ func (a *Actor) TryStun() bool {
 	a.StunTicks = StunLockTicks + StunImmuneTicks
 	a.Action = Action{}
 	return true
+}
+
+// HitByVolley reports whether cast volley v already damaged this actor —
+// the anti-shotgun check (one cast damages a target once).
+func (a *Actor) HitByVolley(v uint64) bool {
+	for _, r := range a.RecentVolleys {
+		if r != 0 && r == v {
+			return true
+		}
+	}
+	return false
+}
+
+// MarkVolley records that volley v damaged this actor, evicting the
+// oldest memory. Called only when damage actually lands — an evaded or
+// blocked projectile doesn't spend the volley.
+func (a *Actor) MarkVolley(v uint64) {
+	copy(a.RecentVolleys[1:], a.RecentVolleys[:len(a.RecentVolleys)-1])
+	a.RecentVolleys[0] = v
 }
 
 // LevelModSource is the sheet source for per-level growth modifiers: bit 62
@@ -385,6 +410,11 @@ type Projectile struct {
 	// projectile already struck (a chain never re-hits).
 	ChainsLeft int
 	HitIDs     []EntityID
+	// Volley links sibling projectiles of one multi-projectile cast
+	// (0 = solo). One cast damages each target at most once: a target the
+	// volley already damaged is flown past, not re-hit — extra projectiles
+	// buy coverage, never stacked single-target damage.
+	Volley uint64
 }
 
 // OrbKind is a crafting currency: each rerolls or upgrades item rarity.
@@ -574,6 +604,11 @@ type Hit struct {
 	// skips the accuracy/evasion roll entirely — the dodge already happened
 	// in space, and a zone that catches you should always mean something.
 	Telegraphed bool
+
+	// Volley links this hit to its multi-projectile cast (0 = none): the
+	// pipeline drops a volley's hit on a defender the volley already
+	// damaged — one cast, one hit per target.
+	Volley uint64
 
 	// Outcomes, populated by the pipeline.
 	Damage  [DamageTypeCount]fm.Fixed
