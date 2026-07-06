@@ -710,7 +710,58 @@ func skillDefs() []*core.SkillDef {
 		SummonCap:     6,
 	}
 
-	return []*core.SkillDef{fireball, slam, frostNova, spark, boneArrow, adrenaline, claws, arcBolt, arc, colossusSlam, boneVolley, barrowSlam, graveVolley, graveStorm, summonSkeleton, sweep, tyrantQuake, raiseThralls}
+	// The marksman: the first ranged minion — a skeleton with a bow that
+	// shoots over the warriors' shoulders. Two of them, durable.
+	summonMarksman := &core.SkillDef{
+		ID:            "summon_marksman",
+		Name:          "Summon Marksman",
+		Cuttable:      true,
+		Kind:          core.SkillSummon,
+		Tags:          stats.T(stats.TagSpell),
+		ManaCost:      fm.FromInt(30),
+		WindupTicks:   15, // 0.5s rite, same cadence as the warrior
+		RecoveryTicks: 9,
+		SpeedStat:     stats.CastSpeed,
+		SummonDef:     "skeleton_marksman",
+		SummonCount:   1,
+		SummonCap:     2,
+	}
+
+	// The raging spirit: a short-lived flaming skull that exists only to
+	// bite something. Cheap and fast to cast — the button you mash — with
+	// the 8s lifespan doing the balancing (cap 5, so a spam keeps ~5 up).
+	summonSpirit := &core.SkillDef{
+		ID:            "summon_raging_spirit",
+		Name:          "Summon Raging Spirit",
+		Cuttable:      true,
+		Kind:          core.SkillSummon,
+		Tags:          stats.T(stats.TagSpell, stats.TagFire),
+		ManaCost:      fm.FromInt(12),
+		WindupTicks:   9, // 0.3s — spammable
+		RecoveryTicks: 6,
+		SpeedStat:     stats.CastSpeed,
+		SummonDef:     "raging_spirit",
+		SummonCount:   1,
+		SummonCap:     5,
+		SummonTTL:     8 * core.TicksPerSecond,
+	}
+
+	// The spirit's bite — fire-flavored fast melee, minion-only.
+	spiritBite := &core.SkillDef{
+		ID:            "spirit_bite",
+		Name:          "Spirit Bite",
+		Kind:          core.SkillMelee,
+		Tags:          stats.T(stats.TagAttack, stats.TagMelee, stats.TagFire),
+		Effectiveness: fm.One,
+		WindupTicks:   9, // 0.3s snap
+		RecoveryTicks: 6,
+		SpeedStat:     stats.AttackSpeed,
+		Range:         fm.FromMilli(1500),
+	}
+	spiritBite.BaseMin[core.Fire] = fm.FromInt(4)
+	spiritBite.BaseMax[core.Fire] = fm.FromInt(7)
+
+	return []*core.SkillDef{fireball, slam, frostNova, spark, boneArrow, adrenaline, claws, arcBolt, arc, colossusSlam, boneVolley, barrowSlam, graveVolley, graveStorm, summonSkeleton, sweep, tyrantQuake, raiseThralls, summonMarksman, summonSpirit, spiritBite}
 }
 
 func baseStats(pairs map[stats.StatID]fm.Fixed) [stats.StatCount]fm.Fixed {
@@ -1043,7 +1094,56 @@ func actorDefs() []*core.ActorDef {
 		},
 	}
 
-	return []*core.ActorDef{player, zombie, archer, dummy, ghoul, mage, colossus, barrowKing, husk, skeleton, tyrant, thrall}
+	// The marksman: the durable ranged minion. Shoots bone arrows from the
+	// back line, kites like the monster archer, heels like the warrior.
+	marksman := &core.ActorDef{
+		ID:     "skeleton_marksman",
+		Name:   "Skeleton Marksman",
+		Team:   core.TeamPlayers,
+		Radius: fm.FromMilli(450),
+		BaseStats: baseStats(map[stats.StatID]fm.Fixed{
+			stats.Life:       fm.FromInt(30),
+			stats.MoveSpeed:  fm.FromMilli(5200),
+			stats.Accuracy:   fm.FromInt(95),
+			stats.CritChance: fm.FromMilli(60),
+		}),
+		Skills:         []string{"bone_arrow"},
+		AI:             "minion_ranged",
+		AggroRadius:    fm.FromInt(11),
+		PreferredRange: fm.FromInt(9), // inside the leash so it never strands
+		Level:          1,
+		XPValue:        0, // killing someone's minion pays nothing
+		PerLevel: []core.BuffMod{
+			{Stat: stats.Life, Layer: stats.LayerFlat, Value: fm.FromInt(5)},
+			{Stat: stats.Damage, Layer: stats.LayerIncreased, Value: fm.FromMilli(50)},
+		},
+	}
+
+	// The raging spirit: a flaming skull with an 8s fuse (the summon's TTL
+	// stamps it). Fast, fragile, all teeth.
+	spirit := &core.ActorDef{
+		ID:     "raging_spirit",
+		Name:   "Raging Spirit",
+		Team:   core.TeamPlayers,
+		Radius: fm.FromMilli(350),
+		BaseStats: baseStats(map[stats.StatID]fm.Fixed{
+			stats.Life:       fm.FromInt(18),
+			stats.MoveSpeed:  fm.FromMilli(6500),
+			stats.Accuracy:   fm.FromInt(85),
+			stats.CritChance: fm.FromMilli(80),
+		}),
+		Skills:      []string{"spirit_bite"},
+		AI:          "minion_melee",
+		AggroRadius: fm.FromInt(10),
+		Level:       1,
+		XPValue:     0,
+		PerLevel: []core.BuffMod{
+			{Stat: stats.Life, Layer: stats.LayerFlat, Value: fm.FromInt(3)},
+			{Stat: stats.Damage, Layer: stats.LayerIncreased, Value: fm.FromMilli(55)},
+		},
+	}
+
+	return []*core.ActorDef{player, zombie, archer, dummy, ghoul, mage, colossus, barrowKing, husk, skeleton, tyrant, thrall, marksman, spirit}
 }
 
 // affixDefs is the global affix pool. Slice order feeds the weighted roll —

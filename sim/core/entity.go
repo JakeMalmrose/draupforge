@@ -158,6 +158,12 @@ type Actor struct {
 	// only from 0, decremented each tick. Zone-local like RechargeDelay.
 	StunTicks uint32
 
+	// LifespanTicks is a short-lived minion's remaining time: decremented
+	// in Upkeep, and at zero the actor despawns quietly — no death event,
+	// no loot, no XP, same as a cap despawn. 0 = permanent. Zone-local
+	// like RechargeDelay; set once by DrainSpawns from the summon's TTL.
+	LifespanTicks uint32
+
 	// Equipment by concrete slot; nil = empty. Equipped items grant their
 	// affixes as sheet modifiers sourced by the item's ID.
 	Equipment [EquipSlotCount]*Item

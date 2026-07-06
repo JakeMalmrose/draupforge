@@ -11,8 +11,8 @@ tests, and session-log entries older than a few sessions (git history is the
 archive). If this file outgrows ~150 lines, it has stopped being a status doc
 and started being a changelog — cut it back.
 
-**Last updated: 2026-07-06** (session 68: light radius — a rollable gear
-suffix the client sums into its fog circle; base lit radius 9→10)
+**Last updated: 2026-07-06** (session 69: the minion pack grows — Summon
+Marksman (ranged) and Summon Raging Spirit (short-lived melee), save v15)
 
 ## Where things stand
 
@@ -215,6 +215,18 @@ dictates, and Jake's balance pass over the numbers.
 
 ## Session log
 
+- **2026-07-06 (69)** — Two new minion skills on the session-52 machinery.
+  Summon Marksman: the first ranged minion (cap 2) — `minion_ranged` AI
+  shoots bone arrows from PreferredRange with rangedKiter's firing logic
+  under minionMelee's owner-anchored leash (shared `minionTarget`/
+  `liveOwner` helpers). Summon Raging Spirit: the first short-lived minion
+  (cap 5, 8s) — new `Actor.LifespanTicks` counts down in Upkeep and expiry
+  is a quiet despawn (no death/loot/XP, like a cap despawn); plumbed
+  through `PendingSpawn.Lifespan` from `SkillDef.SummonTTL`. Save v15,
+  conditional hash. Cuttable pool grew → goldens re-recorded. Pinned:
+  spirit expires quietly with a real 8s step loop, marksman fires from
+  range instead of charging. Client: bow-armed skeleton + flaming-skull
+  models, gem metadata.
 - **2026-07-06 (68)** — Light radius. A new `light_radius` suffix
   (+0.5–1.5u in 0.5 steps, helmet/amulet/ring) reaches further into the
   fog of war, and the base lit circle grew 9→10 units. The trick: fog is

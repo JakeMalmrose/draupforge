@@ -251,3 +251,84 @@ func TestTyrantRaisesThenFights(t *testing.T) {
 		t.Fatalf("bloodied tyrant with 3 thralls chose %v, want raise_thralls", ty.Action.Skill)
 	}
 }
+
+// castSummon casts any summon skill and steps through the windup.
+func castSummon(t *testing.T, s *sim.Sim, caster core.EntityID, skill string) {
+	t.Helper()
+	s.Step([]core.Command{{Actor: caster, Kind: core.CmdUseSkill, Skill: skill}})
+	a := s.W.ActorByID(caster)
+	if a.Action.Kind != core.ActionSkill {
+		t.Fatalf("%s cast was rejected", skill)
+	}
+	for a.Action.Kind == core.ActionSkill && a.Action.Phase == core.PhaseWindup {
+		s.Step(nil)
+	}
+}
+
+// TestRagingSpiritExpires: a short-lived minion burns down its lifespan and
+// despawns quietly — no death event, no loot — exactly like a cap despawn.
+func TestRagingSpiritExpires(t *testing.T) {
+	s := sim.New(content.DB(), 7)
+	player := mustSpawn(t, s, "player", 0, 0)
+	grantGems(t, s, player, "summon_raging_spirit")
+	s.W.ActorByID(player).Mana = fm.FromInt(500)
+
+	castSummon(t, s, player, "summon_raging_spirit")
+	minions := minionsOf(s, player)
+	if len(minions) != 1 || minions[0].Def.ID != "raging_spirit" {
+		t.Fatalf("minions after cast = %v, want one raging_spirit", minions)
+	}
+	if minions[0].LifespanTicks == 0 {
+		t.Fatal("spirit has no lifespan — SummonTTL didn't reach the actor")
+	}
+
+	deaths := 0
+	for i := 0; i < int(8*core.TicksPerSecond)+2; i++ {
+		s.Step(nil)
+		for _, ev := range s.W.Events() {
+			if ev.Kind == core.EvDeath {
+				deaths++
+			}
+		}
+	}
+	if left := minionsOf(s, player); len(left) != 0 {
+		t.Fatalf("spirit still up after its lifespan: %v", left)
+	}
+	if deaths != 0 {
+		t.Fatalf("expiry emitted %d death events, want a quiet despawn", deaths)
+	}
+	if len(s.W.Drops) != 0 {
+		t.Fatalf("expiry dropped loot: %d drops", len(s.W.Drops))
+	}
+}
+
+// TestMarksmanShootsFromRange: the ranged minion engages an enemy near its
+// owner with a projectile instead of walking into melee.
+func TestMarksmanShootsFromRange(t *testing.T) {
+	s := sim.New(content.DB(), 7)
+	player := mustSpawn(t, s, "player", 0, 0)
+	grantGems(t, s, player, "summon_marksman")
+	s.W.ActorByID(player).Mana = fm.FromInt(500)
+
+	castSummon(t, s, player, "summon_marksman")
+	minions := minionsOf(s, player)
+	if len(minions) != 1 || minions[0].Def.ID != "skeleton_marksman" {
+		t.Fatalf("minions after cast = %v, want one skeleton_marksman", minions)
+	}
+
+	// A zombie 7u out: inside the marksman's preferred range (9u) and the
+	// owner leash (10u) — it should fire, not charge.
+	mustSpawn(t, s, "zombie", 7000, 0)
+	fired := false
+	for i := 0; i < 90 && !fired; i++ {
+		s.Step(nil)
+		for _, p := range s.W.Projectiles {
+			if p.Source == minions[0].ID {
+				fired = true
+			}
+		}
+	}
+	if !fired {
+		t.Fatal("marksman never fired a projectile at an enemy in range")
+	}
+}

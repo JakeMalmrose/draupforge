@@ -69,6 +69,16 @@ func Upkeep(w *core.World) {
 		if a.StunTicks > 0 {
 			a.StunTicks--
 		}
+		// Short-lived minions burn down here; expiry is a quiet despawn
+		// (no death event, no loot, no XP), swept by compaction like a
+		// cap despawn.
+		if a.LifespanTicks > 0 {
+			a.LifespanTicks--
+			if a.LifespanTicks == 0 {
+				a.Dead = true
+				continue
+			}
+		}
 		if regen := a.Sheet.Eval(stats.ManaRegen, stats.TagSet{}); regen > 0 {
 			a.Mana = fm.Min(a.Mana+fm.Div(regen, perTick), a.MaxMana())
 		}

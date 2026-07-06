@@ -22,7 +22,7 @@ import (
 // SaveVersion gates restores: a format change bumps it, and old files fail
 // loudly instead of misloading. Saves are durable state — unlike replays,
 // they must never depend on re-execution of the code that wrote them.
-const SaveVersion = 14 // v14: ES recharge + stun timers (v13: item level)
+const SaveVersion = 15 // v15: minion lifespans (v14: ES recharge + stun timers)
 
 type saveFile struct {
 	Version     int              `json:"version"`
@@ -137,6 +137,7 @@ type actorSave struct {
 	Statuses  []statusSave `json:"statuses,omitempty"`
 	Recharge  uint32       `json:"recharge,omitempty"` // ES recharge delay ticks
 	Stun      uint32       `json:"stun,omitempty"`     // stun lockout+immunity ticks
+	Lifespan  uint32       `json:"lifespan,omitempty"` // short-lived minion ticks left
 	Equipment []*itemSave  `json:"equipment"` // EquipSlotCount entries, null = empty
 	Inventory []itemSave   `json:"inventory,omitempty"`
 }
@@ -219,7 +220,8 @@ func encodeActor(a *Actor) actorSave {
 		ID: uint64(a.ID), Def: a.Def.ID, Team: uint8(a.Team), Pos: a.Pos, Home: a.Home,
 		Owner: uint64(a.Owner),
 		Life:  a.Life, Mana: a.Mana, ES: a.ES, Recharge: a.RechargeDelay, Stun: a.StunTicks,
-		Level: a.Level, XP: a.XP, Rarity: uint8(a.Rarity),
+		Lifespan: a.LifespanTicks,
+		Level:    a.Level, XP: a.XP, Rarity: uint8(a.Rarity),
 		Base: make([]fm.Fixed, stats.StatCount),
 		Action: actionSave{
 			Kind:       uint8(a.Action.Kind),
@@ -437,7 +439,8 @@ func decodeActor(db *ContentDB, affixes map[string]*AffixDef, as actorSave) (*Ac
 		Owner: EntityID(as.Owner),
 		Sheet: stats.RestoreSheet(base, mods),
 		Life:  as.Life, Mana: as.Mana, ES: as.ES, RechargeDelay: as.Recharge, StunTicks: as.Stun,
-		Level: level, XP: as.XP,
+		LifespanTicks: as.Lifespan,
+		Level:         level, XP: as.XP,
 		Rarity: Rarity(as.Rarity),
 		Action: Action{
 			Kind:          ActionKind(as.Action.Kind),

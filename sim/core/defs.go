@@ -194,10 +194,13 @@ type SkillDef struct {
 	SelfBuff string
 
 	// Summon fields (SkillSummon): which def, how many per cast, and the
-	// per-caster cap for that def.
+	// per-caster cap for that def. SummonTTL > 0 makes the minions
+	// short-lived: they despawn quietly (no death, no loot, no XP) that
+	// many ticks after materializing.
 	SummonDef   string
 	SummonCount int
 	SummonCap   int
+	SummonTTL   uint32
 
 	// Stages is a SkillStaged skill's sequence, in play order. Staged
 	// skills leave WindupTicks/RecoveryTicks zero — every phase, recovery
