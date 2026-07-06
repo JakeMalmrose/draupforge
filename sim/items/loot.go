@@ -97,7 +97,7 @@ func RollItem(w *core.World, table *core.LootTableDef, itemLevel int) core.Item 
 			Rarity: core.RarityUnique, Unique: u, ItemLevel: itemLevel,
 		}
 		if imp := item.Base.Implicit; imp != nil {
-			item.Implicit = w.RNGLoot.Range(imp.Min, imp.Max)
+			item.Implicit = rollMod(w.RNGLoot, imp.Min, imp.Max, imp.Step)
 		}
 		return item
 	}
@@ -105,7 +105,7 @@ func RollItem(w *core.World, table *core.LootTableDef, itemLevel int) core.Item 
 	item := core.Item{ID: w.AllocID(), Base: w.Content.BaseItems[baseID], ItemLevel: itemLevel}
 	item.Rarity = rollRarity(w, table)
 	if imp := item.Base.Implicit; imp != nil {
-		item.Implicit = w.RNGLoot.Range(imp.Min, imp.Max)
+		item.Implicit = rollMod(w.RNGLoot, imp.Min, imp.Max, imp.Step)
 	}
 
 	fillAffixes(w, &item)
@@ -149,9 +149,21 @@ func fillAffixes(w *core.World, item *core.Item) {
 		kindCounts[af.Kind]++
 		item.Affixes = append(item.Affixes, core.RolledAffix{
 			Def:   af,
-			Value: w.RNGLoot.Range(af.Min, af.Max),
+			Value: rollMod(w.RNGLoot, af.Min, af.Max, af.Step),
 		})
 	}
+}
+
+// rollMod rolls a modifier value in [Min, Max], quantized to the def's Step
+// so players never read sub-step noise. Uniform across the step lattice and
+// exactly one RNG draw either way — quantization must never shift the loot
+// stream.
+func rollMod(rng *core.RNG, min, max, step fm.Fixed) fm.Fixed {
+	if step <= 0 || max <= min {
+		return rng.Range(min, max)
+	}
+	steps := uint64((max-min)/step) + 1
+	return min + step*fm.Fixed(rng.Uint64n(steps))
 }
 
 // Orb drop rates per kill, per mille, scaled by the dier's rarity (x2
