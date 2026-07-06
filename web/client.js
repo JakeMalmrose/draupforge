@@ -449,7 +449,7 @@ function render() {
       }
       ctx.globalAlpha = a;
       if (g.coll === "actors") drawActor(g.e, g.e.pos);
-      else drawDrop(g.e);
+      else drawDrop(g.e, true);
     }
     for (const d of s.to.drops.values()) {
       if (!tileSeen(d.pos.x, d.pos.y)) continue; // discovered loot stays marked
@@ -467,6 +467,7 @@ function render() {
       if (!litNow(p.pos.x, p.pos.y)) continue;
       drawProjectile(p, lerpPos(s.from.projectiles, p, s.t));
     }
+    drawDropLabels(); // above actors: a pile's column stays readable
 
     drawMinimap(s);
     drawBossBar(s);
@@ -1165,7 +1166,7 @@ function dropLabel(item) {
   return prettify(item.base);
 }
 
-function drawDrop(d) {
+function drawDrop(d, ghost) {
   const p = worldToScreen(d.pos.x, d.pos.y);
   const color = dropColor(d.item);
   const shafted = d.item.gem || (d.item.rarity && d.item.rarity !== "normal");
@@ -1197,12 +1198,60 @@ function drawDrop(d) {
   ctx.restore();
   // The label wears the rarity color straight: normal gear reads as quiet
   // grey-white (never gold — that's rare territory), and the loud tiers
-  // get bold so a rare on the floor pops even in a pile.
+  // get bold so a rare on the floor pops even in a pile. Labels queue up
+  // and lay out together after the drop pass, so piles stack into a
+  // readable column instead of overprinting.
   const loud = d.item.gem || d.item.rarity === "rare" || d.item.rarity === "unique";
-  ctx.fillStyle = color;
-  ctx.font = loud ? "bold 11px Georgia" : "11px Georgia";
+  dropLabelQueue.push({
+    id: ghost ? 0 : d.id, x: p.x, y: p.y - 12,
+    text: dropLabel(d.item), color, loud, alpha: ctx.globalAlpha,
+  });
+}
+
+// Ground-label layout: bottom-most labels keep their spot, higher ones
+// climb until free — a boss pile reads as a loot column. The placed rects
+// survive the frame so mousedown can treat a label as the item's click
+// target (the fix for "the stairs under the pile eat the click").
+let dropLabelQueue = [];
+let dropLabelRects = [];
+
+function drawDropLabels() {
+  dropLabelRects = [];
+  if (!dropLabelQueue.length) return;
   ctx.textAlign = "center";
-  ctx.fillText(dropLabel(d.item), p.x, p.y - 12);
+  dropLabelQueue.sort((a, b) => b.y - a.y || a.x - b.x);
+  const prevAlpha = ctx.globalAlpha;
+  for (const l of dropLabelQueue) {
+    ctx.font = l.loud ? "bold 11px Georgia" : "11px Georgia";
+    const w = ctx.measureText(l.text).width + 8;
+    let y = l.y;
+    for (let guard = 0; guard < 64; guard++) {
+      const hit = dropLabelRects.find(
+        (r) => Math.abs(y - r.y) < 14 && Math.abs(l.x - r.x) * 2 < w + r.w,
+      );
+      if (!hit) break;
+      y = hit.y - 14;
+    }
+    dropLabelRects.push({ id: l.id, x: l.x, y, w });
+    ctx.globalAlpha = l.alpha;
+    ctx.fillStyle = "#000000a0";
+    ctx.fillRect(l.x - w / 2, y - 10, w, 13);
+    ctx.fillStyle = l.color;
+    ctx.fillText(l.text, l.x, y);
+  }
+  ctx.globalAlpha = prevAlpha;
+  dropLabelQueue = [];
+}
+
+// labelDropAt maps a canvas point to the drop whose laid-out label covers
+// it (0 = none). Ghost labels carry id 0 and never match.
+function labelDropAt(x, y) {
+  for (const r of dropLabelRects) {
+    if (r.id && x >= r.x - r.w / 2 && x <= r.x + r.w / 2 && y >= r.y - 10 && y <= r.y + 3) {
+      return r.id;
+    }
+  }
+  return 0;
 }
 
 // ------------------------------------------------------------- minimap
@@ -1720,9 +1769,17 @@ canvas.addEventListener("mousedown", (e) => {
   pendingPickup = 0;
   pendingDescend = false;
   pendingPortal = false;
-  let drop = null;
-  for (const d of snap.drops.values()) {
-    if (clicked(d.pos, 0.8)) { drop = d; break; }
+  // A click on a laid-out ground label targets that exact item — the pile
+  // fix: labels climb into a column, and each one is its own click target.
+  // Otherwise the nearest drop within reach wins, not first-found, so loot
+  // always beats the stairs under it.
+  let drop = snap.drops.get(labelDropAt(e.offsetX, e.offsetY)) || null;
+  let dropDist = 0.8;
+  if (!drop) {
+    for (const d of snap.drops.values()) {
+      const dist = Math.hypot(toUnits(d.pos.x) - w.x, toUnits(d.pos.y) - w.y);
+      if (dist < dropDist) { dropDist = dist; drop = d; }
+    }
   }
   if (drop) {
     pendingPickup = drop.id;
