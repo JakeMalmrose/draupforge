@@ -2649,7 +2649,39 @@ function renderPanel(self, force) {
   }
 
   renderStash();
+  renderCharacterSection();
 }
+
+// --- character deletion: the reset lever. Named players, offered in the
+// hideout only (like the stash — a bricked run always ends back home).
+// Deleting erases the identity server-side and frees the name, which is
+// the whole point: reusing an old name with a fresh character was
+// impossible. The server authenticates by cookie; the panel gating is UX.
+
+const charSectionEl = document.getElementById("character-section");
+const confirmEl = document.getElementById("confirm");
+
+function renderCharacterSection() {
+  charSectionEl.classList.toggle("hidden", !(myName && runState && runState.floor === 0));
+}
+
+document.getElementById("delete-character").onclick = () => {
+  // myName passed the server's name regexp (letters/digits/space/-/_),
+  // so inlining it is safe — same trust as the tooltip.
+  document.getElementById("confirm-text").innerHTML =
+    `Delete <b>${myName}</b> forever?<br>Character, stash, and progress are erased. ` +
+    `The name becomes claimable again.`;
+  confirmEl.classList.remove("hidden");
+};
+document.getElementById("confirm-no").onclick = () => confirmEl.classList.add("hidden");
+document.getElementById("confirm-yes").onclick = async () => {
+  try {
+    await fetch("/api/forget", { method: "POST" });
+  } catch {} // server unreachable: the reload lands on the join screen anyway
+  // The cookie is expired and the socket kicked server-side; a clean
+  // reload boots straight to the join screen with the name free.
+  location.reload();
+};
 
 // --- stash: the hideout bank. Named players only, hideout only — the
 // server enforces both; the panel just doesn't offer it elsewhere. Items

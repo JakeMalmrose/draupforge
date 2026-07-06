@@ -45,7 +45,22 @@
       <div id="stash" class="inv-grid"></div>
       <p class="hint">drag between bag and stash &middot; banked items survive everything</p>
     </div>
+    <div id="character-section" class="hidden">
+      <h2>Character</h2>
+      <button id="delete-character">delete this character</button>
+      <p class="hint">erases everything and frees the name for a fresh start</p>
+    </div>
     <p class="hint">drag to equip/unequip &middot; drag onto the ground to drop &middot; click an uncut gem to cut it</p>
+  </div>
+
+  <div id="confirm" class="hidden">
+    <div id="confirm-box">
+      <p id="confirm-text"></p>
+      <div id="confirm-buttons">
+        <button id="confirm-yes">delete forever</button>
+        <button id="confirm-no">cancel</button>
+      </div>
+    </div>
   </div>
 
   <div id="tooltip" class="hidden"></div>

@@ -11,8 +11,8 @@ tests, and session-log entries older than a few sessions (git history is the
 archive). If this file outgrows ~150 lines, it has stopped being a status doc
 and started being a changelog — cut it back.
 
-**Last updated: 2026-07-06** (session 70: balance — anti-shotgun volleys
-(one cast damages a target once, save v16) + a ~25% defensive gear trim)
+**Last updated: 2026-07-06** (session 71: character deletion — a hideout
+reset button + POST /api/forget frees the name for a fresh claim)
 
 ## Where things stand
 
@@ -171,8 +171,10 @@ load-bearing (top entry: the action model is one-thing-at-a-time).
 - `-load` under the lobby seeds only the *first* instance created (whoever
   connects first resumes the run); a lobby has no way to aim a save at a
   particular player. Fine for the single-operator rollback story it serves.
-- Claiming a new name under an existing cookie orphans the old identity (no
-  rename/list). `identities.json` is one plaintext blob, tokens included.
+- Claiming a new name under an existing cookie orphans the old identity
+  (no rename/list — but the hideout's delete button + `/api/forget` free a
+  name on purpose). `identities.json` is one plaintext blob, tokens
+  included.
 - No client prediction — input feels its latency. Prediction is what would
   justify compiling sim/ to wasm (DESIGN §13's optional layer).
 - Static files come from -web at runtime.
@@ -215,6 +217,18 @@ dictates, and Jake's balance pass over the numbers.
 
 ## Session log
 
+- **2026-07-06 (71)** — Character deletion: the reset lever a bricked
+  character needed (its name was squatted forever). `IdentityStore.Delete`
+  removes the identity outright — character, stash, name reservation —
+  and `POST /api/forget` (cookie-authed) drives it: store entry first,
+  THEN the live session is kicked (lobby `online` index / instance client
+  scan), so the dying session's Disconnect/Bank no-op on the gone token
+  instead of resurrecting it; the cookie expires in the response. Client:
+  a "delete this character" button in the hideout panel (named + floor 0,
+  same gating as the stash) behind a real confirmation overlay, then a
+  clean reload to the join screen with the name claimable again. Pinned
+  at three layers: pure store (resurrection resistance), instance wire,
+  and lobby wire (kick + fresh re-claim).
 - **2026-07-06 (70)** — The balance patch, two fronts from playtesting.
   (1) Anti-shotgun: one cast damages each target at most once. A real fan
   (n > 1) shares a `Projectile.Volley` id; a target the volley already

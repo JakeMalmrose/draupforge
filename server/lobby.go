@@ -159,10 +159,24 @@ func (lb *Lobby) Handler() http.Handler {
 	mux.HandleFunc("/ws", lb.HandleWS)
 	mux.HandleFunc("/api/claim", lb.ids.handleClaim)
 	mux.HandleFunc("/api/whoami", lb.ids.handleWhoami)
+	mux.HandleFunc("/api/forget", lb.ids.handleForget(lb.kickToken))
 	if lb.cfg.StaticDir != "" {
 		mux.Handle("/", http.FileServer(http.Dir(lb.cfg.StaticDir)))
 	}
 	return mux
+}
+
+// kickToken severs the live session holding token, if any. The delete
+// path calls it after the store entry is gone: the close runs the normal
+// leave (instance reap, roster, party), and its Disconnect/Bank no-op on
+// the vanished token instead of resurrecting the identity.
+func (lb *Lobby) kickToken(tok string) {
+	lb.mu.Lock()
+	c := lb.online[tok]
+	lb.mu.Unlock()
+	if c != nil {
+		c.tr.Close() // readLoop files the leave through the normal path
+	}
 }
 
 // newInstance builds and starts one more world. Each instance gets its own

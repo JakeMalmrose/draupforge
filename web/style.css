@@ -617,3 +617,45 @@ body {
 .cs-gem { margin-bottom: 12px; }
 .cs-gem h3 { font-size: 13px; margin: 0 0 3px; }
 .cs-gem .cs-sub { font-size: 11px; color: #8d8678; margin-bottom: 4px; }
+
+/* Character section (hideout-only): the reset lever, styled like danger. */
+#delete-character {
+  background: none;
+  border: 1px solid #6e2a2a;
+  border-radius: 3px;
+  color: #c96a4a;
+  font: inherit; font-size: 12px;
+  padding: 5px 12px;
+  cursor: pointer;
+}
+#delete-character:hover { border-color: #a33030; color: #e88a6a; }
+
+/* Confirmation overlay: one question, two buttons, nothing else. */
+#confirm {
+  position: fixed; inset: 0;
+  background: rgba(5, 5, 8, 0.75);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 40;
+}
+#confirm-box {
+  width: 340px;
+  background: rgba(16, 16, 22, 0.97);
+  border: 1px solid #6e2a2a;
+  border-radius: 4px;
+  padding: 18px;
+  font-size: 14px; color: #cfc9bf;
+  text-align: center;
+}
+#confirm-box p { margin: 0 0 14px; line-height: 1.5; }
+#confirm-buttons { display: flex; gap: 10px; justify-content: center; }
+#confirm-buttons button {
+  font: inherit; font-size: 13px;
+  padding: 6px 14px;
+  border-radius: 3px;
+  cursor: pointer;
+  background: none;
+}
+#confirm-yes { border: 1px solid #a33030; color: #e88a6a; }
+#confirm-yes:hover { background: rgba(163, 48, 48, 0.2); }
+#confirm-no { border: 1px solid #3a3a45; color: #8d8678; }
+#confirm-no:hover { border-color: #6a6455; color: #cfc9bf; }

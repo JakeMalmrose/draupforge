@@ -225,6 +225,24 @@ func (st *IdentityStore) Disconnect(token string, char *core.Character) {
 	st.saveLocked()
 }
 
+// Delete removes token's identity outright — character, stash, and the
+// name reservation — persisted immediately. Returns the freed name (""
+// for unknown tokens). The caller kicks any live session; the leave that
+// follows banks nothing because Disconnect and Bank ignore gone tokens.
+func (st *IdentityStore) Delete(token string) string {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	id := st.byToken[token]
+	if id == nil {
+		return ""
+	}
+	delete(st.byToken, token)
+	delete(st.byName, strings.ToLower(id.Name))
+	st.dirty = true
+	st.saveLocked()
+	return id.Name
+}
+
 // Bank updates a connected identity's character without touching the
 // online flag — the periodic crash net for long-lived sessions.
 func (st *IdentityStore) Bank(token string, char *core.Character) {
@@ -374,6 +392,37 @@ func (st *IdentityStore) handleClaim(w http.ResponseWriter, r *http.Request) {
 		Secure: r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https",
 	})
 	json.NewEncoder(w).Encode(map[string]string{"name": strings.TrimSpace(body.Name)})
+}
+
+// handleForget builds the POST /api/forget handler: permanently delete
+// the cookie's identity — character, stash, and the name reservation (the
+// point: a bricked character shouldn't squat its name forever). The store
+// entry goes first, THEN kick severs any live session for the token, so
+// the session's leave path banks nothing into a gone identity. The cookie
+// expires either way — a stale token is dead weight.
+func (st *IdentityStore) handleForget(kick func(token string)) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, `{"error":"POST only"}`, http.StatusMethodNotAllowed)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		tok := cookieToken(r)
+		name := st.Delete(tok)
+		if name != "" && kick != nil {
+			kick(tok)
+		}
+		http.SetCookie(w, &http.Cookie{
+			Name:     tokenCookie,
+			Value:    "",
+			Path:     "/",
+			MaxAge:   -1,
+			HttpOnly: true,
+			SameSite: http.SameSiteLaxMode,
+			Secure:   r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https",
+		})
+		json.NewEncoder(w).Encode(map[string]string{"deleted": name})
+	}
 }
 
 // handleWhoami is GET /api/whoami: {"name":"..."} for a valid token, {}

@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/JakeMalmrose/draupforge/content"
+	"github.com/JakeMalmrose/draupforge/sim/core"
 )
 
 // namedClient claims a name on in's store and returns a connected client
@@ -152,5 +153,46 @@ func TestClaimValidation(t *testing.T) {
 	}
 	if _, err := st.Claim("jake m-2"); err != errNameTaken {
 		t.Errorf("case-insensitive dupe: err = %v, want errNameTaken", err)
+	}
+}
+
+// TestDeleteResistsResurrection: after Delete, the late writes a dying
+// session fires (periodic Bank, the leave's Disconnect) must not re-create
+// the identity — the name stays free.
+func TestDeleteResistsResurrection(t *testing.T) {
+	st, err := NewIdentityStore("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tok, err := st.Claim("Ghost")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ch := core.Character{Def: "player", Level: 3}
+	st.Bank(tok, &ch)
+
+	if name := st.Delete(tok); name != "Ghost" {
+		t.Fatalf("Delete returned %q, want Ghost", name)
+	}
+	if st.Name(tok) != "" {
+		t.Fatal("token still resolves after delete")
+	}
+
+	// The dying session's flushes land on the gone token: all no-ops.
+	st.Bank(tok, &ch)
+	st.Disconnect(tok, &ch)
+	if st.Name(tok) != "" {
+		t.Fatal("a late bank resurrected the deleted identity")
+	}
+
+	tok2, err := st.Claim("Ghost")
+	if err != nil {
+		t.Fatalf("re-claim of a deleted name failed: %v", err)
+	}
+	if tok2 == tok {
+		t.Fatal("re-claim reissued the deleted token")
+	}
+	if _, char, ok, _ := st.Connect(tok2); !ok || char != nil {
+		t.Fatalf("re-claimed identity should be fresh: ok=%v char=%v", ok, char)
 	}
 }

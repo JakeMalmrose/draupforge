@@ -213,3 +213,47 @@ func TestGuestsAreInvisibleToParties(t *testing.T) {
 		return m.Type == "social" && len(m.Social.Online) == 0
 	})
 }
+
+// TestForgetOverLobby: the delete lever in production (lobby) mode — the
+// live session is severed via the lobby's online index, the name frees,
+// and the dying session's leave doesn't resurrect the identity.
+func TestForgetOverLobby(t *testing.T) {
+	base := startLobby(t)
+	cookie := claim(t, base, "Regret")
+	sc := dialLobby(t, base, cookie)
+	sc.until("welcome", func(m protocol.ServerMsg) bool { return m.Type == "welcome" })
+
+	req, _ := http.NewRequest("POST", base+"/api/forget", nil)
+	req.AddCookie(cookie)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out struct{ Deleted string }
+	json.NewDecoder(resp.Body).Decode(&out)
+	resp.Body.Close()
+	if out.Deleted != "Regret" {
+		t.Fatalf("forget deleted %q, want Regret", out.Deleted)
+	}
+
+	// The socket dies (kicked); reads error out once the close lands.
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	for {
+		if _, _, err := sc.ws.Read(ctx); err != nil {
+			break
+		}
+	}
+
+	// The leave has run by the time a fresh claim + session works; the
+	// name is free and the character brand new.
+	fresh := claim(t, base, "Regret")
+	if fresh.Value == cookie.Value {
+		t.Fatal("re-claim returned the deleted token")
+	}
+	sc2 := dialLobby(t, base, fresh)
+	w := sc2.until("welcome", func(m protocol.ServerMsg) bool { return m.Type == "welcome" })
+	if w.Name != "Regret" {
+		t.Fatalf("fresh session name = %q, want Regret", w.Name)
+	}
+}
