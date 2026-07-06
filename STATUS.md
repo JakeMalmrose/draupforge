@@ -11,8 +11,8 @@ tests, and session-log entries older than a few sessions (git history is the
 archive). If this file outgrows ~150 lines, it has stopped being a status doc
 and started being a changelog — cut it back.
 
-**Last updated: 2026-07-06** (session 67: the character sheet — C panel
-with evaluated stats + per-gem combat numbers, wire v22)
+**Last updated: 2026-07-06** (session 68: light radius — a rollable gear
+suffix the client sums into its fog circle; base lit radius 9→10)
 
 ## Where things stand
 
@@ -215,6 +215,14 @@ dictates, and Jake's balance pass over the numbers.
 
 ## Session log
 
+- **2026-07-06 (68)** — Light radius. A new `light_radius` suffix
+  (+0.5–1.5u in 0.5 steps, helmet/amulet/ring) reaches further into the
+  fog of war, and the base lit circle grew 9→10 units. The trick: fog is
+  pure client presentation, so the client sums equipped rolls off the
+  equipment snaps it already receives (`updateLightRadius` per view) —
+  no sim query, no wire change; `stats.LightRadius` exists only because
+  the affix machinery mods a sheet. Appended last in the ordered affix
+  table; goldens didn't move.
 - **2026-07-06 (67)** — The character sheet (C): finally a way to see your
   stats. Server-computed — `sim.BuildSheet` evaluates stat lines off the
   live sheet (pools, defenses, resists, crit, regen, leech) plus per-gem

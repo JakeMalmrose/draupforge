@@ -237,6 +237,7 @@ function onView(view) {
   const self = me();
   if (self) {
     seenSelf = true;
+    updateLightRadius();
     revealAround(self.pos);
     updateHUD(self);
     updatePassiveChooser(self);
@@ -579,13 +580,29 @@ function drawBossBar(s) {
 
 let fog = null; // Uint8Array(w*h), 1 = seen; null = no map (open plane)
 let fogDirty = false; // minimap base needs a repaint
-const FOG_RADIUS = 9; // units lit around you
+const FOG_RADIUS = 10; // base units lit around you; gear extends it
+
+// lightRadius: the current lit radius in units — the base plus every
+// equipped light_radius roll. Fog of war is pure presentation, so the
+// affix is summed here off the equipment snaps rather than living as a
+// sim sheet stat; cached per frame (equipment changes at most per view).
+let lightR = FOG_RADIUS;
+function updateLightRadius() {
+  let r = FOG_RADIUS;
+  const self = me();
+  for (const eq of (self && self.equipment) || []) {
+    for (const af of eq.item.affixes || []) {
+      if (af.id === "light_radius") r += af.value / 1000;
+    }
+  }
+  lightR = r;
+}
 
 function revealAround(posMilli) {
   if (!fog || !worldMap) return;
   const t = worldMap.tile; // milli per tile
   const cx = posMilli.x / t, cy = posMilli.y / t;
-  const r = (FOG_RADIUS * 1000) / t;
+  const r = (lightR * 1000) / t;
   const x0 = Math.max(0, Math.floor(cx - r)), x1 = Math.min(worldMap.w - 1, Math.ceil(cx + r));
   const y0 = Math.max(0, Math.floor(cy - r)), y1 = Math.min(worldMap.h - 1, Math.ceil(cy + r));
   for (let y = y0; y <= y1; y++) {
@@ -614,7 +631,7 @@ function tileSeen(mx, my) {
 function litNow(mx, my) {
   if (!fog) return true;
   const dx = mx / 1000 - cam.x, dy = my / 1000 - cam.y;
-  return dx * dx + dy * dy <= FOG_RADIUS * FOG_RADIUS;
+  return dx * dx + dy * dy <= lightR * lightR;
 }
 
 // drawTerrain paints the map when the welcome delivered one (floor tiles +
@@ -639,7 +656,7 @@ function drawTerrain() {
   const litAt = (x, y) => {
     if (!fog) return true;
     const dx = (x + 0.5) * t - cam.x, dy = (y + 0.5) * t - cam.y;
-    return dx * dx + dy * dy <= FOG_RADIUS * FOG_RADIUS;
+    return dx * dx + dy * dy <= lightR * lightR;
   };
 
   for (let y = y0; y <= y1; y++) {
@@ -2243,6 +2260,7 @@ const MOD_FMT = (() => {
     shock_chance: (v) => `+${pc(v)} chance to shock`,
     life_leech: (v) => `${pc(v)} of damage leeched as life`,
     increased_block: (v) => `+${pc(v)} chance to block`,
+    light_radius: (v) => `+${dec(v)} to light radius`,
     // implicit-only ids
     increased_damage: incDmg(""),
     block,
