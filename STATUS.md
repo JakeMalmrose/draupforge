@@ -176,8 +176,8 @@ load-bearing (top entry: the action model is one-thing-at-a-time).
 - No client prediction — input feels its latency. Prediction is what would
   justify compiling sim/ to wasm (DESIGN §13's optional layer).
 - Static files come from -web at runtime.
-- Collision is soft separation between monsters only (players never push or
-  get pushed); pairwise O(n²). Aggro is LoS + hearing with no memory; AI
+- Collision is soft separation between monsters and player-owned minions
+  (actual players never push or get pushed); pairwise O(n²). Aggro is LoS + hearing with no memory; AI
   re-issues its chase target every tick (repath throttle keeps it cheap);
   kiter retreat picks from 5 fixed directions — a cornered archer fights.
 - Terrain travels as JSON rows in the welcome (~2KB at 48×48); fog of war
@@ -215,6 +215,13 @@ dictates, and Jake's balance pass over the numbers.
 
 ## Session log
 
+- **2026-07-06 (65)** — Entity separation widened: the de-overlap pass now
+  includes player-owned minions (anything with `Owner != 0`) alongside
+  monsters, so a skeleton army reads as an army instead of a single-file
+  clump; actual players still never push or get pushed. `overlapFraction`
+  800→900 milli — packs stand a shade wider. First direct unit tests for
+  `Separate` (monsters ease apart, minions ease apart, players never move);
+  goldens unmoved (their scenarios never converge below the threshold).
 - **2026-07-06 (64)** — Item presentation. Three fronts: (1) affix/implicit
   rolls quantize in the engine — `AffixDef.Step`/`ImplicitDef.Step` snap
   every roll onto a Min + k·Step lattice (whole percents for resists and
