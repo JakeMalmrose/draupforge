@@ -11,8 +11,8 @@ tests, and session-log entries older than a few sessions (git history is the
 archive). If this file outgrows ~150 lines, it has stopped being a status doc
 and started being a changelog — cut it back.
 
-**Last updated: 2026-07-06** (session 77: channelling + blink — the action
-model's deliberate growth, and the first cooldown; Track 1 item 4. Track
+**Last updated: 2026-07-06** (session 78: the crafting ladder's missing
+half + the Forge — melt items to shards, buy orbs; Track 1 item 5. Track
 work accumulates on the `track1-buildcraft` PR, merged when the track ends)
 
 ## Where things stand
@@ -74,7 +74,7 @@ All foundational machinery from DESIGN.md is real, not stubbed:
 | Staged skills (DESIGN §15): stage sequences w/ per-stage locked aims, blast/ring effects, telegraphs on the wire (v19); telegraphed blasts skip evasion; the Barrow King (boss_king AI, floors %5, rare, stateless enrage <50%) + boss bar + ground-telegraph rendering | `sim/skills`, `sim/ai`, `content/`, `server/descent.go`, `web/` | done, tested, verified live |
 | Loot: rarity weights, weighted affixes, group caps, per-slot pools, rolled implicits; item level (= dier's level, floor-scaled) gates affix tiers (ILvl-gated greater/grand tiers) — deeper drops roll strictly better; base tiers always fill (DB() asserts ILvl-0 depth); save v13, wire v21, ilvl on the tooltip | `sim/items`, `content/`, `web/` | done, tested, verified live |
 | Uniques: fixed-identity chase items (4 in content) with shape stats nothing else rolls (ExtraProjectiles/ExtraChains — the skill system reads them off the sheet); UniquePermille per table, orange styling + authored mod lines on the wire (v20); orbs refuse them; save v11 | `sim/items`, `sim/stats`, `content/`, `web/` | done, tested, verified live |
-| Currency: orb wallet (transmute/alch/chaos/jeweller) banked straight to the killer; `apply_orb` crafts bag items | `sim/items`, `web/` | done, tested |
+| Currency: 8-orb wallet (transmute/alch/chaos/jeweller + regal/exalt/annulment/scouring) banked straight to the killer; `apply_orb` crafts bag items (regal keeps affixes + adds, exalt adds to a rare with room, annul strips one at random, scour wipes to normal; uniques refuse everything); the Forge: `forge_melt` pays shards by rarity (uncut gems flat 5), `forge_buy` sells orbs at fixed shard prices — travels with you, no hideout gate; shards durable (save v19, wire v25) | `sim/items`, `sim/core`, `web/` | done, tested, verified live |
 | Gems: cast only from cut gems; a fresh character spawns with `StartingUncut` draft-of-3 gems instead of a fixed starter; uncut drops carry a draft of 3 at the dier's level (cap 20); supports fold into the socketed skill's queries only (more/less, added flat, speed, mana, fans, chain, conversion); cast contexts bake at use; save v9 | `sim/core/gems.go`, `sim/items/gems.go`, `content/supports.go`, `web/` | done, tested, verified live |
 | Channelling + cooldowns: `ChannelTicks` skills hold in `PhaseChannel` after the windup's first shot, repeating the effect every use-time-bound interval while `ChannelMana` feeds it; a channel is NOT a commitment — its owner's next move/skill/stop command breaks it (stun too, free); `Actor.Cooldowns` (save v18, conditionally hashed, zone-local — never transfers) gates `CooldownTicks` skills at the command gate; `SkillBlink` teleports range-clamped + wall-honest (far-to-near ClearLine sampling); wire v24 GemSnap.Cd + "channel:" action string; the bar dims and counts down | `sim/skills`, `sim/sim.go`, `sim/core`, `content/`, `web/` | done, tested, verified live |
 | Curses: hex BuffDefs (`Curse` flag) on the ordinary buff machinery — SkillCurse casts hex every hostile within AoERadius of the aim (clamped to Range, no RNG, no hits); one curse per target, newest evicts; negative resistance now amplifies (hit + DoT mitigation gates read `res != 0` — inert for pre-curse content); AilCursed wire bit (64), EvCurse; the bone hexer is the support monster that hexes YOU | `sim/combat/buff.go`, `sim/skills`, `content/`, `web/` | done, tested, verified live |
@@ -214,7 +214,10 @@ load-bearing (top entry: the action model is one-thing-at-a-time).
   -25% fire res, enfeeble 20% less dealt, weakness +20% taken), player
   curse AoE 3u / range 10u, hexer hex 2.5u / 9u on a slow 1.5s cycle;
   incinerate 5 gouts/s at 2 mana each (4 up front), 4–7 fire ~5.6u reach;
-  blink 7u range, 3s cooldown, 8 mana.
+  blink 7u range, 3s cooldown, 8 mana; melt pays 1/3/8/20 by rarity (gems
+  5), orb prices in shards: transmute 4, scour 6, jeweller 15, regal 20,
+  alch/chaos 25, annul 30, exalt 80; new orb drop permilles
+  regal 12 / exalt 4 / annul 10 / scour 25.
 
 ## Feature plan
 
@@ -238,6 +241,27 @@ starting either track. Jake's balance pass over the numbers stays open.
 
 ## Session log
 
+- **2026-07-06 (78)** — The Forge + the crafting ladder's missing half:
+  Track 1 item 5. Four orbs join the wallet (OrbKind 4→8; the wallet
+  array widens, old saves shorter-copy fine): regal (magic→rare KEEPING
+  its affixes + one more — the new `addAffixes` seeds group/kind state
+  from what's rolled), exalt (add to a rare below the 6-affix cap),
+  annulment (remove one at random — a loot draw), scouring (wipe to
+  normal, no RNG); uniques now refuse orbs explicitly. The Forge:
+  `forge_melt` melts a bag item into shards (by rarity; uncut gems flat
+  5), `forge_buy` exchanges shards for orbs at fixed prices — sim
+  commands, deliberately NOT hideout-gated: the Forge travels with you,
+  melting trash mid-run to free bag space is the "no drop is worthless"
+  payoff where the decision happens. `Actor.Shards` is a plain-int
+  durable wallet (save v19, conditional hash, transfers). Wire v25:
+  ActorSnap.Shards rides the orb field group. Client: 8-orb strip with
+  shift-click-to-buy, an armable forge hammer (click bag items to melt —
+  stays armed for batch melting, no confirm modal: arming IS the
+  two-step), EvForge log lines. New orb drop bands appended to the
+  single-draw table — goldens happened to stay byte-stable (no golden
+  kill rolled the new window). Verified live over the wire: melted the
+  starting uncut gem (5 shards), bought a transmutation (1 left),
+  8-slot wallet + both forge events on the snapshot.
 - **2026-07-06 (77)** — Channelling + blink: Track 1 item 4, RISKS #1's
   named gaps grown on purpose. Channel: `ChannelTicks > 0` skills fire
   their first effect at the windup's end then hold in the new

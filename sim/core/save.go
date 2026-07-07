@@ -22,7 +22,7 @@ import (
 // SaveVersion gates restores: a format change bumps it, and old files fail
 // loudly instead of misloading. Saves are durable state — unlike replays,
 // they must never depend on re-execution of the code that wrote them.
-const SaveVersion = 18 // v18: skill cooldowns (v17: aura toggle state on gems)
+const SaveVersion = 19 // v19: forge shards + 8-kind orb wallet (v18: skill cooldowns)
 
 type saveFile struct {
 	Version     int              `json:"version"`
@@ -135,6 +135,7 @@ type actorSave struct {
 	Passives  []string     `json:"passives,omitempty"` // PassiveDef IDs
 	Flasks    []int32      `json:"flasks,omitempty"`   // charges per flask slot
 	Orbs      []int32      `json:"orbs,omitempty"`     // wallet, OrbKind order
+	Shards    int32        `json:"shards,omitempty"`   // forge balance
 	Gems      []gemSave    `json:"gems,omitempty"`
 	Base      []fm.Fixed   `json:"base"` // sheet base values, StatID order
 	Mods      []modSave    `json:"mods,omitempty"`
@@ -287,6 +288,7 @@ func encodeActor(a *Actor) actorSave {
 			break
 		}
 	}
+	as.Shards = a.Shards
 	for st := stats.StatID(0); st < stats.StatCount; st++ {
 		as.Base[st] = a.Sheet.Base(st)
 	}
@@ -545,6 +547,7 @@ func decodeActor(db *ContentDB, affixes map[string]*AffixDef, as actorSave) (*Ac
 		return nil, fmt.Errorf("core: actor %d has %d orb kinds, this build knows %d", as.ID, len(as.Orbs), OrbCount)
 	}
 	copy(a.Orbs[:], as.Orbs)
+	a.Shards = as.Shards
 	for _, ds := range as.DoTs {
 		a.DoTs = append(a.DoTs, DoT{
 			Type: DamageType(ds.Type), PerTick: ds.PerTick, TicksLeft: ds.TicksLeft, Source: EntityID(ds.Source),

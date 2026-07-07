@@ -11,7 +11,7 @@ package protocol
 // v18 unifies two parallel branches that both claimed v16 (gems on main,
 // identity on the multiplayer branch; parties took v17) — jumping past all
 // of them so no deployed client can match a wrong meaning.
-const Version = 24 // v24: gem cooldown ticks (v23: aura toggle state on gem snaps)
+const Version = 25 // v25: forge shards + 8-kind orb wallet (v24: gem cooldown ticks)
 
 // Command is the wire form of player intent. Kind is one of "move",
 // "use_skill", "stop", the item verbs "pickup", "equip", "unequip",
@@ -85,8 +85,11 @@ type ActorSnap struct {
 	// Flasks: charges per flask slot (order = the def's flask order).
 	Flasks []int64 `json:"flasks,omitempty"`
 	// Orbs: crafting-currency counts, OrbKind order (transmutation,
-	// alchemy, chaos, jeweller).
+	// alchemy, chaos, jeweller, regal, exalt, annulment, scouring).
 	Orbs []int64 `json:"orbs,omitempty"`
+	// Shards: the Forge balance — melted items pay in, orb purchases pay
+	// out. Rides the orb field group on the binary wire.
+	Shards int64 `json:"shards,omitempty"`
 	// Gems: the actor's cut skill gems in bar order. Own binary field
 	// group — it changes on cut/level/socket verbs.
 	Gems []GemSnap `json:"gems,omitempty"`

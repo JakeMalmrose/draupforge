@@ -140,6 +140,10 @@ func (w *World) Hash() uint64 {
 				break
 			}
 		}
+		// Shards: conditional like the wallet.
+		if a.Shards != 0 {
+			s.i64(int64(a.Shards))
+		}
 		// Cut gems: conditional like passives — monsters (gem-less) keep
 		// their old hash stream.
 		if len(a.Gems) > 0 {

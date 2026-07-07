@@ -202,7 +202,10 @@ func rollMod(rng *core.RNG, min, max, step fm.Fixed) fm.Fixed {
 // Orb drop rates per kill, per mille, scaled by the dier's rarity (x2
 // magic, x3 rare — matching the drop-attempt ladder). One combined draw
 // decides which orb, if any. Open for tuning.
-var orbPermille = [core.OrbCount]uint64{90, 30, 15, 40} // transmutation, alchemy, chaos, jeweller
+var orbPermille = [core.OrbCount]uint64{
+	90, 30, 15, 40, // transmutation, alchemy, chaos, jeweller
+	12, 4, 10, 25, // regal, exalt, annulment, scouring
+}
 
 // rarityMult is the shared drop-luck ladder: magic pays double, rare triple.
 func rarityMult(r core.Rarity) uint64 {
@@ -237,8 +240,11 @@ func rollOrb(w *core.World, killer *core.Actor, rarity core.Rarity) {
 
 // ApplyOrb spends one orb from the actor's wallet on an inventory item:
 // transmutation upgrades normal to magic, alchemy normal to rare, chaos
-// rerolls a rare. Equipped items can't be crafted (their mods live on the
-// sheet); reports whether anything happened.
+// rerolls a rare, regal graduates a magic to rare keeping its affixes,
+// exalt adds an affix to a rare with room, annulment strips one at random,
+// scouring wipes back to normal. Equipped items can't be crafted (their
+// mods live on the sheet); uniques refuse every orb; reports whether
+// anything happened.
 func ApplyOrb(w *core.World, a *core.Actor, orb core.OrbKind, itemID core.EntityID) bool {
 	if orb >= core.OrbCount || a.Orbs[orb] <= 0 {
 		return false
@@ -254,7 +260,7 @@ func ApplyOrb(w *core.World, a *core.Actor, orb core.OrbKind, itemID core.Entity
 			item = &a.Inventory[i]
 		}
 	}
-	if item == nil || item.Gem != nil {
+	if item == nil || item.Gem != nil || item.Unique != nil {
 		return false
 	}
 	switch orb {
@@ -272,6 +278,41 @@ func ApplyOrb(w *core.World, a *core.Actor, orb core.OrbKind, itemID core.Entity
 		if item.Rarity != core.RarityRare {
 			return false
 		}
+	case core.OrbRegal:
+		if item.Rarity != core.RarityMagic {
+			return false
+		}
+		item.Rarity = core.RarityRare
+		a.Orbs[orb]--
+		addAffixes(w, item, 1)
+		w.Emit(core.Event{Kind: core.EvOrb, Actor: a.ID, Other: item.ID, Note: orb.String() + ":" + item.Base.ID})
+		return true
+	case core.OrbExalt:
+		if item.Rarity != core.RarityRare || len(item.Affixes) >= rareAffixCap*2 {
+			return false
+		}
+		a.Orbs[orb]--
+		addAffixes(w, item, 1)
+		w.Emit(core.Event{Kind: core.EvOrb, Actor: a.ID, Other: item.ID, Note: orb.String() + ":" + item.Base.ID})
+		return true
+	case core.OrbAnnulment:
+		if (item.Rarity != core.RarityMagic && item.Rarity != core.RarityRare) || len(item.Affixes) == 0 {
+			return false
+		}
+		a.Orbs[orb]--
+		idx := int(w.RNGLoot.Uint64n(uint64(len(item.Affixes))))
+		item.Affixes = append(item.Affixes[:idx], item.Affixes[idx+1:]...)
+		w.Emit(core.Event{Kind: core.EvOrb, Actor: a.ID, Other: item.ID, Note: orb.String() + ":" + item.Base.ID})
+		return true
+	case core.OrbScouring:
+		if item.Rarity != core.RarityMagic && item.Rarity != core.RarityRare {
+			return false
+		}
+		item.Rarity = core.RarityNormal
+		item.Affixes = nil
+		a.Orbs[orb]--
+		w.Emit(core.Event{Kind: core.EvOrb, Actor: a.ID, Other: item.ID, Note: orb.String() + ":" + item.Base.ID})
+		return true
 	}
 	a.Orbs[orb]--
 	fillAffixes(w, item)
@@ -279,6 +320,76 @@ func ApplyOrb(w *core.World, a *core.Actor, orb core.OrbKind, itemID core.Entity
 		Kind: core.EvOrb, Actor: a.ID, Other: item.ID,
 		Note: orb.String() + ":" + item.Base.ID,
 	})
+	return true
+}
+
+// addAffixes rolls n more affixes onto the item, honoring what's already
+// there (group exclusivity, prefix/suffix caps at the rare limit). The
+// regal/exalt path — existing rolls stay put, unlike fillAffixes.
+func addAffixes(w *core.World, item *core.Item, n int) {
+	usedGroups := make(map[string]bool)
+	kindCounts := [2]int{}
+	for _, ra := range item.Affixes {
+		usedGroups[ra.Def.Group] = true
+		kindCounts[ra.Def.Kind]++
+	}
+	want := len(item.Affixes) + n
+	for len(item.Affixes) < want {
+		af := pickAffix(w, item.Base.Slot, item.ItemLevel, usedGroups, kindCounts, rareAffixCap)
+		if af == nil {
+			w.Emit(core.Event{
+				Kind:   core.EvLootStarved,
+				Other:  item.ID,
+				Amount: fm.FromInt(int64(want - len(item.Affixes))),
+				Note:   item.Base.ID,
+			})
+			break
+		}
+		usedGroups[af.Group] = true
+		kindCounts[af.Kind]++
+		item.Affixes = append(item.Affixes, core.RolledAffix{
+			Def:   af,
+			Value: rollMod(w.RNGLoot, af.Min, af.Max, af.Step),
+		})
+	}
+}
+
+// ForgeMelt turns the inventory item named by itemID into shards: rarity
+// sets the price, uncut gems pay a flat rate. No RNG — the Forge is the
+// deterministic half of the economy.
+func ForgeMelt(w *core.World, a *core.Actor, itemID core.EntityID) bool {
+	for i := range a.Inventory {
+		item := &a.Inventory[i]
+		if item.ID != itemID {
+			continue
+		}
+		pay := core.MeltShards(item.Rarity)
+		note := "melt:gem"
+		if item.Gem != nil {
+			pay = core.MeltGemShards
+		} else {
+			note = "melt:" + item.Base.ID
+		}
+		a.Shards += pay
+		a.Inventory = append(a.Inventory[:i], a.Inventory[i+1:]...)
+		w.Emit(core.Event{Kind: core.EvForge, Actor: a.ID, Amount: fm.FromInt(int64(a.Shards)), Note: note})
+		return true
+	}
+	return false
+}
+
+// ForgeBuy exchanges shards for one orb at the fixed OrbShardPrice.
+func ForgeBuy(w *core.World, a *core.Actor, orb core.OrbKind) bool {
+	if orb >= core.OrbCount {
+		return false
+	}
+	price := core.OrbShardPrice[orb]
+	if price <= 0 || a.Shards < price {
+		return false
+	}
+	a.Shards -= price
+	a.Orbs[orb]++
+	w.Emit(core.Event{Kind: core.EvForge, Actor: a.ID, Amount: fm.FromInt(int64(a.Shards)), Note: "buy:" + orb.String()})
 	return true
 }
 

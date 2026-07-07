@@ -181,6 +181,7 @@ function decodeViewFrame(buf, baseFor) {
     if (mask & ACTOR_ORBS) {
       a.orbs = [];
       for (let m = r.uv(); m > 0; m--) a.orbs.push(r.sv());
+      a.shards = r.sv();
     }
     if (mask & ACTOR_GEMS) {
       a.gems = [];

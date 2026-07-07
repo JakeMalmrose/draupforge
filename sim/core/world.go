@@ -47,6 +47,14 @@ const (
 	// CmdAddSocket spends a jeweller orb to add a support socket to the
 	// gem at GemIndex (capped at MaxGemSockets).
 	CmdAddSocket
+	// CmdForgeMelt melts the inventory item named by TargetID into shards
+	// (MeltShards by rarity; uncut gems pay MeltGemShards). The Forge
+	// travels with you — no hideout gate; melting trash mid-run is the
+	// point.
+	CmdForgeMelt
+	// CmdForgeBuy exchanges shards for one orb of the kind in Orb, at
+	// OrbShardPrice.
+	CmdForgeBuy
 )
 
 // Command is the only way anything outside the sim affects it. The sim
@@ -127,6 +135,9 @@ const (
 	// EvCurse fires when a curse lands or refreshes (Actor = caster,
 	// Other = the hexed, Note = the curse BuffDef ID).
 	EvCurse
+	// EvForge narrates the Forge: Note = "melt:<base|gem>" or
+	// "buy:<orb>", Amount = the actor's shard total afterward.
+	EvForge
 )
 
 func (k EventKind) String() string {
@@ -175,6 +186,8 @@ func (k EventKind) String() string {
 		return "aura"
 	case EvCurse:
 		return "curse"
+	case EvForge:
+		return "forge"
 	default:
 		return "unequip"
 	}

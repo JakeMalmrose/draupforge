@@ -76,6 +76,8 @@ type Character struct {
 	FlaskCharges []int32 `json:"flask_charges,omitempty"`
 	// Orbs carries the crafting wallet, OrbKind order.
 	Orbs []int32 `json:"orbs,omitempty"`
+	// Shards carries the Forge balance, durable like the wallet.
+	Shards int32 `json:"shards,omitempty"`
 }
 
 // ExtractCharacter reduces an actor to its character state — the reverse of
@@ -120,6 +122,7 @@ func ExtractCharacter(a *Actor) Character {
 			break
 		}
 	}
+	ch.Shards = a.Shards
 	return ch
 }
 
@@ -254,6 +257,7 @@ func InjectCharacter(w *World, ch Character, pos space.Vec2) (*Actor, error) {
 	if len(ch.Orbs) <= int(OrbCount) {
 		copy(a.Orbs[:], ch.Orbs)
 	}
+	a.Shards = ch.Shards
 
 	// Running auras re-apply as part of the sheet rebuild (their AuraOn
 	// flag is the durable record) — before the pool clamp, so reserved

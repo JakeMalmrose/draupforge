@@ -251,6 +251,11 @@ type Actor struct {
 	// flask charges.
 	Orbs [OrbCount]int32
 
+	// Shards is the Forge's currency: melted items pay in, orb purchases
+	// pay out. Plain integer accumulator (never Fixed), durable like the
+	// orb wallet.
+	Shards int32
+
 	// Gems are the actor's cut skill gems, in cut order — the skill bar.
 	// Durable character state like Passives; players cast only from these,
 	// monsters keep using Def.Skills directly.
@@ -471,11 +476,48 @@ const (
 	OrbAlchemy                      // normal -> rare
 	OrbChaos                        // reroll a rare's affixes
 	OrbJeweller                     // add a support socket to a skill gem
+	OrbRegal                        // magic -> rare, keeping its affixes + one more
+	OrbExalt                        // add one affix to a rare with room
+	OrbAnnulment                    // remove one random affix
+	OrbScouring                     // wipe to normal
 
 	OrbCount
 )
 
-var orbNames = [OrbCount]string{"transmutation", "alchemy", "chaos", "jeweller"}
+var orbNames = [OrbCount]string{
+	"transmutation", "alchemy", "chaos", "jeweller",
+	"regal", "exalt", "annulment", "scouring",
+}
+
+// OrbShardPrice is the Forge's sale price per orb, in shards — melted
+// items buy determinism where drops give luck. Open for tuning.
+var OrbShardPrice = [OrbCount]int32{
+	4,  // transmutation
+	25, // alchemy
+	25, // chaos
+	15, // jeweller
+	20, // regal
+	80, // exalt — the chase purchase
+	30, // annulment
+	6,  // scouring
+}
+
+// MeltShards is what the Forge pays for an item, by rarity. Uncut gems pay
+// a flat 5 (see MeltGemShards). Open for tuning.
+func MeltShards(r Rarity) int32 {
+	switch r {
+	case RarityMagic:
+		return 3
+	case RarityRare:
+		return 8
+	case RarityUnique:
+		return 20
+	}
+	return 1
+}
+
+// MeltGemShards is the Forge's flat price for an uncut gem item.
+const MeltGemShards = 5
 
 func (o OrbKind) String() string {
 	if o < OrbCount {

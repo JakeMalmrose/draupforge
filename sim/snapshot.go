@@ -155,6 +155,7 @@ func (s *Sim) BuildSnapshotFor(viewer core.EntityID, radius fm.Fixed, events []p
 			Passives:  passives,
 			Flasks:    flasks,
 			Orbs:      orbs,
+			Shards:    int64(a.Shards),
 			Gems:      gems,
 			Level:     a.Level,
 			XP:        a.XP,
@@ -359,6 +360,15 @@ func DecodeCommand(c protocol.Command) (core.Command, error) {
 			return core.Command{}, fmt.Errorf("protocol: unknown orb %q", c.Orb)
 		}
 		out.Kind = core.CmdApplyOrb
+		out.Orb = orb
+	case "forge_melt":
+		out.Kind = core.CmdForgeMelt
+	case "forge_buy":
+		orb, ok := core.ParseOrbKind(c.Orb)
+		if !ok {
+			return core.Command{}, fmt.Errorf("protocol: unknown orb %q", c.Orb)
+		}
+		out.Kind = core.CmdForgeBuy
 		out.Orb = orb
 	case "cut_skill":
 		out.Kind = core.CmdCutSkill

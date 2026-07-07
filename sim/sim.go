@@ -352,6 +352,18 @@ func applyCommands(w *core.World, cmds []core.Command) {
 			}
 			items.ApplyOrb(w, a, c.Orb, c.TargetID)
 
+		case core.CmdForgeMelt:
+			if a.Action.Kind == core.ActionSkill {
+				continue // forge work is bench work too
+			}
+			items.ForgeMelt(w, a, c.TargetID)
+
+		case core.CmdForgeBuy:
+			if a.Action.Kind == core.ActionSkill {
+				continue
+			}
+			items.ForgeBuy(w, a, c.Orb)
+
 		case core.CmdCutSkill, core.CmdLevelGem, core.CmdCutSupport, core.CmdAddSocket:
 			if a.Action.Kind == core.ActionSkill {
 				continue // gem work is bench work, not battle work

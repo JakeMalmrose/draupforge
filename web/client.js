@@ -2179,27 +2179,51 @@ const tooltipEl = document.getElementById("tooltip");
 // apply mode; the next bag-item click sends apply_orb. The server
 // validates rarity rules; the strip just previews intent.
 const ORBS = [
-  { id: "transmutation", name: "Transmutation", hint: "normal → magic", color: "#7a9bf0" },
-  { id: "alchemy", name: "Alchemy", hint: "normal → rare", color: "#f0d060" },
-  { id: "chaos", name: "Chaos", hint: "reroll a rare", color: "#d97b4a" },
+  { id: "transmutation", name: "Transmutation", hint: "normal → magic", color: "#7a9bf0", price: 4 },
+  { id: "alchemy", name: "Alchemy", hint: "normal → rare", color: "#f0d060", price: 25 },
+  { id: "chaos", name: "Chaos", hint: "reroll a rare", color: "#d97b4a", price: 25 },
   // Jewellers target the gem row, not the bag: arm it, click a skill gem.
-  { id: "jeweller", name: "Jeweller", hint: "add a gem socket", color: "#4ad1c8" },
+  { id: "jeweller", name: "Jeweller", hint: "add a gem socket", color: "#4ad1c8", price: 15 },
+  { id: "regal", name: "Regal", hint: "magic → rare, keeps its mods", color: "#e0c04a", price: 20 },
+  { id: "exalt", name: "Exalt", hint: "add a mod to a rare", color: "#f0f0d0", price: 80 },
+  { id: "annulment", name: "Annulment", hint: "remove a random mod", color: "#b8c4d8", price: 30 },
+  { id: "scouring", name: "Scouring", hint: "wipe back to normal", color: "#8a7a6a", price: 6 },
 ];
 let armedOrb = -1;
+let armedMelt = false;
 
 const orbStripEl = document.getElementById("orb-strip");
 ORBS.forEach((o, i) => {
   const btn = document.createElement("button");
   btn.className = "orb";
   btn.id = `orb-${i}`;
-  btn.title = `${o.name} Orb — ${o.hint}`;
+  btn.title = `${o.name} Orb — ${o.hint}. Shift-click: buy for ${o.price} shards.`;
   btn.innerHTML = `<span class="orb-dot" style="background:${o.color}"></span><span id="orb-count-${i}">0</span>`;
-  btn.onclick = () => {
+  btn.onclick = (ev) => {
+    if (ev.shiftKey) {
+      send({ kind: "forge_buy", orb: o.id });
+      return;
+    }
     armedOrb = armedOrb === i ? -1 : i;
+    armedMelt = false;
     renderOrbStrip(me());
   };
   orbStripEl.appendChild(btn);
 });
+
+// The Forge: arm the hammer, click a bag item to melt it into shards.
+// Travels with you — melting trash mid-run is the point.
+const forgeBtn = document.createElement("button");
+forgeBtn.className = "orb forge";
+forgeBtn.id = "forge-btn";
+forgeBtn.title = "The Forge — arm, then click a bag item to melt it into shards. Shift-click an orb to buy it with shards.";
+forgeBtn.innerHTML = `<span class="orb-dot" style="background:#e06a3a">&#9874;</span><span id="shard-count">0</span>`;
+forgeBtn.onclick = () => {
+  armedMelt = !armedMelt;
+  armedOrb = -1;
+  renderOrbStrip(me());
+};
+orbStripEl.appendChild(forgeBtn);
 
 function renderOrbStrip(self) {
   const orbs = (self && self.orbs) || [];
@@ -2210,7 +2234,9 @@ function renderOrbStrip(self) {
     btn.classList.toggle("armed", armedOrb === i);
     btn.classList.toggle("drained", n === 0);
   });
-  panel.classList.toggle("orb-armed", armedOrb >= 0);
+  document.getElementById("shard-count").textContent = (self && self.shards) || 0;
+  forgeBtn.classList.toggle("armed", armedMelt);
+  panel.classList.toggle("orb-armed", armedOrb >= 0 || armedMelt);
 }
 
 const EQUIP_SLOTS = [
@@ -2656,6 +2682,13 @@ function renderPanel(self, force) {
       fillSlot(div, cells[i], "inv", legalEquipSlots(cells[i].base).join("/"));
       const item = cells[i];
       div.addEventListener("click", () => {
+        // The armed forge melts anything in the bag — gems included.
+        // Arming the hammer then clicking IS the two-step confirmation;
+        // no modal (uniques melt for the most shards, deliberately).
+        if (armedMelt) {
+          send({ kind: "forge_melt", target: item.id });
+          return; // stay armed: melting trash is a batch job
+        }
         // Uncut gems open the cutting dialog; crafting orbs target gear.
         if (item.gem) {
           openCutDialog(item);
@@ -3030,6 +3063,11 @@ function logEvent(ev) {
       break;
     case "curse":
       text = `${nameOf(ev.other)} is cursed with ${skillName(ev.note)}`;
+      break;
+    case "forge":
+      text = ev.note.startsWith("buy:")
+        ? `bought a ${ev.note.slice(4)} orb (${Math.round(ev.amount / 1000)} shards left)`
+        : `melted down (${Math.round(ev.amount / 1000)} shards)`;
       break;
     case "chill":
       text = `${nameOf(ev.other)} is chilled (${Math.round(ev.amount / 10)}% slow)`;

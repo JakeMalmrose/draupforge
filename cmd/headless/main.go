@@ -165,6 +165,8 @@ func printEvent(ev core.Event) {
 		fmt.Printf("[tick %4d] %d toggled %s %s\n", ev.Tick, ev.Actor, ev.Note, state)
 	case core.EvCurse:
 		fmt.Printf("[tick %4d] %d cursed %d with %s\n", ev.Tick, ev.Actor, ev.Other, ev.Note)
+	case core.EvForge:
+		fmt.Printf("[tick %4d] %d forged (%s), %s shards\n", ev.Tick, ev.Actor, ev.Note, fixedStr(ev.Amount))
 	}
 }
 

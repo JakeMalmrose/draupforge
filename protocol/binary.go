@@ -234,6 +234,7 @@ func encodeActors(w *bwriter, base, view []ActorSnap) {
 			for _, n := range a.Orbs {
 				w.sv(n)
 			}
+			w.sv(a.Shards)
 		}
 		if c.mask&actorGems != 0 {
 			w.uv(uint64(len(a.Gems)))
@@ -320,7 +321,7 @@ func actorMask(b, a *ActorSnap) uint64 {
 	if !reflect.DeepEqual(b.Flasks, a.Flasks) {
 		mask |= actorFlasks
 	}
-	if !reflect.DeepEqual(b.Orbs, a.Orbs) {
+	if !reflect.DeepEqual(b.Orbs, a.Orbs) || b.Shards != a.Shards {
 		mask |= actorOrbs
 	}
 	if !reflect.DeepEqual(b.Gems, a.Gems) {
@@ -410,6 +411,7 @@ func decodeActors(r *breader, base []ActorSnap) []ActorSnap {
 			for m := r.uv(); m > 0 && r.err == nil; m-- {
 				a.Orbs = append(a.Orbs, r.sv())
 			}
+			a.Shards = r.sv()
 		}
 		if mask&actorGems != 0 {
 			for m := r.uv(); m > 0 && r.err == nil; m-- {
