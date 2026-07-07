@@ -52,9 +52,9 @@ type Lobby struct {
 	// newInstanceLocked consumes it (nil afterwards, and for lobbies booted
 	// without -load).
 	pendingLoad []byte
-	online    map[string]*client   // token → connected client
-	homes     map[string]*Instance // token → last instance, for grace reconnects
-	invites   map[string]string    // invitee token → inviter token
+	online      map[string]*client   // token → connected client
+	homes       map[string]*Instance // token → last instance, for grace reconnects
+	invites     map[string]string    // invitee token → inviter token
 
 	listenerAddr chan net.Addr
 }
@@ -160,6 +160,7 @@ func (lb *Lobby) Handler() http.Handler {
 	mux.HandleFunc("/api/claim", lb.ids.handleClaim)
 	mux.HandleFunc("/api/whoami", lb.ids.handleWhoami)
 	mux.HandleFunc("/api/forget", lb.ids.handleForget(lb.kickToken))
+	mux.HandleFunc("/api/ladder", lb.ids.handleLadder)
 	if lb.cfg.StaticDir != "" {
 		mux.Handle("/", http.FileServer(http.Dir(lb.cfg.StaticDir)))
 	}
@@ -246,7 +247,7 @@ func (lb *Lobby) HandleWS(w http.ResponseWriter, r *http.Request) {
 	}
 	c := newClient(&wsTransport{conn: ws}, m)
 	if tok := cookieToken(r); tok != "" && r.URL.Query().Get("guest") == "" {
-		name, char, ok, dup := lb.ids.connectWithGrace(tok)
+		name, char, ok, dup := lb.ids.connectWithGrace(tok, r.URL.Query().Get("char"))
 		switch {
 		case dup:
 			frame, _ := json.Marshal(protocol.ServerMsg{
@@ -260,6 +261,7 @@ func (lb *Lobby) HandleWS(w http.ResponseWriter, r *http.Request) {
 			return
 		case ok:
 			c.name, c.token = name, tok
+			c.hardcore, c.ssf = lb.ids.ActiveFlags(tok)
 			if char != nil {
 				c.lastChar, c.hasChar = *char, true
 			}
@@ -345,6 +347,9 @@ func (lb *Lobby) processSocial(in *Instance, wants []socialWant) {
 		if c.token == "" {
 			continue // guests have no social surface; claim a name first
 		}
+		if c.ssf && (w.invite != "" || w.accept) {
+			continue // solo-self-found: no parties, in or out
+		}
 		switch {
 		case w.invite != "":
 			lb.inviteLocked(c, w.invite)
@@ -370,6 +375,9 @@ func (lb *Lobby) inviteLocked(from *client, name string) {
 	if to == nil {
 		lb.pushSocialLocked(from) // they just went offline; refresh the list
 		return
+	}
+	if to.ssf {
+		return // solo-self-found players can't be drawn into parties
 	}
 	if sameInstance(from, to) {
 		return // already partied up

@@ -262,7 +262,7 @@ func TestTransferCarriesCharacter(t *testing.T) {
 		t.Fatalf("transferred actor = %+v, want XP 777", a)
 	}
 	// The identity never blinked offline: reconnecting is still a dup.
-	if _, _, ok, dup := lb.ids.Connect(c.token); ok || !dup {
+	if _, _, ok, dup := lb.ids.Connect(c.token, ""); ok || !dup {
 		t.Fatalf("identity mid-party: ok=%v dup=%v, want online (dup)", ok, dup)
 	}
 	// And home now points at the destination.

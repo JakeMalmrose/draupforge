@@ -11,7 +11,7 @@ package protocol
 // v18 unifies two parallel branches that both claimed v16 (gems on main,
 // identity on the multiplayer branch; parties took v17) — jumping past all
 // of them so no deployed client can match a wrong meaning.
-const Version = 25 // v25: forge shards + 8-kind orb wallet (v24: gem cooldown ticks)
+const Version = 27 // v27: descent chart + floor mods (v26: biome ids)
 
 // Command is the wire form of player intent. Kind is one of "move",
 // "use_skill", "stop", the item verbs "pickup", "equip", "unequip",
@@ -42,6 +42,9 @@ type Command struct {
 	// (the social verbs "accept_invite", "decline_invite" and "leave_party"
 	// carry nothing).
 	Name string `json:"name,omitempty"`
+	// Text is the host-layer "chat" verb's message; a chat with X/Y set
+	// and no text is a map ping.
+	Text string `json:"text,omitempty"`
 	// Gem-verb addressing ("cut_skill", "level_gem", "cut_support",
 	// "add_socket"): Choice indexes the uncut gem's draft, Gem the actor's
 	// cut gems, Socket the gem's sockets; Replace arms cut_skill's
@@ -260,6 +263,39 @@ type RunSnap struct {
 	Run     int  `json:"run"`
 	Best    int  `json:"best"`
 	Portal  *Vec `json:"portal,omitempty"`
+	// Biome is the current floor's depth-band id ("" in the hideout); the
+	// client maps it to a palette, a display name, and an ambient tone.
+	Biome string `json:"biome,omitempty"`
+	// Mods are the current floor's modifier names, display-ready.
+	Mods []string `json:"mods,omitempty"`
+}
+
+// ChartSnap is the descent chart: the routes the stairs offer ("" kind),
+// or the hideout portal's deep-start options ("portal" kind). Sent as a
+// "chart" frame; the pick comes back as a "route" command whose Choice
+// indexes Routes.
+type ChartSnap struct {
+	Kind   string      `json:"kind,omitempty"`
+	Routes []RouteSnap `json:"routes"`
+}
+
+// RouteSnap is one exit on the chart. Side marks a chamber that holds the
+// current depth (stacked mods, juiced rewards) instead of descending;
+// Portals is a deep start's traded-down portal budget.
+type RouteSnap struct {
+	Choice  int            `json:"choice"`
+	Floor   int            `json:"floor"`
+	Side    bool           `json:"side,omitempty"`
+	Portals int            `json:"portals,omitempty"`
+	Biome   string         `json:"biome,omitempty"`
+	Mods    []FloorModSnap `json:"mods,omitempty"`
+}
+
+// FloorModSnap is one floor modifier as the chart shows it: a name and a
+// reward weight (pips).
+type FloorModSnap struct {
+	Name   string `json:"name"`
+	Reward int    `json:"reward,omitempty"`
 }
 
 // PassiveSnap is one milestone-passive choice as the client sees it: the
@@ -304,8 +340,13 @@ type ServerMsg struct {
 	// Name is the receiving client's own identity name ("" = guest);
 	// welcome only. Roster maps live actor IDs to identity names — on every
 	// welcome, and re-broadcast as "roster" when membership changes.
-	Name   string            `json:"name,omitempty"`
-	Roster map[uint64]string `json:"roster,omitempty"`
+	// Hardcore/SSF are the receiving character's permanent mode flags;
+	// Feats the account's earned achievement ids (hideout trophies).
+	Name     string            `json:"name,omitempty"`
+	Hardcore bool              `json:"hardcore,omitempty"`
+	SSF      bool              `json:"ssf,omitempty"`
+	Feats    []string          `json:"feats,omitempty"`
+	Roster   map[uint64]string `json:"roster,omitempty"`
 	// Error rides a terminal "error" frame: the connection is refused (a
 	// duplicate session, say) and closes after this message.
 	Error string `json:"error,omitempty"`
@@ -319,6 +360,37 @@ type ServerMsg struct {
 	// "sheet" frame in answer to a "sheet" verb (the C panel). Derived
 	// data the client can't compute — the stat engine lives server-side.
 	Sheet *SheetSnap `json:"sheet,omitempty"`
+	// Chart rides "chart" frames: the descent routes offered to a client
+	// standing at the stairs (floor mods, reward weights, side chambers).
+	Chart *ChartSnap `json:"chart,omitempty"`
+	// Recap rides "recap" frames: the dying client's death report — what
+	// hit them, for how much, on which floor, under which mods.
+	Recap *RecapSnap `json:"recap,omitempty"`
+	// Chat rides "chat" frames: a party line, or a map ping.
+	Chat *ChatSnap `json:"chat,omitempty"`
+}
+
+// ChatSnap is one relayed chat message: a text line, or — when Ping is
+// set instead — a map spot the sender wants eyes on.
+type ChatSnap struct {
+	Name string `json:"name"`
+	Text string `json:"text,omitempty"`
+	Ping *Vec   `json:"ping,omitempty"`
+}
+
+// RecapSnap is one death's report, sent to the dier just before the eject.
+type RecapSnap struct {
+	Floor int        `json:"floor"`
+	Mods  []string   `json:"mods,omitempty"`
+	Hits  []RecapHit `json:"hits,omitempty"`
+}
+
+// RecapHit is one recent hit taken: attacker display name, the skill note,
+// and the milli damage dealt.
+type RecapHit struct {
+	From   string `json:"from"`
+	Note   string `json:"note,omitempty"`
+	Amount int64  `json:"amount"`
 }
 
 // SheetSnap is one player's character sheet: evaluated stat lines plus

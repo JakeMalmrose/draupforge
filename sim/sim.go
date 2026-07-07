@@ -80,8 +80,13 @@ func (s *Sim) GrantGem(actor core.EntityID, skillID string, level int) error {
 }
 
 // GenerateMap rolls terrain from the world's map RNG stream and installs
-// it. Call before any spawns; terrain is immutable afterwards.
+// it. Call before any spawns; terrain is immutable afterwards. spec.Kind
+// picks the generator (rooms by default; caves for the deep biomes).
 func (s *Sim) GenerateMap(spec space.MapSpec) {
+	if spec.Kind == space.MapCaves {
+		s.W.Grid = space.GenerateCaves(spec, s.W.RNGMap)
+		return
+	}
 	s.W.Grid = space.GenerateRooms(spec, s.W.RNGMap)
 }
 
@@ -173,6 +178,32 @@ func (s *Sim) SpawnRareLeveled(defID string, pos space.Vec2, level int) (core.En
 	a.ApplyMonsterMods(core.RarityRare, mods)
 	a.Life, a.Mana, a.ES = a.MaxLife(), a.MaxMana(), a.MaxES()
 	return id, nil
+}
+
+// ApplyFloorMods grants the named modifier packages (content FloorMods or
+// MonsterMods ids) to every living monster on the field and refills their
+// pools — the descent's floor modifiers, applied once at build time.
+// Deterministic: actor-slice order, no RNG.
+func (s *Sim) ApplyFloorMods(ids []string) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	var mods []*core.MonsterModDef
+	for _, id := range ids {
+		md := s.W.Content.MonsterMod(id)
+		if md == nil {
+			return fmt.Errorf("sim: unknown floor mod %q", id)
+		}
+		mods = append(mods, md)
+	}
+	for _, a := range s.W.Actors {
+		if a.Team != core.TeamMonsters || a.Dead {
+			continue
+		}
+		a.ApplyExtraMods(mods)
+		a.Life, a.Mana, a.ES = a.MaxLife(), a.MaxMana(), a.MaxES()
+	}
+	return nil
 }
 
 // rollMonsterRarity rolls one monster's rarity and modifiers off RNGMap
@@ -463,4 +494,3 @@ func speedWithSupports(a *core.Actor, sk *core.SkillDef, ctx core.GemCtx) fm.Fix
 	}
 	return fm.Mul(a.Sheet.Base(sk.SpeedStat)+p.Flat, p.Multiplier())
 }
-

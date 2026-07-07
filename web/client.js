@@ -18,7 +18,11 @@ const VIEW_HISTORY = 32;   // kept as delta baselines; matches the server cap
 let ws = null;
 let myId = 0;
 let gen = 0;                // welcome generation; acks echo it
-let myName = "";            // our identity name ("" = guest)
+let myName = "";            // our character's name ("" = guest)
+let myChar = "";            // roster pick sent at connect ("" = server default)
+let myHardcore = false;     // permanent mode flags, from the welcome
+let mySSF = false;
+let myFeats = [];           // account achievement ids, from the welcome
 let roster = new Map();     // actor id → identity name, server-maintained
 let guestMode = false;      // the join screen chose "play as guest"
 let fatalError = false;     // server refused us; keep that overlay on close
@@ -70,6 +74,7 @@ function connect() {
   const wsProto = location.protocol === "https:" ? "wss" : "ws";
   const params = new URLSearchParams(location.search);
   if (guestMode) params.set("guest", "1");
+  else if (myChar) params.set("char", myChar);
   const qs = params.toString();
   ws = new WebSocket(`${wsProto}://${location.host}/ws${qs ? "?" + qs : ""}`);
   ws.binaryType = "arraybuffer";
@@ -96,6 +101,12 @@ function connect() {
       } else if (msg.type === "pause") {
         if (msg.paused) showOverlay("PAUSED");
         else hideOverlay();
+      } else if (msg.type === "chart") {
+        openChart(msg.chart);
+      } else if (msg.type === "recap") {
+        showRecap(msg.recap);
+      } else if (msg.type === "chat") {
+        onChat(msg.chat);
       } else if (msg.type === "roster") {
         applyRoster(msg.roster);
       } else if (msg.type === "social") {
@@ -109,10 +120,10 @@ function connect() {
         renderCharSheet();
       } else if (msg.type === "error") {
         // Refused (duplicate session, say). Back to the join screen, which
-        // offers the ways forward: another name, or guest mode.
+        // offers the ways forward: another character, or guest mode.
         fatalError = true;
-        document.getElementById("join").classList.remove("hidden");
         document.getElementById("join-error").textContent = msg.error || "refused";
+        showJoinScreen();
       } else if (msg.type === "snapshot") {
         onView(jsonToView(msg.snapshot)); // ?format=json debug wire
       }
@@ -151,6 +162,17 @@ function applyRoster(obj) {
 function resetWorld(msg) {
   myId = msg.actor;
   myName = msg.name || "";
+  myHardcore = !!msg.hardcore;
+  mySSF = !!msg.ssf;
+  myFeats = msg.feats || [];
+  trophySpots = null; // recomputed per world (hideout dressing)
+  // Remember which character this browser session is playing, so a reload
+  // reconnects straight in (and lands the grace-window reconnect) instead
+  // of detouring through character select.
+  if (myName) {
+    myChar = myName;
+    try { sessionStorage.setItem("draupforge_char", myName); } catch {}
+  }
   applyRoster(msg.roster);
   gen = msg.gen || 0;
   worldMap = msg.map || null;
@@ -164,6 +186,7 @@ function resetWorld(msg) {
   cutSkillTable = msg.cut_skills || [];
   skillBarKey = "";
   closeCutDialog();
+  closeChart();
   autoCutShown = false;
   actorMotion.clear();
   telegraphMax.clear();
@@ -439,8 +462,10 @@ function render() {
       cam.y += (Math.random() * 2 - 1) * k;
     }
     drawTerrain();
+    drawTrophies();
     drawStairs(now);
     drawPortal(now);
+    drawPings(now);
     drawTelegraphs(s);
     // Fade-out ghosts go under live entities; a ghost whose id reappears
     // (re-entered interest range) yields to the live drawing immediately.
@@ -634,6 +659,25 @@ function litNow(mx, my) {
   return dx * dx + dy * dy <= lightR * lightR;
 }
 
+// Biome palettes — each depth band's visual identity (server sends the id
+// on the run snap; unknown ids fall back to the crypt look, so new bands
+// degrade gracefully on an older client). drone is the ambient tone in Hz
+// (0 = silence — the hideout is quiet).
+const BIOME_PAL = {
+  "": { name: "", floorLit: "#191924", floorDim: "#101017", wall: "#2b2b3a", wallDim: "#1d1d28",
+        wallTop: "#3a3a4e", wallTopDim: "#272734", grid: "#1b1b26", mmWall: "#1c1c26", mmFloor: "#3a3a4e", drone: 0 },
+  crypt: { name: "the Barrow Crypt", floorLit: "#191924", floorDim: "#101017", wall: "#2b2b3a", wallDim: "#1d1d28",
+        wallTop: "#3a3a4e", wallTopDim: "#272734", grid: "#1b1b26", mmWall: "#1c1c26", mmFloor: "#3a3a4e", drone: 36 },
+  caves: { name: "the Sunken Caves", floorLit: "#1d1a12", floorDim: "#12100b", wall: "#3a3122", wallDim: "#251f16",
+        wallTop: "#52452f", wallTopDim: "#31291c", grid: "#211d13", mmWall: "#251f14", mmFloor: "#52452f", drone: 48 },
+  frost: { name: "the Frozen Deep", floorLit: "#141d28", floorDim: "#0c1219", wall: "#25364a", wallDim: "#182330",
+        wallTop: "#33506e", wallTopDim: "#1f3143", grid: "#16212d", mmWall: "#16222e", mmFloor: "#33506e", drone: 66 },
+};
+
+function pal() {
+  return BIOME_PAL[(runState && runState.biome) || ""] || BIOME_PAL[""];
+}
+
 // drawTerrain paints the map when the welcome delivered one (floor tiles +
 // walls, only the visible range), and falls back to the open-plane
 // reference grid otherwise. Outside the map is void — the background color.
@@ -659,11 +703,12 @@ function drawTerrain() {
     return dx * dx + dy * dy <= lightR * lightR;
   };
 
+  const p = pal();
   for (let y = y0; y <= y1; y++) {
     const row = worldMap.rows[y];
     for (let x = x0; x <= x1; x++) {
       if (row[x] === "#" || !seenAt(x, y)) continue;
-      ctx.fillStyle = litAt(x, y) ? "#191924" : "#101017"; // lit floor glows over explored
+      ctx.fillStyle = litAt(x, y) ? p.floorLit : p.floorDim; // lit floor glows over explored
       ctx.fillRect(px(x * t), py(y * t), ts + 1, ts + 1);
     }
   }
@@ -679,14 +724,14 @@ function drawTerrain() {
         (y < worldMap.h - 1 && worldMap.rows[y + 1][x] === ".");
       if (!nearFloor) continue;
       const lit = litAt(x, y);
-      ctx.fillStyle = lit ? "#2b2b3a" : "#1d1d28";
+      ctx.fillStyle = lit ? p.wall : p.wallDim;
       ctx.fillRect(px(x * t), py(y * t), ts + 1, ts + 1);
-      ctx.fillStyle = lit ? "#3a3a4e" : "#272734";
+      ctx.fillStyle = lit ? p.wallTop : p.wallTopDim;
       ctx.fillRect(px(x * t), py(y * t), ts + 1, 3);
     }
   }
   // Subtle floor grid to keep the movement reference the open plane had.
-  ctx.strokeStyle = "#1b1b26";
+  ctx.strokeStyle = p.grid;
   ctx.lineWidth = 1;
   ctx.beginPath();
   for (let x = x0; x <= x1 + 1; x++) {
@@ -1330,6 +1375,17 @@ const mmCanvas = document.getElementById("minimap");
 const mmCtx = mmCanvas.getContext("2d");
 let mmBase = null;
 
+// Clicking the minimap pings that spot for the whole party — the same
+// frame chat's G ping uses.
+mmCanvas.addEventListener("click", (e) => {
+  if (!worldMap || !myName) return;
+  const r = mmCanvas.getBoundingClientRect();
+  const sx = mmCanvas.width / r.width, sy = mmCanvas.height / r.height;
+  const x = Math.round(((e.clientX - r.left) * sx / MM_TILE) * worldMap.tile);
+  const y = Math.round(((e.clientY - r.top) * sy / MM_TILE) * worldMap.tile);
+  send({ kind: "chat", x, y });
+});
+
 function buildMinimapBase() {
   if (!worldMap) {
     mmBase = null;
@@ -1343,13 +1399,14 @@ function buildMinimapBase() {
   mmBase.width = mmCanvas.width;
   mmBase.height = mmCanvas.height;
   const b = mmBase.getContext("2d");
+  const p = pal();
   for (let y = 0; y < worldMap.h; y++) {
     const row = worldMap.rows[y];
     for (let x = 0; x < worldMap.w; x++) {
       if (fog && !fog[y * worldMap.w + x]) {
         b.fillStyle = "#101018"; // unexplored: uniform dark
       } else {
-        b.fillStyle = row[x] === "#" ? "#1c1c26" : "#3a3a4e";
+        b.fillStyle = row[x] === "#" ? p.mmWall : p.mmFloor;
       }
       b.fillRect(x * MM_TILE, y * MM_TILE, MM_TILE, MM_TILE);
     }
@@ -1369,6 +1426,7 @@ function drawMinimap(s) {
   if (!mmBase || !worldMap) return;
   if (fogDirty) buildMinimapBase(); // repaint as the fog peels back
   mmCtx.drawImage(mmBase, 0, 0);
+  for (const pg of pings) mmDot(pg, "#7fd4ff", 3);
   if (stairs && tileSeen(stairs.x, stairs.y)) mmDot(stairs, "#f0d060", 3.5);
   const portal = runState && runState.portal;
   if (portal && tileSeen(portal.x, portal.y)) mmDot(portal, "#7fd4ff", 3);
@@ -1387,6 +1445,15 @@ function drawMinimap(s) {
 // is an oscillator envelope; kinds are throttled so a nova hitting six
 // zombies reads as one crunch, not a machine gun. M mutes (persisted).
 
+// Player settings — durable in localStorage, editable in the O panel.
+const settings = {
+  volume: (() => {
+    const v = parseFloat(localStorage.getItem("df-volume"));
+    return Number.isFinite(v) ? Math.min(Math.max(v, 0), 1) : 1;
+  })(),
+  dmgNumbers: localStorage.getItem("df-dmgnum") !== "0",
+};
+
 let audioCtx = null;
 let audioMuted = localStorage.getItem("df-muted") === "1";
 const sfxLast = new Map(); // kind -> last play time (ms)
@@ -1398,11 +1465,44 @@ function audioUnlock() {
     audioCtx = new AC();
   }
   if (audioCtx.state === "suspended") audioCtx.resume();
+  updateAmbient();
+}
+
+// Ambient drone — each biome's tone (BIOME_PAL.drone, Hz; 0 = silence).
+// Two slightly detuned triangles through one gain node, ramped over ~2s so
+// biome changes and mutes fade instead of clicking. Runs only once audio
+// is unlocked by a gesture; the hideout and mute both ramp to zero.
+let ambientNodes = null;
+
+function updateAmbient() {
+  if (!audioCtx) return;
+  if (!ambientNodes) {
+    const gain = audioCtx.createGain();
+    gain.gain.value = 0;
+    const oscA = audioCtx.createOscillator();
+    const oscB = audioCtx.createOscillator();
+    oscA.type = oscB.type = "triangle";
+    oscA.connect(gain);
+    oscB.connect(gain);
+    gain.connect(audioCtx.destination);
+    oscA.start();
+    oscB.start();
+    ambientNodes = { gain, oscA, oscB };
+  }
+  const f = pal().drone;
+  const t = audioCtx.currentTime;
+  if (f > 0) {
+    ambientNodes.oscA.frequency.setTargetAtTime(f, t, 1);
+    ambientNodes.oscB.frequency.setTargetAtTime(f * 1.012, t, 1);
+  }
+  const want = !audioMuted && f > 0 ? 0.012 * settings.volume : 0;
+  ambientNodes.gain.gain.setTargetAtTime(want, t, 0.8);
 }
 
 // blip: one enveloped oscillator. freq can be [start, end] for a sweep.
 function blip(freq, dur, type, gain, delay = 0) {
-  if (!audioCtx || audioMuted) return;
+  if (!audioCtx || audioMuted || settings.volume <= 0) return;
+  gain *= settings.volume;
   const t0 = audioCtx.currentTime + delay;
   const osc = audioCtx.createOscillator();
   const env = audioCtx.createGain();
@@ -1471,9 +1571,13 @@ function sfxForEvent(ev) {
       if (ev.other === myId && ev.note && ev.note.endsWith("_flask")) sfx("flask");
       break;
     case "descend":
+    case "chamber":
     case "portal":
     case "death_eject":
       sfx("travel");
+      break;
+    case "checkpoint":
+      sfx("level_up"); // the account just grew — same triumph fanfare
       break;
     case "block":
       sfx("block");
@@ -1752,7 +1856,9 @@ let renderClock = 0;
 
 // Floating damage numbers: drift up and fade. Crits punch — bigger,
 // golden, and they linger a beat longer; damage on *you* reads red.
+// The settings panel can turn them off entirely.
 function spawnDamageNumber(pos, st, amount, crit, onMe) {
+  if (!settings.dmgNumbers) return;
   const jx = (Math.random() - 0.5) * 0.7; // de-stack simultaneous hits
   const text = fmtDamage(amount);
   spawnEffect(st, crit ? 900 : 650, (t) => {
@@ -2043,21 +2149,41 @@ window.addEventListener("blur", () => wasdHeld.clear());
 
 window.addEventListener("keydown", (e) => {
   if (joinOpen()) return; // typing a name is not gameplay input
+  if (chatBarOpen()) return; // typing a message is not gameplay input
   if (e.repeat) return;
   audioUnlock();
   const key = e.key.toLowerCase();
+  if (key === "enter" && myName) {
+    openChatBar();
+    e.preventDefault();
+    return;
+  }
+  if (key === "g") {
+    sendPing();
+    return;
+  }
   if (key === "escape") {
     if (cutState) closeCutDialog();
+    if (chartOpen()) closeChart();
     return;
   }
   if (key in WASD_DIRS) {
     wasdHeld.add(key);
     return;
   }
+  if (key === "l") {
+    toggleLadder();
+    return;
+  }
+  if (key === "o") {
+    toggleSettings();
+    return;
+  }
   if (key === "m") {
     audioMuted = !audioMuted;
     localStorage.setItem("df-muted", audioMuted ? "1" : "0");
     logLine(audioMuted ? "sound muted (M to unmute)" : "sound on");
+    updateAmbient();
     return;
   }
   const slot = GEM_KEYS.indexOf(key);
@@ -2710,34 +2836,81 @@ function renderPanel(self, force) {
 
 // --- character deletion: the reset lever. Named players, offered in the
 // hideout only (like the stash — a bricked run always ends back home).
-// Deleting erases the identity server-side and frees the name, which is
-// the whole point: reusing an old name with a fresh character was
-// impossible. The server authenticates by cookie; the panel gating is UX.
+// Deleting erases one roster character server-side and frees the name;
+// the account, its other characters, and the shared stash survive unless
+// this was the last one. The server authenticates by cookie; the panel
+// gating is UX.
 
 const charSectionEl = document.getElementById("character-section");
 const confirmEl = document.getElementById("confirm");
 
 function renderCharacterSection() {
-  charSectionEl.classList.toggle("hidden", !(myName && runState && runState.floor === 0));
+  const show = myName && runState && runState.floor === 0;
+  charSectionEl.classList.toggle("hidden", !show);
+  if (!show) return;
+  const list = document.getElementById("feat-list");
+  list.replaceChildren();
+  for (const [id, meta] of Object.entries(FEAT_META)) {
+    const row = document.createElement("div");
+    const earned = myFeats.includes(id);
+    row.className = "feat-row" + (earned ? " earned" : "");
+    row.textContent = earned ? `◆ ${meta.name}` : `◇ ???`;
+    row.title = earned ? meta.desc : "undiscovered";
+    list.appendChild(row);
+  }
+  // Server feats newer than this client still show.
+  for (const id of myFeats) {
+    if (!FEAT_META[id]) {
+      const row = document.createElement("div");
+      row.className = "feat-row earned";
+      row.textContent = `◆ ${id}`;
+      list.appendChild(row);
+    }
+  }
+}
+
+// askConfirm arms the shared confirmation overlay: one question, one
+// destructive yes. Names passed the server's claim regexp, so inlining
+// them in html is safe — same trust as the tooltip.
+function askConfirm(html, onYes) {
+  document.getElementById("confirm-text").innerHTML = html;
+  document.getElementById("confirm-yes").onclick = () => {
+    confirmEl.classList.add("hidden");
+    onYes();
+  };
+  confirmEl.classList.remove("hidden");
+}
+
+// forgetChar asks the server to erase one character by name.
+async function forgetChar(name) {
+  try {
+    await fetch("/api/forget", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }),
+    });
+  } catch {} // server unreachable: nothing was deleted; the UI re-syncs on reload
+  try {
+    if (sessionStorage.getItem("draupforge_char") === name) {
+      sessionStorage.removeItem("draupforge_char");
+    }
+  } catch {}
 }
 
 document.getElementById("delete-character").onclick = () => {
-  // myName passed the server's name regexp (letters/digits/space/-/_),
-  // so inlining it is safe — same trust as the tooltip.
-  document.getElementById("confirm-text").innerHTML =
-    `Delete <b>${myName}</b> forever?<br>Character, stash, and progress are erased. ` +
-    `The name becomes claimable again.`;
-  confirmEl.classList.remove("hidden");
+  askConfirm(
+    `Delete <b>${myName}</b> forever?<br>This character and its progress are ` +
+      `erased; the name becomes claimable again. The account's other ` +
+      `characters and the shared stash survive.`,
+    async () => {
+      await forgetChar(myName);
+      // The socket is kicked server-side; a clean reload boots to the
+      // character select (or the join screen if that was the last one).
+      location.reload();
+    },
+  );
 };
 document.getElementById("confirm-no").onclick = () => confirmEl.classList.add("hidden");
-document.getElementById("confirm-yes").onclick = async () => {
-  try {
-    await fetch("/api/forget", { method: "POST" });
-  } catch {} // server unreachable: the reload lands on the join screen anyway
-  // The cookie is expired and the socket kicked server-side; a clean
-  // reload boots straight to the join screen with the name free.
-  location.reload();
-};
 
 // --- stash: the hideout bank. Named players only, hideout only — the
 // server enforces both; the panel just doesn't offer it elsewhere. Items
@@ -2751,11 +2924,18 @@ const stashEl = document.getElementById("stash");
 const stashCountEl = document.getElementById("stash-count");
 
 function stashAvailable() {
-  return stash && myName && runState && runState.floor === 0;
+  return stash && myName && !mySSF && runState && runState.floor === 0;
 }
+
+// Stash tabs: the 240-slot bank shown 60 at a time. Tabs are pure
+// presentation — the wire stays flat and index-addressed.
+const STASH_TAB_SIZE = 60;
+let stashTab = 0;
 
 function renderStash() {
   stashEl.replaceChildren();
+  const tabsEl = document.getElementById("stash-tabs");
+  tabsEl.replaceChildren();
   if (!stashAvailable()) {
     stashSectionEl.classList.add("hidden");
     return;
@@ -2763,12 +2943,27 @@ function renderStash() {
   stashSectionEl.classList.remove("hidden");
   const items = stash.items || [];
   stashCountEl.textContent = `(${items.length}/${stash.cap})`;
-  // Enough rows for the contents plus a drop row; the cap is the truth,
-  // sixty empty cells is just noise.
-  const shown = Math.min(stash.cap, Math.max(10, (Math.floor(items.length / 10) + 1) * 10));
+  const tabs = Math.max(1, Math.ceil(stash.cap / STASH_TAB_SIZE));
+  if (stashTab >= tabs) stashTab = 0;
+  for (let t = 0; t < tabs; t++) {
+    const btn = document.createElement("button");
+    const n = items.filter((it) => it.id >= t * STASH_TAB_SIZE && it.id < (t + 1) * STASH_TAB_SIZE).length;
+    btn.textContent = n ? `${t + 1} · ${n}` : String(t + 1);
+    btn.className = t === stashTab ? "active" : "";
+    btn.onclick = () => {
+      stashTab = t;
+      renderStash();
+    };
+    tabsEl.appendChild(btn);
+  }
+  const start = stashTab * STASH_TAB_SIZE;
+  const inTab = items.filter((it) => it.id >= start && it.id < start + STASH_TAB_SIZE);
+  // Enough rows for the contents plus a drop row; sixty empty cells is noise.
+  const shown = Math.min(STASH_TAB_SIZE, Math.max(10, (Math.floor(inTab.length / 10) + 1) * 10));
   for (let i = 0; i < shown; i++) {
     const div = slotDiv();
-    if (items[i]) fillSlot(div, items[i], "stash", "stash");
+    const item = items.find((it) => it.id === start + i);
+    if (item) fillSlot(div, item, "stash", "stash");
     stashEl.appendChild(div);
   }
 }
@@ -3126,6 +3321,20 @@ function logEvent(ev) {
     case "descend":
       text = `descended to floor ${Math.round(ev.amount / 1000)}`;
       break;
+    case "chamber":
+      text = `entered a side chamber — holding floor ${Math.round(ev.amount / 1000)}`;
+      break;
+    case "checkpoint":
+      text = `CHECKPOINT — floor ${Math.round(ev.amount / 1000)} deep-starts unlocked for your account`;
+      break;
+    case "memorial":
+      text = `${ev.note} has fallen on floor ${Math.round(ev.amount / 1000)} — hardcore is forever`;
+      break;
+    case "feat": {
+      const meta = FEAT_META[ev.note];
+      text = `FEAT EARNED — ${meta ? meta.name : ev.note}`;
+      break;
+    }
     case "death_eject":
       text = `death! ejected to the portal — ${Math.round(ev.amount / 1000)} portal uses left`;
       break;
@@ -3136,6 +3345,9 @@ function logEvent(ev) {
       switch (ev.note) {
         case "planted":
           text = `portal planted on floor ${Math.round(ev.amount / 1000)}`;
+          break;
+        case "checkpoint":
+          text = `deep start — the descent begins on floor ${Math.round(ev.amount / 1000)}`;
           break;
         case "hideout":
           text = `stepped through to the hideout — ${Math.round(ev.amount / 1000)} portal uses left`;
@@ -3238,9 +3450,391 @@ function updateRunHUD() {
     el.textContent = "";
     return;
   }
-  const where = runState.floor === 0 ? "Hideout" : `Floor ${runState.floor}`;
-  el.textContent =
+  let where = runState.floor === 0 ? "Hideout" : `Floor ${runState.floor}`;
+  const biome = pal().name;
+  if (runState.floor > 0 && biome) where += `, ${biome}`;
+  let line =
     `Run ${runState.run} · ${where} · Portals ${runState.portals} · Best floor ${runState.best}`;
+  if (runState.mods && runState.mods.length) {
+    line += ` · ${runState.mods.join(" / ")}`;
+  }
+  el.textContent = line;
+  updateAmbient();
+}
+
+// -------------------------------------------------------------- settings
+
+// The O panel: volume, damage numbers, mute. Everything durable in
+// localStorage; volume feeds the sfx master and the ambient drone live.
+
+const settingsEl = document.getElementById("settings");
+const setVolumeEl = document.getElementById("set-volume");
+const setDmgEl = document.getElementById("set-dmgnum");
+const setMuteEl = document.getElementById("set-mute");
+
+function toggleSettings() {
+  if (settingsEl.classList.contains("hidden")) {
+    setVolumeEl.value = String(Math.round(settings.volume * 100));
+    setDmgEl.checked = settings.dmgNumbers;
+    setMuteEl.checked = audioMuted;
+    settingsEl.classList.remove("hidden");
+  } else {
+    settingsEl.classList.add("hidden");
+  }
+}
+
+setVolumeEl.oninput = () => {
+  settings.volume = setVolumeEl.valueAsNumber / 100;
+  localStorage.setItem("df-volume", String(settings.volume));
+  updateAmbient();
+  sfx("orb"); // a taste of the new level
+};
+setDmgEl.onchange = () => {
+  settings.dmgNumbers = setDmgEl.checked;
+  localStorage.setItem("df-dmgnum", settings.dmgNumbers ? "1" : "0");
+};
+setMuteEl.onchange = () => {
+  audioMuted = setMuteEl.checked;
+  localStorage.setItem("df-muted", audioMuted ? "1" : "0");
+  updateAmbient();
+};
+
+// ------------------------------------------------------------------ chat
+
+// The party line. Enter opens the input (game keys pause while it's up),
+// Enter sends, Esc closes. G pings the map at the cursor — the same frame
+// with a coordinate instead of text; everyone sees the pulse.
+
+const chatBarEl = document.getElementById("chat-bar");
+const chatInputEl = document.getElementById("chat-input");
+const pings = []; // { x, y, until, name } — world-milli pulses
+
+function chatBarOpen() {
+  return !chatBarEl.classList.contains("hidden");
+}
+
+function openChatBar() {
+  chatBarEl.classList.remove("hidden");
+  chatInputEl.focus();
+}
+
+function closeChatBar() {
+  chatBarEl.classList.add("hidden");
+  chatInputEl.value = "";
+  chatInputEl.blur();
+}
+
+chatInputEl.addEventListener("keydown", (e) => {
+  e.stopPropagation();
+  if (e.key === "Enter") {
+    const text = chatInputEl.value.trim();
+    if (text) send({ kind: "chat", text });
+    closeChatBar();
+  } else if (e.key === "Escape") {
+    closeChatBar();
+  }
+});
+
+function onChat(chat) {
+  if (!chat) return;
+  if (chat.ping) {
+    pings.push({ x: chat.ping.x, y: chat.ping.y, until: performance.now() + 2400, name: chat.name });
+    logLine(`${chat.name} pinged the map`, "ev-chat");
+    return;
+  }
+  logLine(`${chat.name}: ${chat.text}`, "ev-chat");
+}
+
+function sendPing() {
+  const w = screenToWorldUnits(mouse.x, mouse.y);
+  send({ kind: "chat", x: Math.round(w.x * 1000), y: Math.round(w.y * 1000) });
+}
+
+// drawPings renders active map pings: an expanding double ring.
+function drawPings(now) {
+  for (let i = pings.length - 1; i >= 0; i--) {
+    const pg = pings[i];
+    if (now > pg.until) {
+      pings.splice(i, 1);
+      continue;
+    }
+    const t = 1 - (pg.until - now) / 2400;
+    const p = worldToScreen(pg.x, pg.y);
+    const phase = (t * 3) % 1;
+    ctx.save();
+    ctx.strokeStyle = `rgba(127, 212, 255, ${1 - phase})`;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, SCALE * (0.3 + phase * 1.4), 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+  }
+}
+
+// ------------------------------------------------- feats + hideout trophies
+
+// FEAT_META mirrors the server's feat table for display; unknown ids show
+// their raw id, so new server feats degrade gracefully.
+const FEAT_META = {
+  depth_10: { name: "Ten Floors Under", desc: "reach floor 10" },
+  depth_20: { name: "The Cold Below", desc: "reach floor 20" },
+  depth_30: { name: "Where Light Forgets", desc: "reach floor 30" },
+  hc_10: { name: "No Second Chances", desc: "reach floor 10 on a hardcore character" },
+  guardian: { name: "Wallbreaker", desc: "fell a stairs guardian" },
+  king: { name: "Kingslayer", desc: "fell the Barrow King" },
+  king_untouched: { name: "Untouchable", desc: "fell the Barrow King without taking a hit on his floor" },
+  apex: { name: "Tyrant's End", desc: "fell the Grave Tyrant" },
+};
+
+// Trophy dressing: earned feats stand as little pedestals along the
+// hideout's north wall — the account's history made visible. Spots are
+// scanned from the terrain once per world.
+let trophySpots = null;
+
+function computeTrophySpots() {
+  if (!worldMap) return [];
+  let minY = -1;
+  for (let y = 0; y < worldMap.h && minY < 0; y++) {
+    if (worldMap.rows[y].includes(".")) minY = y;
+  }
+  if (minY < 0) return [];
+  const row = worldMap.rows[minY];
+  const spots = [];
+  const t = worldMap.tile / 1000;
+  for (let x = 0; x < worldMap.w && spots.length < 8; x++) {
+    if (row[x] === ".") spots.push({ x: (x + 0.5) * t, y: (minY + 0.45) * t });
+  }
+  return spots;
+}
+
+function drawTrophies() {
+  if (!runState || runState.floor !== 0 || !myFeats.length) return;
+  if (!trophySpots) trophySpots = computeTrophySpots();
+  const n = Math.min(myFeats.length, trophySpots.length);
+  for (let i = 0; i < n; i++) {
+    const s = trophySpots[i];
+    const p = worldToScreen(s.x * 1000, s.y * 1000);
+    const r = SCALE * 0.16;
+    ctx.save();
+    ctx.translate(p.x, p.y);
+    // pedestal
+    ctx.fillStyle = "#2b2b3a";
+    ctx.fillRect(-r, 0, 2 * r, r * 1.2);
+    // the trophy gem
+    ctx.fillStyle = "#c9b76a";
+    ctx.beginPath();
+    ctx.moveTo(0, -r * 1.6);
+    ctx.lineTo(r * 0.8, -r * 0.4);
+    ctx.lineTo(0, r * 0.4);
+    ctx.lineTo(-r * 0.8, -r * 0.4);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+  }
+}
+
+// --------------------------------------------------- ladder + death recap
+
+// The ladder (L): best floor per character, the build attached — the
+// server's /api/ladder scan rendered as rows. The recap frame arrives on
+// death, just before the eject, and stays up until dismissed: what hit
+// you, for how much, on which floor, under which mods.
+
+const ladderEl = document.getElementById("ladder");
+const ladderListEl = document.getElementById("ladder-list");
+let ladderMode = "all"; // "all" | "hc" | "ssf" — each mode gets its board
+
+async function toggleLadder() {
+  if (!ladderEl.classList.contains("hidden")) {
+    ladderEl.classList.add("hidden");
+    return;
+  }
+  ladderEl.classList.remove("hidden");
+  await renderLadder();
+}
+
+async function renderLadder() {
+  ladderListEl.replaceChildren();
+  let rows = [];
+  try {
+    rows = (await (await fetch("/api/ladder")).json()).ladder || [];
+  } catch {}
+  if (ladderMode === "hc") rows = rows.filter((r) => r.hardcore);
+  if (ladderMode === "ssf") rows = rows.filter((r) => r.ssf);
+  const modeRow = document.createElement("div");
+  modeRow.className = "ladder-modes";
+  for (const [id, label] of [["all", "all"], ["hc", "hardcore"], ["ssf", "solo self-found"]]) {
+    const b = document.createElement("button");
+    b.textContent = label;
+    b.className = ladderMode === id ? "active" : "";
+    b.onclick = () => {
+      ladderMode = id;
+      renderLadder();
+    };
+    modeRow.appendChild(b);
+  }
+  ladderListEl.appendChild(modeRow);
+  if (!rows.length) {
+    const e = document.createElement("div");
+    e.className = "empty";
+    e.textContent = "no descents on the board yet — go set one";
+    ladderListEl.appendChild(e);
+    return;
+  }
+  rows.forEach((r, i) => {
+    const row = document.createElement("div");
+    row.className = "ladder-row";
+    const head = document.createElement("div");
+    head.className = "lr-head";
+    let tags = "";
+    if (r.hardcore) tags += " [HC]";
+    if (r.ssf) tags += " [SSF]";
+    head.textContent = `${i + 1}. ${r.name}${tags} · Lv ${r.level}`;
+    const floor = document.createElement("span");
+    floor.className = "lr-floor";
+    floor.textContent = `floor ${r.best}`;
+    head.appendChild(floor);
+    row.appendChild(head);
+    if (r.build) {
+      const b = document.createElement("div");
+      b.className = "lr-build";
+      const gems = (r.build.gems || []).map((g) =>
+        g.supports && g.supports.length ? `${g.skill} (${g.supports.join(", ")})` : g.skill);
+      let text = gems.join(" · ");
+      b.textContent = text;
+      for (const u of r.build.uniques || []) {
+        const s = document.createElement("span");
+        s.className = "lr-unique";
+        s.textContent = (b.textContent ? " · " : "") + u;
+        b.appendChild(s);
+      }
+      if (b.textContent) row.appendChild(b);
+    }
+    ladderListEl.appendChild(row);
+  });
+}
+
+const recapEl = document.getElementById("recap");
+const recapBodyEl = document.getElementById("recap-body");
+
+function showRecap(rec) {
+  if (!rec) return;
+  recapBodyEl.replaceChildren();
+  const where = document.createElement("div");
+  where.className = "recap-where";
+  where.textContent = `floor ${rec.floor}`;
+  if (rec.mods && rec.mods.length) {
+    const m = document.createElement("span");
+    m.className = "recap-mods";
+    m.textContent = ` · ${rec.mods.join(" / ")}`;
+    where.appendChild(m);
+  }
+  recapBodyEl.appendChild(where);
+  const hits = rec.hits || [];
+  for (const h of hits.slice(-5)) {
+    const div = document.createElement("div");
+    div.className = "recap-hit";
+    const who = document.createElement("span");
+    who.textContent = h.note ? `${h.from} — ${h.note.replace(/_/g, " ")}` : h.from;
+    const amt = document.createElement("span");
+    amt.className = "rh-amt";
+    amt.textContent = (h.amount / 1000).toFixed(1);
+    div.append(who, amt);
+    recapBodyEl.appendChild(div);
+  }
+  if (!hits.length) {
+    const div = document.createElement("div");
+    div.className = "recap-hit";
+    div.textContent = "no recent hits recorded — the floor itself got you";
+    recapBodyEl.appendChild(div);
+  }
+  recapEl.classList.remove("hidden");
+}
+
+// ------------------------------------------------------------ the chart
+
+// The descent chart: the stairs answer a descend request with routes to
+// read before committing — two exits down, and (at modded depths) a side
+// chamber that holds the floor with stacked mods and juiced rewards.
+
+const chartScrim = document.getElementById("chart-scrim");
+const chartDialog = document.getElementById("chart-dialog");
+
+function chartOpen() {
+  return !chartScrim.classList.contains("hidden");
+}
+
+function closeChart() {
+  chartScrim.classList.add("hidden");
+}
+
+function openChart(chart) {
+  if (!chart || !chart.routes || !chart.routes.length) return;
+  pendingDescend = false; // we're here; stop walking at the stairs
+  pendingPortal = false;
+  chartDialog.replaceChildren();
+  const portalKind = chart.kind === "portal";
+  const h = document.createElement("h3");
+  h.textContent = portalKind ? "The Descent" : "The Way Down";
+  const sub = document.createElement("p");
+  sub.className = "dlg-sub";
+  sub.textContent = portalKind
+    ? "start where you've earned — going deep trades a portal"
+    : "read the floor before you take it";
+  const row = document.createElement("div");
+  row.className = "draft-row";
+  for (const r of chart.routes) {
+    const card = document.createElement("button");
+    card.className = "draft-card route-card" + (r.side ? " side" : "");
+    const floor = document.createElement("div");
+    floor.className = "route-floor";
+    floor.textContent = r.side ? `Side chamber · floor ${r.floor}` : `Floor ${r.floor}`;
+    card.appendChild(floor);
+    const biome = (BIOME_PAL[r.biome] || {}).name;
+    if (biome) {
+      const b = document.createElement("div");
+      b.className = "route-biome";
+      b.textContent = biome;
+      card.appendChild(b);
+    }
+    let pips = 0;
+    if (r.mods && r.mods.length) {
+      for (const m of r.mods) {
+        const mod = document.createElement("div");
+        mod.className = "route-mod";
+        mod.textContent = m.name;
+        card.appendChild(mod);
+        pips += m.reward || 0;
+      }
+    } else {
+      const clean = document.createElement("div");
+      clean.className = "route-clean";
+      clean.textContent = "no modifiers";
+      card.appendChild(clean);
+    }
+    if (r.portals) {
+      const p = document.createElement("div");
+      p.className = "route-biome";
+      p.textContent = `${r.portals} portal${r.portals === 1 ? "" : "s"}`;
+      card.appendChild(p);
+    }
+    const pipEl = document.createElement("div");
+    pipEl.className = "route-pips";
+    pipEl.textContent = pips > 0 ? "◆".repeat(Math.min(pips, 8)) : "";
+    card.appendChild(pipEl);
+    card.onclick = () => {
+      closeChart();
+      send({ kind: "route", choice: r.choice });
+    };
+    row.appendChild(card);
+  }
+  const cancel = document.createElement("button");
+  cancel.id = "chart-cancel";
+  cancel.className = "ghost";
+  cancel.textContent = "not yet";
+  cancel.onclick = closeChart;
+  chartDialog.append(h, sub, row, cancel);
+  chartScrim.classList.remove("hidden");
 }
 
 function showOverlay(text) {
@@ -3267,7 +3861,11 @@ function renderSocial() {
   const leaveBtn = document.getElementById("leave-party");
   partyEl.textContent = "";
   onlineEl.textContent = "";
-  if (!social) {
+  if (mySSF) {
+    partyEl.textContent = "solo self-found — you walk alone";
+    onlineEl.textContent = (social && (social.online || []).join(", ")) || "…";
+    leaveBtn.classList.add("hidden");
+  } else if (!social) {
     partyEl.textContent = myName ? "just you" : "guests can't party — claim a name";
     onlineEl.textContent = "…";
     leaveBtn.classList.add("hidden");
@@ -3323,13 +3921,22 @@ function sendLeaveParty() {
 
 // ---------------------------------------------------------------- join
 
+// The join overlay has two shapes: a fresh visitor sees the name-claim
+// form; a recognized cookie sees its character roster (click to play,
+// "new character" reveals the claim form, × deletes). Claiming under an
+// existing cookie grows the roster — the alt loop's front door.
+
+const charSelectEl = document.getElementById("char-select");
+const joinNewEl = document.getElementById("join-new");
+
 function joinOpen() {
   return !document.getElementById("join").classList.contains("hidden");
 }
 
 // claimName registers the typed name: the server answers with an HttpOnly
 // token cookie that authenticates every later visit — no password, and the
-// name itself grants nothing.
+// name itself grants nothing. Under an existing cookie the name becomes a
+// new roster character instead of a new account.
 async function claimName() {
   const err = document.getElementById("join-error");
   const name = document.getElementById("join-name").value.trim();
@@ -3341,18 +3948,30 @@ async function claimName() {
     const r = await fetch("/api/claim", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name }),
+      body: JSON.stringify({
+        name,
+        hardcore: document.getElementById("join-hc").checked,
+        ssf: document.getElementById("join-ssf").checked,
+      }),
     });
     const body = await r.json();
     if (!r.ok) {
       err.textContent = body.error || "that didn't work";
       return;
     }
-    document.getElementById("join").classList.add("hidden");
-    connect();
+    playChar(body.name || name);
   } catch {
     err.textContent = "server unreachable";
   }
+}
+
+// playChar connects as one roster character and remembers the pick for
+// this browser session, so reloads skip the select screen.
+function playChar(name) {
+  myChar = name;
+  try { sessionStorage.setItem("draupforge_char", name); } catch {}
+  document.getElementById("join").classList.add("hidden");
+  connect();
 }
 
 function playGuest() {
@@ -3361,19 +3980,130 @@ function playGuest() {
   connect();
 }
 
-// boot: a remembered identity goes straight in; everyone else picks a name
-// or plays as a guest.
-async function boot() {
-  let name = "";
+function renderCharSelect(chars) {
+  charSelectEl.replaceChildren();
+  for (const ch of chars) {
+    const card = document.createElement("div");
+    card.className = "char-card";
+    const name = document.createElement("div");
+    name.className = "char-name";
+    name.textContent = ch.name;
+    if (ch.hardcore) {
+      const b = document.createElement("span");
+      b.className = "char-badge";
+      b.textContent = "HC";
+      name.appendChild(b);
+    }
+    if (ch.ssf) {
+      const b = document.createElement("span");
+      b.className = "char-badge ssf";
+      b.textContent = "SSF";
+      name.appendChild(b);
+    }
+    if (ch.best) {
+      const b = document.createElement("span");
+      b.className = "char-best";
+      b.textContent = `▼${ch.best}`;
+      b.title = `best floor ${ch.best}`;
+      name.appendChild(b);
+    }
+    const lvl = document.createElement("div");
+    lvl.className = "char-level";
+    lvl.textContent = `Lv ${ch.level}`;
+    const del = document.createElement("button");
+    del.className = "char-delete";
+    del.textContent = "×";
+    del.title = "delete character";
+    del.onclick = (e) => {
+      e.stopPropagation();
+      askConfirm(
+        `Delete <b>${ch.name}</b> forever?<br>This character and its ` +
+          `progress are erased; the name becomes claimable again.` +
+          (chars.length === 1
+            ? `<br>It is your last character — the shared stash goes with it.`
+            : ` The account's other characters and the shared stash survive.`),
+        async () => {
+          await forgetChar(ch.name);
+          showJoinScreen();
+        },
+      );
+    };
+    card.append(name, lvl, del);
+    card.onclick = () => playChar(ch.name);
+    charSelectEl.appendChild(card);
+  }
+  const add = document.createElement("button");
+  add.id = "char-new";
+  add.className = "ghost";
+  add.textContent = "+ new character";
+  add.onclick = () => {
+    joinNewEl.classList.remove("hidden");
+    add.classList.add("hidden");
+    document.getElementById("join-name").focus();
+  };
+  charSelectEl.appendChild(add);
+}
+
+// showJoinScreen renders the join overlay off a fresh whoami: roster mode
+// for a recognized cookie, the plain claim form otherwise. Never
+// auto-connects — this is also the landing spot after refusals/deletes.
+async function showJoinScreen() {
+  let who = {};
   try {
-    name = (await (await fetch("/api/whoami")).json()).name || "";
+    who = await (await fetch("/api/whoami")).json();
+  } catch {} // unreachable server: fall through to the claim form
+  const chars = who.chars || [];
+  document.getElementById("join").classList.remove("hidden");
+  if (chars.length) {
+    renderCharSelect(chars);
+    charSelectEl.classList.remove("hidden");
+    joinNewEl.classList.add("hidden");
+  } else {
+    charSelectEl.classList.add("hidden");
+    joinNewEl.classList.remove("hidden");
+    document.getElementById("join-name").focus();
+  }
+  renderMemorials(who.memorials || []);
+}
+
+// renderMemorials lists the account's fallen hardcore characters under the
+// join surfaces — the history nothing resets.
+function renderMemorials(mem) {
+  const el = document.getElementById("memorial-list");
+  el.replaceChildren();
+  if (!mem.length) {
+    el.classList.add("hidden");
+    return;
+  }
+  const h = document.createElement("h4");
+  h.textContent = "the fallen";
+  el.appendChild(h);
+  for (const m of mem.slice().reverse().slice(0, 8)) {
+    const row = document.createElement("div");
+    row.className = "memorial-row";
+    row.textContent = `${m.name} — level ${m.level}, floor ${m.floor}`;
+    el.appendChild(row);
+  }
+  el.classList.remove("hidden");
+}
+
+// boot: the character this browser session was already playing goes
+// straight back in (reload = grace reconnect); everyone else picks from
+// the roster, claims a name, or plays as a guest.
+async function boot() {
+  let who = {};
+  try {
+    who = await (await fetch("/api/whoami")).json();
   } catch {} // unreachable server: fall through, connect() will say so
-  if (name) {
+  const chars = who.chars || [];
+  let remembered = "";
+  try { remembered = sessionStorage.getItem("draupforge_char") || ""; } catch {}
+  if (remembered && chars.some((c) => c.name === remembered)) {
+    myChar = remembered;
     connect();
     return;
   }
-  document.getElementById("join").classList.remove("hidden");
-  document.getElementById("join-name").focus();
+  showJoinScreen();
 }
 
 boot();

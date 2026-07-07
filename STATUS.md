@@ -11,18 +11,24 @@ tests, and session-log entries older than a few sessions (git history is the
 archive). If this file outgrows ~150 lines, it has stopped being a status doc
 and started being a changelog — cut it back.
 
-**Last updated: 2026-07-07** (session 80: the content pass — 5 supports,
-7 uniques, the Ashen Warden. **Track 1 (Buildcraft) is complete**: all 7
-roadmap items live on the `track1-buildcraft` PR, awaiting Jake's call)
+**Last updated: 2026-07-07** (**both ROADMAP v2 tracks are complete**:
+Track 1 "Buildcraft" merged to main via PR #62; Track 2 "The Living
+Descent" — account roster & shared stash, biomes, floor mods + the
+descent chart, depth checkpoints, ladder + death recap, hardcore/SSF,
+feats + trophies, chat, shell polish — rebased over it on PR #63)
 
 ## Where things stand
 
 The game is public and multiplayer: https://nuc.tail4b8d48.ts.net (Tailscale
 Funnel → the nuc; CI redeploys on every merge to main). `cmd/server` runs a
-Lobby of instances. On connect you claim a name or play as guest: a claim
-mints a secret token in an HttpOnly cookie, and the token (never the name)
-resumes your character — banked to the `-identities` JSON on disconnect and
-every 30s. Guests are ephemeral. Every connection gets its own world and
+Lobby of instances. On connect you pick a character from your account's
+roster — or claim your first name, or play as guest. A claim mints a secret
+account token in an HttpOnly cookie; the token (never a name) is the auth.
+One account holds up to 12 characters (names globally unique; a claim under
+an existing cookie grows the roster instead of orphaning anything), the
+stash is account-wide, and `?char=` on the WS picks who to play (default:
+most recently played). Characters bank to the `-identities` JSON on
+disconnect and every 30s. Guests are ephemeral. Every connection gets its own world and
 run; party = instance — the F panel lists all online named players, an
 accepted invite transfers you into the inviter's world via the floor-swap
 machinery, and empty instances reap after 60s, doubling as reconnect grace.
@@ -88,9 +94,10 @@ All foundational machinery from DESIGN.md is real, not stubbed:
 | Equipment + inventory: 10 slots, slot-addressed equip, pickup/unequip/drop, capacity | `sim/items/equip.go` | done, tested |
 | Server: TCP + WS transports, send-rate decoupling, interest culling, binary deltas + acks, pause, per-client send queues (a stalled socket dies alone; the tick never blocks on I/O) | `server/` | done, race-tested |
 | Replay log: `-replaydir` records every world as a segment (World.Save header + NDJSON command lines); host surgery (joins/swaps/grace/admin/stash) rotates segments so each spans a pure Step stretch; `cmd/headless -replay` re-executes bit-exact | `server/replay.go`, `cmd/headless` | done, tested, verified e2e |
-| Identity: name claim mints a 32-byte cookie token; the token resumes the character (banked on disconnect + 30s flush); one session per name; guests skip it all | `server/identity.go` | done, tested |
-| Stash: per-identity hideout bank (60 items, durable CharItem form on the identity); stash_put/stash_take verbs, hideout-only, processed at the host layer between ticks; drag between bag and stash in the panel | `server/stash.go`, `server/identity.go`, `web/` | done, tested, verified live |
+| Identity: account roster (file v2, v1 auto-migrates) — one 32-byte cookie token, up to 12 named characters; `?char=` selects at the WS door, banks land on the slot in play (tracked by name, so a mid-session delete banks nowhere); one session per account; per-character delete via /api/forget (last one takes the account); character-select join screen | `server/identity.go`, `web/` | done, tested, verified live |
+| Stash: account-wide hideout bank (240 items as four 60-slot client tabs, durable CharItem form on the identity, shared by every character — the alt loop); stash_put/stash_take verbs, hideout-only, processed at the host layer between ticks; drag between bag and stash in the panel | `server/stash.go`, `server/identity.go`, `web/` | done, tested, verified live |
 | Lobby: many instances per process, party = instance, invite/leave transfers via floor-swap machinery, 60s empty reap = reconnect grace | `server/lobby.go`, `cmd/partybot` | done, race-tested, verified live |
+| The Living Descent (ROADMAP v2 Track 2): biomes (3 depth bands, cave mapgen kind, palettes/drones), floor mods + descent chart (route/chamber addresses, side chambers), account checkpoints w/ level-gated deep starts, per-character ladder w/ builds + death recap, hardcore (memorials) + SSF modes, 8 feats + hideout trophies, instance chat + map pings, stash tabs + settings panel | `server/biome.go`, `server/floormod.go`, `server/ladder.go`, `server/feats.go`, `server/chat.go`, `sim/space/mapgen_caves.go`, `web/` | done, tested, verified live (wire v27 after the rebase) |
 | Hosting + CI/CD: public via Tailscale Funnel; every push to main builds, swaps (prev kept), restarts, health-checks; `identities.json` never touched. CI gates every PR and main push: `go vet`, race-tested suite, JS syntax | `.github/workflows/deploy.yml`, `ci.yml` | done, verified e2e |
 | Admin dashboard: observe (tick health, counts, events, hash, run line) + poke (pause, spawn, kick, save) + dev cheats (god/gem/orbs); lobby index at `/i/{id}/` | `server/admin.go` | done, tested; NO AUTH — on the nuc it binds loopback, tailnet-only via `tailscale serve` at http://nuc:9090 (see multiplayer.md) |
 | Web client: canvas render, vector actor models (shaded per-archetype bodies, motion-derived facing), drag-drop inventory, delta decoding + tick-timeline interpolation, VFX/damage numbers/audio stingers, PoE2 HUD + gem bar (shared gem-icon SVGs), centered pick-3 draft dialog (auto-opens for gemless characters), WASD + click, minimap, join screen, party panel | `web/` | working, no build step |
@@ -99,7 +106,7 @@ All foundational machinery from DESIGN.md is real, not stubbed:
 | Minions: `Actor.Owner` (zone-local, saved+hashed), kill attribution up the chain (`World.CreditFor` — XP/flasks/orbs pay the summoner), `minion_melee` heel AI (mobile leash on the owner), `SkillSummon` w/ cap-despawns-oldest; Summon Skeleton cuttable gem (cap 3, minions at gem level); save v12 | `sim/core`, `sim/ai`, `sim/skills`, `content/`, `web/` | done, tested, verified live |
 | Phase order + command validation | `sim/sim.go` | done — this IS the determinism contract |
 | Wire types: versioned welcome (v18), JSON snapshots, binary delta codec | `protocol/` | done, tested |
-| Content tables | `content/` | 29 skills (14 cuttable incl. 2 auras + 2 curses + channel + blink, 5 staged), 20 supports (incl. crit pair on the new pipeline fold), 14 actors (4 bosses), 36 affixes (ILvl-tiered), 9 bases, 12 uniques, 8 drop tables, 4 monster mods, 8 buffs (4 curses) |
+| Content tables | `content/` | 29 skills (14 cuttable incl. 2 auras + 2 curses + channel + blink, 5 staged), 20 supports (incl. crit pair on the new pipeline fold), 14 actors (4 bosses), 36 affixes (ILvl-tiered), 9 bases, 12 uniques, 8 drop tables, 4 monster mods + 7 floor-mod packages, 8 buffs (4 curses) |
 | Debug client + determinism/golden replay tests | `cmd/headless`, `sim/sim_test.go` | done |
 
 ## Invariants the code currently honors (don't break casually)
@@ -152,8 +159,8 @@ All foundational machinery from DESIGN.md is real, not stubbed:
 - Lock ordering above the sim: `lobby.mu` → `instance.mu` → (never both
   with) `client.mu`, and `lobby.mu` → `IdentityStore.mu`. The lobby never
   touches a world. Never call the identity store holding an instance mutex.
-- The token, never the name, is the auth. One session per name; guests get
-  no cookie and no store entry.
+- The token, never the name, is the auth. One session per account,
+  whichever character it plays; guests get no cookie and no store entry.
 
 Structural risks live in `RISKS.md` — read it before building anything
 load-bearing (top entry: the action model is one-thing-at-a-time).
@@ -175,10 +182,10 @@ load-bearing (top entry: the action model is one-thing-at-a-time).
 - `-load` under the lobby seeds only the *first* instance created (whoever
   connects first resumes the run); a lobby has no way to aim a save at a
   particular player. Fine for the single-operator rollback story it serves.
-- Claiming a new name under an existing cookie orphans the old identity
-  (no rename/list — but the hideout's delete button + `/api/forget` free a
-  name on purpose). `identities.json` is one plaintext blob, tokens
-  included.
+- No character rename; deletes (hideout button, select-screen ×, both via
+  `/api/forget`) free names on purpose — deleting the last character takes
+  the account and its stash with it. `identities.json` is one plaintext
+  blob, tokens included.
 - No client prediction — input feels its latency. Prediction is what would
   justify compiling sim/ to wasm (DESIGN §13's optional layer).
 - Static files come from -web at runtime.
@@ -237,7 +244,13 @@ mods with delve-chart route choice, account-wide checkpoints,
 build-visible ladders + death recap, hardcore/SSF modes, feats + hideout
 trophies, chat, shell polish) — sliced along the sim-behavior vs.
 wire/shell seam. Its seam contract governs parallel work; read it before
-starting either track. Jake's balance pass over the numbers stays open.
+starting either track. **Both tracks shipped**: Track 1 merged to main
+(PR #62); Track 2 shipped whole (items 1–9, one commit each on
+`track2/account-roster`, PR #63, rebased over Track 1 — its wire bumps
+renumbered to v26/v27 past Track 1's v25). Jake's balance pass over the
+numbers stays open — the new floor-mod numbers (RarityPm/PacksPct in
+`server/floormod.go`), the deep-start portal trade (flat −1), and the
+chat bucket join the list.
 
 ## Session log
 
@@ -381,6 +394,57 @@ starting either track. Jake's balance pass over the numbers stays open.
   Verified live on a branch server: a spawned ghoul bled a TCP client to
   death (bleed events + ail:16 on the wire); a zombie control landed 7
   hits with zero bleed. No save shape change (DoTs already save/hash).
+- **2026-07-06 (73b, Track 2)** — Track 2 items 2–9, one commit each, all on the
+  same branch/PR as item 1. **Biomes** (v26 after the rebase): three depth bands — crypt
+  1–9 (untouched), the Sunken Caves 10–19 (new CA cave mapgen via
+  `MapSpec.Kind`, flesh roster, earth palette), the Frozen Deep 20+
+  (mage roster, ice palette); biome id on the run snap; client palettes,
+  HUD names, soft ambient drone per band. **Floor mods + the descent
+  chart** (v27): floors roll named depth-scaled mods (7-entry host table;
+  monster packages ride the monster-mod machinery via additive
+  `ApplyExtraMods`/`ApplyFloorMods` + a separate `content.FloorMods`
+  table so the rarity pool never shifts); the stairs answer with a chart
+  — two routes down (one greedier) plus a mod-stacking same-depth side
+  chamber; all pure in (runSeed, floor, route, chamber) so eject rebuilds
+  are hash-identical; route address rides the run envelope.
+  **Checkpoints**: fallen set-pieces mark account checkpoints (death
+  events now carry the def id in Note — payload only); a fresh run's
+  hideout portal offers level-gated deep starts at one portal traded.
+  **Ladder + recap**: per-character best + the build that reached it
+  (display names resolved at record time) on `/api/ladder`, L panel with
+  per-mode boards; deaths get a recap frame (floor, mods, last hits off a
+  per-client ring). **Hardcore/SSF**: permanent creation flags; hardcore
+  death = memorial row + slot gone, account survives empty (stash,
+  checkpoints, memorials, feats live on); SSF = no stash, no parties,
+  gated server-side. **Feats**: eight deterministic-trigger achievements
+  incl. Untouchable (king down, clean recap ring); trophies stand in the
+  hideout. **Chat**: instance-relayed lines (Enter) + map pings (G,
+  minimap click), scrubbed + bucketed. **Polish**: 240-slot stash as 4
+  client tabs, settings panel (O: volume/damage numbers/mute). All sim
+  changes additive; goldens byte-stable throughout; suite green.
+- **2026-07-06 (73, Track 2)** — Track 2 item 1: account roster + shared stash.
+  One cookie token is now an account holding up to 12 named characters
+  (`Identity.Chars []*CharSlot`; identity file v2, v1 loads via migration
+  and rewrites on the next flush); character names stay globally unique;
+  the stash rides the account, so every character shares it — the alt
+  loop. The WS door takes `?char=Name` (default: most recently played);
+  banks land on the slot *in play*, tracked by lowercased name rather
+  than index so a mid-session delete banks nowhere (session 71's
+  resurrection lesson, roster edition). `/api/claim` under a valid cookie
+  grows the roster instead of orphaning the old identity (the roadmap's
+  headline fix); `/api/whoami` returns the roster with levels;
+  `/api/forget` takes `{"name"}` and only expires the cookie when the
+  last character goes. Client: the join screen becomes a character select
+  (cards with level, × delete behind the shared confirm overlay, "+ new
+  character" reveals the claim form, guest unchanged);
+  `sessionStorage` remembers the pick so reloads reconnect straight into
+  the grace window. Sim untouched (seam contract: goldens byte-stable);
+  wire types untouched — all of it rides HTTP JSON and the WS query
+  string. Pinned: roster add/select/bank-to-slot, cap, cross-account name
+  dupes, active-delete kick + no-resurrection, last-delete account wipe,
+  v1 migration round-trip, roster claim/whoami/forget + `?char=` over a
+  real socket. Verified live in Chrome: v1 file migrated, alt created and
+  played, switch via select, per-card delete, guest; partybot untouched.
 - **2026-07-06 (72)** — ROADMAP v2, docs only. The shipped roadmap (every
   phase ✅) is rewritten as two concurrently-developable tracks sliced
   along the codebase's natural seam: Track 1 "Buildcraft" owns sim

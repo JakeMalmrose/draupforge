@@ -148,9 +148,13 @@ type Instance struct {
 	run         int        // 1-based run counter; a run ends when the portals run out
 	runSeed     uint64     // this run's seed; floor worlds derive from it
 	floor       int        // current depth; 0 is the hideout
+	route       int        // current floor's route address (descent chart)
+	chamber     int        // side chambers taken at this depth (mods stack)
 	best        int        // deepest floor reached this process — the score
 	stairs      space.Vec2 // this floor's descent stairs (farthest walkable from spawn)
 	portalFloor int        // where death ejects to
+	portalRoute int        // the anchor floor's full route address...
+	portalChmbr int        // ...so an eject rebuilds the exact same world
 	portalPos   space.Vec2
 	// portalPlaced: portalPos is valid for portalFloor. False while a run
 	// starts in the hideout — the anchor lands on the floor's spawn the
@@ -257,6 +261,9 @@ type client struct {
 	// for the tick goroutine, like ack. The social verbs ride along:
 	// wantInvite names the invitee, the rest are flags.
 	wantDescend bool
+	// wantRoute is a "route" verb's chart pick, stored +1 so the zero
+	// value means "none pending".
+	wantRoute   int
 	wantPlant   bool
 	wantPortal  bool
 	wantInvite  string
@@ -268,6 +275,25 @@ type client struct {
 	// wantSheet buffers a "sheet" verb: the client's C panel wants the
 	// computed character sheet after this tick.
 	wantSheet bool
+	// chatMsgs buffers "chat" verbs (lines and pings) for the tick; the
+	// bucket meters them so a spammer drops instead of flooding the party.
+	chatMsgs   []protocol.ChatSnap
+	chatBucket *tokenBucket
+
+	// recentHits are the last few hits taken, tick-goroutine-only — the
+	// death recap's evidence (ladder.go). Cleared on every world swap.
+	recentHits []protocol.RecapHit
+
+	// hardcore/ssf mirror the in-play character's permanent mode flags,
+	// set once at connect (before the client is shared) and read-only
+	// after: one death ends a hardcore character; SSF sees no stash and
+	// no parties.
+	hardcore bool
+	ssf      bool
+	// doom, when positive, counts ticks until the server closes this
+	// client's socket — the grace that lets a hardcore death's recap and
+	// farewell frames flush before the kick.
+	doom int
 
 	// lastChar is the freshest character extraction for this client's
 	// actor, taken after every step — death compacts the actor away before
@@ -399,7 +425,9 @@ func New(db *core.ContentDB, cfg Config) (*Instance, error) {
 			// hideout visit (floor 0: no stairs, portal anchored elsewhere).
 			in.run, in.runSeed = rs.Run, rs.RunSeed
 			in.floor, in.portalsLeft = rs.Floor, rs.PortalsLeft
+			in.route, in.chamber = rs.Route, rs.Chamber
 			in.portalFloor, in.portalPos = rs.PortalFloor, rs.PortalPos
+			in.portalRoute, in.portalChmbr = rs.PortalRoute, rs.PortalChamber
 			in.portalPlaced = rs.PortalPlaced
 			in.best = rs.Best
 			if in.floor > 0 && s.W.Grid != nil {
@@ -629,15 +657,17 @@ func readLoop(ctx context.Context, c *client) {
 			}
 			c.mu.Unlock()
 			continue
-		case "descend", "plant_portal", "enter_portal",
+		case "descend", "route", "plant_portal", "enter_portal",
 			"invite", "accept_invite", "decline_invite", "leave_party",
-			"stash_put", "stash_take", "sheet":
-			// Run, social, stash, and sheet verbs are host-layer, like ack —
-			// the sim never sees them.
+			"stash_put", "stash_take", "sheet", "chat":
+			// Run, social, stash, sheet, and chat verbs are host-layer,
+			// like ack — the sim never sees them.
 			c.mu.Lock()
 			switch wc.Kind {
 			case "descend":
 				c.wantDescend = true
+			case "route":
+				c.wantRoute = wc.Choice + 1
 			case "plant_portal":
 				c.wantPlant = true
 			case "enter_portal":
@@ -656,6 +686,17 @@ func readLoop(ctx context.Context, c *client) {
 				c.stashOps = append(c.stashOps, stashOp{take: true, idx: wc.Choice})
 			case "sheet":
 				c.wantSheet = true
+			case "chat":
+				if c.chatBucket == nil {
+					c.chatBucket = newChatBucket()
+				}
+				if c.chatBucket.allow(time.Now()) {
+					m := protocol.ChatSnap{Text: wc.Text}
+					if wc.Text == "" && (wc.X != 0 || wc.Y != 0) {
+						m.Ping = &protocol.Vec{X: wc.X, Y: wc.Y}
+					}
+					c.chatMsgs = append(c.chatMsgs, m)
+				}
 			}
 			c.mu.Unlock()
 			continue
@@ -695,11 +736,17 @@ func (in *Instance) tick() {
 	var descends, portals, plants, sheets []*client
 	var social []socialWant
 	var stashes []stashWant
+	var routes []routeWant
+	var chats []chatWant
 	for _, c := range in.clients {
 		c.mu.Lock()
 		if c.wantDescend {
 			c.wantDescend = false
 			descends = append(descends, c)
+		}
+		if c.wantRoute > 0 {
+			routes = append(routes, routeWant{c: c, choice: c.wantRoute - 1})
+			c.wantRoute = 0
 		}
 		if c.wantPortal {
 			c.wantPortal = false
@@ -719,6 +766,10 @@ func (in *Instance) tick() {
 		if len(c.stashOps) > 0 {
 			stashes = append(stashes, stashWant{c: c, ops: c.stashOps})
 			c.stashOps = nil
+		}
+		if len(c.chatMsgs) > 0 {
+			chats = append(chats, chatWant{c: c, msgs: c.chatMsgs})
+			c.chatMsgs = nil
 		}
 		if c.wantSheet {
 			c.wantSheet = false
@@ -792,6 +843,10 @@ func (in *Instance) tick() {
 			in.recentEvents = in.recentEvents[len(in.recentEvents)-adminEventCap:]
 		}
 
+		// Chat relays before run logic — a floor swap re-welcomes everyone
+		// and a line sent on the death tick should still land.
+		in.processChat(chats)
+
 		// Stash verbs before run logic: runTick refreshes each client's
 		// banked character copy, and a just-stashed item must not linger in
 		// that copy's bag (put + crash would otherwise duplicate it).
@@ -799,7 +854,18 @@ func (in *Instance) tick() {
 
 		// The descent: deaths, stairs, portals — may swap the world and
 		// re-welcome everyone (descent.go).
-		in.runTick(fresh, descends, portals, plants)
+		in.runTick(fresh, descends, portals, plants, routes)
+
+		// Doomed clients (hardcore falls) close once their fuse burns —
+		// the delay lets the recap and farewell frames flush first.
+		for _, c := range in.clients {
+			if c.doom > 0 {
+				c.doom--
+				if c.doom == 0 {
+					c.tr.Close()
+				}
+			}
+		}
 
 		// Character sheets last, off the settled world: read-only, so no
 		// surgery flag — the replay never notices a sheet request.
@@ -974,8 +1040,14 @@ func (in *Instance) welcomeFrame(c *client) []byte {
 		msg.Run = in.runSnap()
 	}
 	msg.Name = c.name
+	msg.Hardcore, msg.SSF = c.hardcore, c.ssf
+	if c.token != "" {
+		msg.Feats = in.ids.Feats(c.token)
+	}
 	msg.Roster = in.roster()
-	msg.Stash = in.stashSnap(c) // nil for guests — no identity, no bank
+	if !c.ssf {
+		msg.Stash = in.stashSnap(c) // nil for guests — no identity, no bank
+	}
 	frame, _ := json.Marshal(msg)
 	return frame
 }
@@ -1132,6 +1204,7 @@ func (in *Instance) Handler() http.Handler {
 	mux.HandleFunc("/api/claim", in.ids.handleClaim)
 	mux.HandleFunc("/api/whoami", in.ids.handleWhoami)
 	mux.HandleFunc("/api/forget", in.ids.handleForget(in.kickToken))
+	mux.HandleFunc("/api/ladder", in.ids.handleLadder)
 	if in.cfg.StaticDir != "" {
 		mux.Handle("/", http.FileServer(http.Dir(in.cfg.StaticDir)))
 	}
