@@ -1375,6 +1375,17 @@ const mmCanvas = document.getElementById("minimap");
 const mmCtx = mmCanvas.getContext("2d");
 let mmBase = null;
 
+// Clicking the minimap pings that spot for the whole party — the same
+// frame chat's G ping uses.
+mmCanvas.addEventListener("click", (e) => {
+  if (!worldMap || !myName) return;
+  const r = mmCanvas.getBoundingClientRect();
+  const sx = mmCanvas.width / r.width, sy = mmCanvas.height / r.height;
+  const x = Math.round(((e.clientX - r.left) * sx / MM_TILE) * worldMap.tile);
+  const y = Math.round(((e.clientY - r.top) * sy / MM_TILE) * worldMap.tile);
+  send({ kind: "chat", x, y });
+});
+
 function buildMinimapBase() {
   if (!worldMap) {
     mmBase = null;
@@ -1415,6 +1426,7 @@ function drawMinimap(s) {
   if (!mmBase || !worldMap) return;
   if (fogDirty) buildMinimapBase(); // repaint as the fog peels back
   mmCtx.drawImage(mmBase, 0, 0);
+  for (const pg of pings) mmDot(pg, "#7fd4ff", 3);
   if (stairs && tileSeen(stairs.x, stairs.y)) mmDot(stairs, "#f0d060", 3.5);
   const portal = runState && runState.portal;
   if (portal && tileSeen(portal.x, portal.y)) mmDot(portal, "#7fd4ff", 3);
@@ -1432,6 +1444,15 @@ function drawMinimap(s) {
 // Procedural stingers — a tiny WebAudio synth, no asset files. Every cue
 // is an oscillator envelope; kinds are throttled so a nova hitting six
 // zombies reads as one crunch, not a machine gun. M mutes (persisted).
+
+// Player settings — durable in localStorage, editable in the O panel.
+const settings = {
+  volume: (() => {
+    const v = parseFloat(localStorage.getItem("df-volume"));
+    return Number.isFinite(v) ? Math.min(Math.max(v, 0), 1) : 1;
+  })(),
+  dmgNumbers: localStorage.getItem("df-dmgnum") !== "0",
+};
 
 let audioCtx = null;
 let audioMuted = localStorage.getItem("df-muted") === "1";
@@ -1474,13 +1495,14 @@ function updateAmbient() {
     ambientNodes.oscA.frequency.setTargetAtTime(f, t, 1);
     ambientNodes.oscB.frequency.setTargetAtTime(f * 1.012, t, 1);
   }
-  const want = !audioMuted && f > 0 ? 0.012 : 0;
+  const want = !audioMuted && f > 0 ? 0.012 * settings.volume : 0;
   ambientNodes.gain.gain.setTargetAtTime(want, t, 0.8);
 }
 
 // blip: one enveloped oscillator. freq can be [start, end] for a sweep.
 function blip(freq, dur, type, gain, delay = 0) {
-  if (!audioCtx || audioMuted) return;
+  if (!audioCtx || audioMuted || settings.volume <= 0) return;
+  gain *= settings.volume;
   const t0 = audioCtx.currentTime + delay;
   const osc = audioCtx.createOscillator();
   const env = audioCtx.createGain();
@@ -1834,7 +1856,9 @@ let renderClock = 0;
 
 // Floating damage numbers: drift up and fade. Crits punch — bigger,
 // golden, and they linger a beat longer; damage on *you* reads red.
+// The settings panel can turn them off entirely.
 function spawnDamageNumber(pos, st, amount, crit, onMe) {
+  if (!settings.dmgNumbers) return;
   const jx = (Math.random() - 0.5) * 0.7; // de-stack simultaneous hits
   const text = fmtDamage(amount);
   spawnEffect(st, crit ? 900 : 650, (t) => {
@@ -2149,6 +2173,10 @@ window.addEventListener("keydown", (e) => {
   }
   if (key === "l") {
     toggleLadder();
+    return;
+  }
+  if (key === "o") {
+    toggleSettings();
     return;
   }
   if (key === "m") {
@@ -2899,8 +2927,15 @@ function stashAvailable() {
   return stash && myName && !mySSF && runState && runState.floor === 0;
 }
 
+// Stash tabs: the 240-slot bank shown 60 at a time. Tabs are pure
+// presentation — the wire stays flat and index-addressed.
+const STASH_TAB_SIZE = 60;
+let stashTab = 0;
+
 function renderStash() {
   stashEl.replaceChildren();
+  const tabsEl = document.getElementById("stash-tabs");
+  tabsEl.replaceChildren();
   if (!stashAvailable()) {
     stashSectionEl.classList.add("hidden");
     return;
@@ -2908,12 +2943,27 @@ function renderStash() {
   stashSectionEl.classList.remove("hidden");
   const items = stash.items || [];
   stashCountEl.textContent = `(${items.length}/${stash.cap})`;
-  // Enough rows for the contents plus a drop row; the cap is the truth,
-  // sixty empty cells is just noise.
-  const shown = Math.min(stash.cap, Math.max(10, (Math.floor(items.length / 10) + 1) * 10));
+  const tabs = Math.max(1, Math.ceil(stash.cap / STASH_TAB_SIZE));
+  if (stashTab >= tabs) stashTab = 0;
+  for (let t = 0; t < tabs; t++) {
+    const btn = document.createElement("button");
+    const n = items.filter((it) => it.id >= t * STASH_TAB_SIZE && it.id < (t + 1) * STASH_TAB_SIZE).length;
+    btn.textContent = n ? `${t + 1} · ${n}` : String(t + 1);
+    btn.className = t === stashTab ? "active" : "";
+    btn.onclick = () => {
+      stashTab = t;
+      renderStash();
+    };
+    tabsEl.appendChild(btn);
+  }
+  const start = stashTab * STASH_TAB_SIZE;
+  const inTab = items.filter((it) => it.id >= start && it.id < start + STASH_TAB_SIZE);
+  // Enough rows for the contents plus a drop row; sixty empty cells is noise.
+  const shown = Math.min(STASH_TAB_SIZE, Math.max(10, (Math.floor(inTab.length / 10) + 1) * 10));
   for (let i = 0; i < shown; i++) {
     const div = slotDiv();
-    if (items[i]) fillSlot(div, items[i], "stash", "stash");
+    const item = items.find((it) => it.id === start + i);
+    if (item) fillSlot(div, item, "stash", "stash");
     stashEl.appendChild(div);
   }
 }
@@ -3411,6 +3461,43 @@ function updateRunHUD() {
   el.textContent = line;
   updateAmbient();
 }
+
+// -------------------------------------------------------------- settings
+
+// The O panel: volume, damage numbers, mute. Everything durable in
+// localStorage; volume feeds the sfx master and the ambient drone live.
+
+const settingsEl = document.getElementById("settings");
+const setVolumeEl = document.getElementById("set-volume");
+const setDmgEl = document.getElementById("set-dmgnum");
+const setMuteEl = document.getElementById("set-mute");
+
+function toggleSettings() {
+  if (settingsEl.classList.contains("hidden")) {
+    setVolumeEl.value = String(Math.round(settings.volume * 100));
+    setDmgEl.checked = settings.dmgNumbers;
+    setMuteEl.checked = audioMuted;
+    settingsEl.classList.remove("hidden");
+  } else {
+    settingsEl.classList.add("hidden");
+  }
+}
+
+setVolumeEl.oninput = () => {
+  settings.volume = setVolumeEl.valueAsNumber / 100;
+  localStorage.setItem("df-volume", String(settings.volume));
+  updateAmbient();
+  sfx("orb"); // a taste of the new level
+};
+setDmgEl.onchange = () => {
+  settings.dmgNumbers = setDmgEl.checked;
+  localStorage.setItem("df-dmgnum", settings.dmgNumbers ? "1" : "0");
+};
+setMuteEl.onchange = () => {
+  audioMuted = setMuteEl.checked;
+  localStorage.setItem("df-muted", audioMuted ? "1" : "0");
+  updateAmbient();
+};
 
 // ------------------------------------------------------------------ chat
 

@@ -42,6 +42,7 @@
     <div id="inventory" class="inv-grid"></div>
     <div id="stash-section" class="hidden">
       <h2>Stash <span id="stash-count"></span></h2>
+      <div id="stash-tabs"></div>
       <div id="stash" class="inv-grid"></div>
       <p class="hint">drag between bag and stash &middot; banked items survive everything</p>
     </div>
@@ -94,6 +95,16 @@
     <p class="hint">C closes this panel</p>
   </div>
 
+  <div id="settings" class="hidden">
+    <h2>Settings</h2>
+    <label class="set-row">volume
+      <input type="range" id="set-volume" min="0" max="100" step="5">
+    </label>
+    <label class="set-row"><input type="checkbox" id="set-dmgnum"> damage numbers</label>
+    <label class="set-row"><input type="checkbox" id="set-mute"> mute all sound (M)</label>
+    <p class="hint">O closes this panel</p>
+  </div>
+
   <div id="ladder" class="hidden">
     <h2>The Ladder</h2>
     <div id="ladder-list"></div>
@@ -138,7 +149,7 @@
     <button class="ghost" onclick="playGuest()">play as guest</button>
   </div>
 
-  <div id="help">WASD or click to move &middot; click pickup/stairs/portal &middot; <b>Q</b>/<b>E</b>/<b>R</b>/<b>T</b> skill gems &middot; <b>1</b>/<b>2</b> flasks &middot; <b>P</b> plant portal &middot; <b>F</b> friends &middot; <b>L</b> ladder &middot; <b>Enter</b> chat &middot; <b>G</b> ping &middot; <b>I</b> inventory &middot; <b>M</b> mute</div>
+  <div id="help">WASD or click to move &middot; click pickup/stairs/portal &middot; <b>Q</b>/<b>E</b>/<b>R</b>/<b>T</b> skill gems &middot; <b>1</b>/<b>2</b> flasks &middot; <b>P</b> plant portal &middot; <b>F</b> friends &middot; <b>L</b> ladder &middot; <b>Enter</b> chat &middot; <b>G</b> ping &middot; <b>I</b> inventory &middot; <b>O</b> settings &middot; <b>M</b> mute</div>
 
   <script src="net.js"></script>
   <script src="client.js"></script>

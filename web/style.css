@@ -602,7 +602,7 @@ body {
 }
 .char-delete:hover { color: #a32626 !important; }
 #char-new { width: 274px; }
-#join-modes { display: flex; gap: 18px; font-size: 12px; color: #8d8678; }
+#join-modes { display: flex; gap: 18px; font-size: 12px; color: #8d8678; width: 274px; justify-content: center; }
 #join-modes label { cursor: pointer; display: flex; align-items: center; gap: 5px; }
 #join-modes input { accent-color: #a32626; }
 .char-badge {
@@ -663,6 +663,35 @@ body {
   padding: 6px 10px; outline: none;
 }
 #log .ev-chat { color: #7fd4ff; }
+
+/* Settings (O): the small dials. */
+#settings {
+  position: fixed;
+  left: 50%; top: 140px; transform: translateX(-50%);
+  width: 260px;
+  background: rgba(16, 16, 22, 0.96);
+  border: 1px solid #3a3a45;
+  border-radius: 4px;
+  padding: 14px 16px;
+  z-index: 7;
+}
+#settings h2 { font-size: 13px; color: #8d8678; text-transform: uppercase; letter-spacing: 1px; margin: 0 0 10px; }
+#settings .hint { font-size: 11px; color: #55504a; margin-top: 10px; }
+#settings .set-row {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 10px; font-size: 13px; color: #cfc9bf; padding: 5px 0; cursor: pointer;
+}
+#settings input[type="range"] { width: 140px; accent-color: #4ad1c8; }
+#settings input[type="checkbox"] { accent-color: #4ad1c8; }
+
+/* Stash tabs: four windows over the one account bank. */
+#stash-tabs { display: flex; gap: 6px; margin: 4px 0 6px; }
+#stash-tabs button {
+  font: inherit; font-size: 11px;
+  background: #1a1a22; border: 1px solid #3a3a45; border-radius: 3px;
+  color: #8d8678; padding: 2px 10px; cursor: pointer;
+}
+#stash-tabs button.active { border-color: #c9b76a88; color: #c9b76a; }
 #log .ev-feat { color: #c9b76a; }
 #log .ev-checkpoint { color: #c9b76a; }
 #log .ev-memorial { color: #a32626; }

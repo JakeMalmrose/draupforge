@@ -109,8 +109,9 @@ type Identity struct {
 	active string
 }
 
-// StashCap bounds the per-account stash — triple the bag, open for tuning.
-const StashCap = 60
+// StashCap bounds the per-account stash: four 60-slot tabs. The wire is
+// flat (index-addressed); tabs are client presentation over the one bank.
+const StashCap = 240
 
 // RosterCap bounds characters per account — generous, but every slot is
 // permanent disk, so it can't be unbounded.
