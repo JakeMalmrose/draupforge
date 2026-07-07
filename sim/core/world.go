@@ -124,6 +124,9 @@ const (
 	// EvAura fires when an aura toggles (Actor = caster, Note = skill ID,
 	// Amount = One when it turned on, 0 when it turned off).
 	EvAura
+	// EvCurse fires when a curse lands or refreshes (Actor = caster,
+	// Other = the hexed, Note = the curse BuffDef ID).
+	EvCurse
 )
 
 func (k EventKind) String() string {
@@ -170,6 +173,8 @@ func (k EventKind) String() string {
 		return "poison"
 	case EvAura:
 		return "aura"
+	case EvCurse:
+		return "curse"
 	default:
 		return "unequip"
 	}

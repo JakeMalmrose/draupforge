@@ -272,8 +272,10 @@ func mitigate(att, def *core.Actor, h *core.Hit, tags stats.TagSet) fm.Fixed {
 				d = fm.Mul(d, fm.One-red)
 			}
 		} else {
+			// Negative resistance (curses like flammability push below
+			// zero) amplifies: (1 - res) with res < 0 is a real multiplier.
 			res := fm.Min(def.Sheet.Eval(resistStat(dt), tags), maxResist)
-			if res > 0 {
+			if res != 0 {
 				d = fm.Mul(d, fm.One-res)
 			}
 		}

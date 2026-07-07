@@ -92,6 +92,11 @@ const (
 	// sits on the caster's sheet and every owned minion's — no radius, no
 	// duration, no RNG. Gem-only: monsters can't run auras.
 	SkillAura
+	// SkillCurse hexes every hostile within AoERadius of the aim point
+	// (clamped to Range from the caster) with the CurseBuff — a Curse
+	// BuffDef on the ordinary pending-buff queue. One curse per target:
+	// applying a second evicts the first. No hits, no RNG.
+	SkillCurse
 )
 
 // StageEffect is what fires when a stage's countdown ends.
@@ -214,6 +219,9 @@ type SkillDef struct {
 
 	// SelfBuff names the BuffDef a SkillBuff skill applies to its caster.
 	SelfBuff string
+	// CurseBuff names the Curse BuffDef a SkillCurse skill lands on every
+	// hostile in its area.
+	CurseBuff string
 
 	// Summon fields (SkillSummon): which def, how many per cast, and the
 	// per-caster cap for that def. SummonTTL > 0 makes the minions
@@ -251,6 +259,10 @@ type BuffDef struct {
 	Name          string
 	DurationTicks uint32
 	Mods          []BuffMod
+	// Curse marks a hex: it lands on enemies, counts against the
+	// one-curse-per-target cap (newest evicts), and renders as a curse,
+	// not a buff. Same machinery otherwise.
+	Curse bool
 }
 
 // ModSource is the sheet source a buff's modifiers are granted under. The

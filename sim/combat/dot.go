@@ -19,8 +19,10 @@ func TickDoTs(w *core.World) {
 		for _, d := range a.DoTs {
 			dmg := d.PerTick
 			if d.Type != core.Physical {
+				// Negative resistance amplifies DoT ticks too — same rule
+				// as the hit path, and how flammability feeds ignite.
 				res := fm.Min(a.Sheet.Eval(resistStat(d.Type), dotTags.With(d.Type.Tag())), maxResist)
-				if res > 0 {
+				if res != 0 {
 					dmg = fm.Mul(dmg, fm.One-res)
 				}
 			}

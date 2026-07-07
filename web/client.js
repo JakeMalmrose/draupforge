@@ -1176,6 +1176,7 @@ const DEF_COLORS = {
   carrion_husk: "#7a6a3a",
   grave_tyrant: "#3e4a52",
   risen_thrall: "#5a6a52",
+  bone_hexer: "#8a6aa8",
 };
 
 const AILMENT_RINGS = [
@@ -1185,6 +1186,7 @@ const AILMENT_RINGS = [
   [8, "#9fff9fcc"], // buffed
   [16, "#c23b3bcc"], // bleeding
   [32, "#7aa32acc"], // poisoned
+  [64, "#b06ae0cc"], // cursed
 ];
 
 const PROJ_COLORS = {
@@ -1888,6 +1890,10 @@ const SKILL_META = {
     desc: "While it burns, you and your minions add fire to every hit. Reserves a third of your mana — cast again to snuff it." },
   determination: { color: "#8ea2b8", aimed: false, kind: "Aura",
     desc: "While it holds, you and your minions gain half again your armour. Reserves a third of your mana — cast again to drop it." },
+  flammability: { color: "#c86ae0", aimed: true, kind: "Curse",
+    desc: "Hex everything near your cursor: fire resistance stripped a quarter — below zero, fire burns extra. One curse per target." },
+  enfeeble: { color: "#9a6ae0", aimed: true, kind: "Curse",
+    desc: "Hex everything near your cursor into weakness: a fifth less damage dealt. One curse per target." },
 };
 
 // gemIconSVG is the one gem glyph, colored per skill: draft cards, the gem
@@ -3013,6 +3019,9 @@ function logEvent(ev) {
       break;
     case "aura":
       text = `${nameOf(ev.actor)} ${ev.amount > 0 ? "awakens" : "rests"} ${skillName(ev.note)}`;
+      break;
+    case "curse":
+      text = `${nameOf(ev.other)} is cursed with ${skillName(ev.note)}`;
       break;
     case "chill":
       text = `${nameOf(ev.other)} is chilled (${Math.round(ev.amount / 10)}% slow)`;

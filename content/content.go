@@ -392,6 +392,43 @@ func buffDefs() []*core.BuffDef {
 				{Stat: stats.DamageTaken, Layer: stats.LayerOverride, Value: 0},
 			},
 		},
+		{
+			// Curses: hex packages for SkillCurse skills. One per target —
+			// the newest evicts the rest.
+			//
+			// Flammability strips fire resistance — below zero it AMPLIFIES
+			// (the mitigation gates read negative res as a real multiplier),
+			// so it pays off against everything, not just resistant packs.
+			ID:            "flammability",
+			Name:          "Flammability",
+			DurationTicks: 8 * core.TicksPerSecond,
+			Curse:         true,
+			Mods: []core.BuffMod{
+				{Stat: stats.FireRes, Layer: stats.LayerFlat, Value: fm.FromMilli(-250)},
+			},
+		},
+		{
+			// Enfeeble blunts the cursed: everything they deal is a fifth
+			// weaker — the defensive hex for packs you have to stand in.
+			ID:            "enfeeble",
+			Name:          "Enfeeble",
+			DurationTicks: 8 * core.TicksPerSecond,
+			Curse:         true,
+			Mods: []core.BuffMod{
+				{Stat: stats.Damage, Layer: stats.LayerMore, Value: fm.FromMilli(-200)},
+			},
+		},
+		{
+			// Weakness is the monsters' hex on YOU: a fifth more damage
+			// taken while it holds. The bone hexer casts it.
+			ID:            "weakness",
+			Name:          "Weakness",
+			DurationTicks: 8 * core.TicksPerSecond,
+			Curse:         true,
+			Mods: []core.BuffMod{
+				{Stat: stats.DamageTaken, Layer: stats.LayerIncreased, Value: fm.FromMilli(200)},
+			},
+		},
 	}
 }
 
@@ -807,6 +844,53 @@ func skillDefs() []*core.SkillDef {
 		},
 	}
 
+	// Player curses: aimed hexes on the pending-buff queue. No hits, no
+	// RNG — the payoff is the package on everything in the circle.
+	flammability := &core.SkillDef{
+		ID:            "flammability",
+		Name:          "Flammability",
+		Cuttable:      true,
+		Kind:          core.SkillCurse,
+		Tags:          stats.T(stats.TagSpell),
+		ManaCost:      fm.FromInt(12),
+		WindupTicks:   12, // 0.4s
+		RecoveryTicks: 9,
+		SpeedStat:     stats.CastSpeed,
+		Range:         fm.FromInt(10),
+		AoERadius:     fm.FromInt(3),
+		CurseBuff:     "flammability",
+	}
+
+	enfeeble := &core.SkillDef{
+		ID:            "enfeeble",
+		Name:          "Enfeeble",
+		Cuttable:      true,
+		Kind:          core.SkillCurse,
+		Tags:          stats.T(stats.TagSpell),
+		ManaCost:      fm.FromInt(12),
+		WindupTicks:   12,
+		RecoveryTicks: 9,
+		SpeedStat:     stats.CastSpeed,
+		Range:         fm.FromInt(10),
+		AoERadius:     fm.FromInt(3),
+		CurseBuff:     "enfeeble",
+	}
+
+	// The bone hexer's cast: a slow, readable hex lobbed from the back
+	// line. Weakness on you while its pack does the hitting.
+	hexWeakness := &core.SkillDef{
+		ID:            "hex_weakness",
+		Name:          "Hex of Weakness",
+		Kind:          core.SkillCurse,
+		Tags:          stats.T(stats.TagSpell),
+		WindupTicks:   21, // 0.7s — time to see it coming
+		RecoveryTicks: 24, // and a slow cycle between hexes
+		SpeedStat:     stats.CastSpeed,
+		Range:         fm.FromInt(9),
+		AoERadius:     fm.FromMilli(2500),
+		CurseBuff:     "weakness",
+	}
+
 	// The carrion husk's own slam: zombie_slam's arc with rot on it — the
 	// monster that teaches poison (stacking chaos DoT).
 	putridSlam := &core.SkillDef{
@@ -824,7 +908,7 @@ func skillDefs() []*core.SkillDef {
 	putridSlam.BaseMin[core.Physical] = fm.FromInt(8)
 	putridSlam.BaseMax[core.Physical] = fm.FromInt(12)
 
-	return []*core.SkillDef{fireball, slam, frostNova, spark, boneArrow, adrenaline, claws, arcBolt, arc, colossusSlam, boneVolley, barrowSlam, graveVolley, graveStorm, summonSkeleton, sweep, tyrantQuake, raiseThralls, summonMarksman, summonSpirit, spiritBite, putridSlam, anger, determination}
+	return []*core.SkillDef{fireball, slam, frostNova, spark, boneArrow, adrenaline, claws, arcBolt, arc, colossusSlam, boneVolley, barrowSlam, graveVolley, graveStorm, summonSkeleton, sweep, tyrantQuake, raiseThralls, summonMarksman, summonSpirit, spiritBite, putridSlam, anger, determination, flammability, enfeeble, hexWeakness}
 }
 
 func baseStats(pairs map[stats.StatID]fm.Fixed) [stats.StatCount]fm.Fixed {
@@ -920,6 +1004,32 @@ func actorDefs() []*core.ActorDef {
 		PerLevel: []core.BuffMod{
 			{Stat: stats.Life, Layer: stats.LayerFlat, Value: fm.FromInt(5)},
 			{Stat: stats.Damage, Layer: stats.LayerIncreased, Value: fm.FromMilli(40)},
+		},
+	}
+
+	// The support caster: it never hurts you itself — it hexes you with
+	// Weakness from the back line while its pack does the hitting. Kill
+	// it first, or everything else hits a fifth harder.
+	hexer := &core.ActorDef{
+		ID:     "bone_hexer",
+		Name:   "Bone Hexer",
+		Team:   core.TeamMonsters,
+		Radius: fm.FromMilli(500),
+		BaseStats: baseStats(map[stats.StatID]fm.Fixed{
+			stats.Life:      fm.FromInt(30),
+			stats.MoveSpeed: fm.FromInt(4),
+			stats.Accuracy:  fm.FromInt(80),
+		}),
+		Skills:         []string{"hex_weakness"},
+		AI:             "ranged_kiter",
+		AggroRadius:    fm.FromInt(16),
+		LeashRadius:    fm.FromInt(22),
+		PreferredRange: fm.FromInt(7), // its hex reaches 9u — closer than the archer dares
+		LootTable:      "archer_drops",
+		Level:          1,
+		XPValue:        35, // fragile, but the pack around it earns its keep
+		PerLevel: []core.BuffMod{
+			{Stat: stats.Life, Layer: stats.LayerFlat, Value: fm.FromInt(5)},
 		},
 	}
 
@@ -1206,7 +1316,7 @@ func actorDefs() []*core.ActorDef {
 		},
 	}
 
-	return []*core.ActorDef{player, zombie, archer, dummy, ghoul, mage, colossus, barrowKing, husk, skeleton, tyrant, thrall, marksman, spirit}
+	return []*core.ActorDef{player, zombie, archer, dummy, ghoul, mage, colossus, barrowKing, husk, skeleton, tyrant, thrall, marksman, spirit, hexer}
 }
 
 // affixDefs is the global affix pool. Slice order feeds the weighted roll —

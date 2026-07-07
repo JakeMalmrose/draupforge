@@ -27,8 +27,23 @@ func ResolveBuffs(w *core.World) {
 
 // ApplyBuff installs a buff on the target, or refreshes its timer if the
 // same def is already active — the modifiers are a constant package, so
-// they stay in place. Consumes no RNG.
+// they stay in place. A curse first evicts any OTHER curse on the target
+// (one hex per head; the newest wins, PoE's cap-overflow rule). Consumes
+// no RNG.
 func ApplyBuff(w *core.World, target *core.Actor, def *core.BuffDef, src core.EntityID) {
+	ev := core.EvBuff
+	if def.Curse {
+		ev = core.EvCurse
+		out := target.Statuses[:0]
+		for _, s := range target.Statuses {
+			if s.Buff != nil && s.Buff.Curse && s.Buff != def {
+				target.Sheet.RemoveSource(s.Buff.ModSource())
+				continue
+			}
+			out = append(out, s)
+		}
+		target.Statuses = out
+	}
 	for i := range target.Statuses {
 		s := &target.Statuses[i]
 		if s.Buff != def {
@@ -36,7 +51,7 @@ func ApplyBuff(w *core.World, target *core.Actor, def *core.BuffDef, src core.En
 		}
 		s.TicksLeft = def.DurationTicks
 		s.Source = src
-		w.Emit(core.Event{Kind: core.EvBuff, Actor: src, Other: target.ID, Note: def.ID})
+		w.Emit(core.Event{Kind: ev, Actor: src, Other: target.ID, Note: def.ID})
 		return
 	}
 	target.Statuses = append(target.Statuses, core.Status{
@@ -49,5 +64,5 @@ func ApplyBuff(w *core.World, target *core.Actor, def *core.BuffDef, src core.En
 			Stat: m.Stat, Layer: m.Layer, Value: m.Value, Tags: m.Tags, Source: modSrc,
 		})
 	}
-	w.Emit(core.Event{Kind: core.EvBuff, Actor: src, Other: target.ID, Note: def.ID})
+	w.Emit(core.Event{Kind: ev, Actor: src, Other: target.ID, Note: def.ID})
 }

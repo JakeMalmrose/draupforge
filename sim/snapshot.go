@@ -215,7 +215,11 @@ func ailmentBits(a *core.Actor) uint8 {
 		case core.StatusShock:
 			b |= protocol.AilShocked
 		case core.StatusBuff:
-			b |= protocol.AilBuffed
+			if st.Buff != nil && st.Buff.Curse {
+				b |= protocol.AilCursed
+			} else {
+				b |= protocol.AilBuffed
+			}
 		}
 	}
 	return b

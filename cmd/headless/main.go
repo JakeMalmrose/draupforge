@@ -163,6 +163,8 @@ func printEvent(ev core.Event) {
 			state = "on"
 		}
 		fmt.Printf("[tick %4d] %d toggled %s %s\n", ev.Tick, ev.Actor, ev.Note, state)
+	case core.EvCurse:
+		fmt.Printf("[tick %4d] %d cursed %d with %s\n", ev.Tick, ev.Actor, ev.Other, ev.Note)
 	}
 }
 

@@ -11,9 +11,9 @@ tests, and session-log entries older than a few sessions (git history is the
 archive). If this file outgrows ~150 lines, it has stopped being a status doc
 and started being a changelog — cut it back.
 
-**Last updated: 2026-07-06** (session 75: auras — toggled reservation gems
-covering self + minions; Track 1 item 2. Track work accumulates on the
-`track1-buildcraft` PR: separate commits, merged when the track is done)
+**Last updated: 2026-07-06** (session 76: curses — one-hex-per-target
+debuffs on the buff machinery; Track 1 item 3. Track work accumulates on
+the `track1-buildcraft` PR: separate commits, merged when the track is done)
 
 ## Where things stand
 
@@ -76,6 +76,7 @@ All foundational machinery from DESIGN.md is real, not stubbed:
 | Uniques: fixed-identity chase items (4 in content) with shape stats nothing else rolls (ExtraProjectiles/ExtraChains — the skill system reads them off the sheet); UniquePermille per table, orange styling + authored mod lines on the wire (v20); orbs refuse them; save v11 | `sim/items`, `sim/stats`, `content/`, `web/` | done, tested, verified live |
 | Currency: orb wallet (transmute/alch/chaos/jeweller) banked straight to the killer; `apply_orb` crafts bag items | `sim/items`, `web/` | done, tested |
 | Gems: cast only from cut gems; a fresh character spawns with `StartingUncut` draft-of-3 gems instead of a fixed starter; uncut drops carry a draft of 3 at the dier's level (cap 20); supports fold into the socketed skill's queries only (more/less, added flat, speed, mana, fans, chain, conversion); cast contexts bake at use; save v9 | `sim/core/gems.go`, `sim/items/gems.go`, `content/supports.go`, `web/` | done, tested, verified live |
+| Curses: hex BuffDefs (`Curse` flag) on the ordinary buff machinery — SkillCurse casts hex every hostile within AoERadius of the aim (clamped to Range, no RNG, no hits); one curse per target, newest evicts; negative resistance now amplifies (hit + DoT mitigation gates read `res != 0` — inert for pre-curse content); AilCursed wire bit (64), EvCurse; the bone hexer is the support monster that hexes YOU | `sim/combat/buff.go`, `sim/skills`, `content/`, `web/` | done, tested, verified live |
 | Auras: SkillAura toggle gems — while on, AuraMods sit on the caster's sheet AND every owned minion's (no radius, by design), max mana reserved via More(-Reserve); event-driven application (toggle, DrainSpawns, injection — no per-tick scans); AuraOn is durable gem state (save v17, hashed, transfers; wire v23 carries it for the bar); gem replace/level keep applied mods honest; +5%/gem-level effect | `sim/core/aura.go`, `sim/skills`, `content/`, `web/` | done, tested, verified live |
 | Progression: leveled XP on kill, quadratic curve, cap 50, PerLevel mods, ding heal | `sim/progress` | done, tested |
 | Flasks: charge-gated regen-burst sips (keys 1/2), kills feed charges, durable (save v7) | `sim/`, `content/`, `web/` | done, tested |
@@ -97,7 +98,7 @@ All foundational machinery from DESIGN.md is real, not stubbed:
 | Minions: `Actor.Owner` (zone-local, saved+hashed), kill attribution up the chain (`World.CreditFor` — XP/flasks/orbs pay the summoner), `minion_melee` heel AI (mobile leash on the owner), `SkillSummon` w/ cap-despawns-oldest; Summon Skeleton cuttable gem (cap 3, minions at gem level); save v12 | `sim/core`, `sim/ai`, `sim/skills`, `content/`, `web/` | done, tested, verified live |
 | Phase order + command validation | `sim/sim.go` | done — this IS the determinism contract |
 | Wire types: versioned welcome (v18), JSON snapshots, binary delta codec | `protocol/` | done, tested |
-| Content tables | `content/` | 21 skills (10 cuttable incl. 2 auras, 4 staged), 15 supports, 12 actors (3 bosses), 36 affixes (ILvl-tiered), 9 bases, 5 uniques, 8 drop tables, 4 monster mods, 4 buffs |
+| Content tables | `content/` | 24 skills (12 cuttable incl. 2 auras + 2 curses, 4 staged), 15 supports, 13 actors (3 bosses), 36 affixes (ILvl-tiered), 9 bases, 5 uniques, 8 drop tables, 4 monster mods, 7 buffs (3 curses) |
 | Debug client + determinism/golden replay tests | `cmd/headless`, `sim/sim_test.go` | done |
 
 ## Invariants the code currently honors (don't break casually)
@@ -208,7 +209,9 @@ load-bearing (top entry: the action model is one-thing-at-a-time).
   phys); poison 30% of phys+chaos as dps for 2s, stacking (putrid slam
   30%, poison_chance affix 5–10%, Envenom support 40% + 4 flat chaos);
   auras reserve 35% each (multiplicative), Anger +5 flat fire / Determination
-  50% inc armour, aura effect +5% per gem level.
+  50% inc armour, aura effect +5% per gem level; curses 8s (flammability
+  -25% fire res, enfeeble 20% less dealt, weakness +20% taken), player
+  curse AoE 3u / range 10u, hexer hex 2.5u / 9u on a slow 1.5s cycle.
 
 ## Feature plan
 
@@ -232,6 +235,24 @@ starting either track. Jake's balance pass over the numbers stays open.
 
 ## Session log
 
+- **2026-07-06 (76)** — Curses: Track 1 item 3, on the buff machinery
+  exactly as the roadmap hoped. A curse is a `BuffDef{Curse: true}`:
+  applied whole, refreshed whole, expired by TickStatuses, saved/hashed by
+  ID — zero new persistence. ApplyBuff grew the one-hex-per-target rule
+  (an incoming curse first evicts any OTHER curse + its mods; newest
+  wins). SkillCurse casts hex every hostile within AoERadius of the aim
+  point (clamped to Range), through the pending-buff queue — no hits, no
+  RNG (pinned). The enabling mitigation change: negative resistance now
+  amplifies (`res != 0` gates in pipeline + dot.go) — nothing pre-curse
+  could go negative, so it's byte-inert for old replays; it's what makes
+  flammability pay off against 0-res trash too, hits and ignite ticks
+  both. Content: flammability / enfeeble cuttable curse gems (pool 10→12,
+  goldens re-recorded), the weakness hex, and the bone_hexer — a pure
+  support caster (ranged_kiter, no damage skill at all) that hexes YOU
+  from the back line; added to the arena scatter. Wire: AilCursed bit 64
+  + EvCurse, no version bump. Verified live: the hexer cursed a TCP
+  client (weakness events, ail:64), and the player's flammability hexed
+  it back.
 - **2026-07-06 (75)** — Auras: Track 1 item 2. SkillAura gems toggle at the
   effect point: on grants the def's AuraMods (scaled +5%/gem level) to the
   caster's sheet and every owned minion's — no radius by Jake's call, so

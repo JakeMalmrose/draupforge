@@ -319,6 +319,26 @@ func fire(w *core.World, a *core.Actor) {
 			core.ActivateAura(w, a, sk, gem.Level)
 			w.Emit(core.Event{Kind: core.EvAura, Actor: a.ID, Note: sk.ID, Amount: fm.One})
 		}
+	case core.SkillCurse:
+		def := w.Content.Buffs[sk.CurseBuff]
+		if def == nil {
+			return
+		}
+		// The hex lands where you aimed, clamped to cast range; everything
+		// hostile inside the area is cursed via the ordinary buff queue.
+		aim := a.Action.AimPoint
+		if d := space.Dist(a.Pos, aim); d > sk.Range && d > 0 {
+			aim = a.Pos.Add(aim.Sub(a.Pos).Normalize().Scale(sk.Range))
+		}
+		for _, tgt := range w.Actors {
+			if tgt.Dead || tgt.Team == a.Team || tgt.Team == core.TeamNone {
+				continue
+			}
+			if space.Dist(aim, tgt.Pos) > sk.AoERadius+tgt.Def.Radius {
+				continue
+			}
+			w.QueueBuff(core.PendingBuff{Target: tgt.ID, Buff: def, Source: a.ID})
+		}
 	case core.SkillSummon:
 		def := w.Content.Actors[sk.SummonDef]
 		if def == nil {
