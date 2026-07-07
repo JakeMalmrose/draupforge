@@ -100,8 +100,9 @@ func DB() *core.ContentDB {
 		db.Buffs[b.ID] = b
 	}
 	db.MonsterMods = monsterModDefs()
+	db.FloorMods = floorModDefs()
 	seen := map[string]bool{}
-	for _, m := range db.MonsterMods {
+	for _, m := range append(append([]*core.MonsterModDef{}, db.MonsterMods...), db.FloorMods...) {
 		if m.ID == "" || len(m.Mods) == 0 {
 			panic("content: monster mod " + m.ID + " is empty")
 		}

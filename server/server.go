@@ -148,9 +148,13 @@ type Instance struct {
 	run         int        // 1-based run counter; a run ends when the portals run out
 	runSeed     uint64     // this run's seed; floor worlds derive from it
 	floor       int        // current depth; 0 is the hideout
+	route       int        // current floor's route address (descent chart)
+	chamber     int        // side chambers taken at this depth (mods stack)
 	best        int        // deepest floor reached this process — the score
 	stairs      space.Vec2 // this floor's descent stairs (farthest walkable from spawn)
 	portalFloor int        // where death ejects to
+	portalRoute int        // the anchor floor's full route address...
+	portalChmbr int        // ...so an eject rebuilds the exact same world
 	portalPos   space.Vec2
 	// portalPlaced: portalPos is valid for portalFloor. False while a run
 	// starts in the hideout — the anchor lands on the floor's spawn the
@@ -257,6 +261,9 @@ type client struct {
 	// for the tick goroutine, like ack. The social verbs ride along:
 	// wantInvite names the invitee, the rest are flags.
 	wantDescend bool
+	// wantRoute is a "route" verb's chart pick, stored +1 so the zero
+	// value means "none pending".
+	wantRoute   int
 	wantPlant   bool
 	wantPortal  bool
 	wantInvite  string
@@ -399,7 +406,9 @@ func New(db *core.ContentDB, cfg Config) (*Instance, error) {
 			// hideout visit (floor 0: no stairs, portal anchored elsewhere).
 			in.run, in.runSeed = rs.Run, rs.RunSeed
 			in.floor, in.portalsLeft = rs.Floor, rs.PortalsLeft
+			in.route, in.chamber = rs.Route, rs.Chamber
 			in.portalFloor, in.portalPos = rs.PortalFloor, rs.PortalPos
+			in.portalRoute, in.portalChmbr = rs.PortalRoute, rs.PortalChamber
 			in.portalPlaced = rs.PortalPlaced
 			in.best = rs.Best
 			if in.floor > 0 && s.W.Grid != nil {
@@ -629,7 +638,7 @@ func readLoop(ctx context.Context, c *client) {
 			}
 			c.mu.Unlock()
 			continue
-		case "descend", "plant_portal", "enter_portal",
+		case "descend", "route", "plant_portal", "enter_portal",
 			"invite", "accept_invite", "decline_invite", "leave_party",
 			"stash_put", "stash_take", "sheet":
 			// Run, social, stash, and sheet verbs are host-layer, like ack —
@@ -638,6 +647,8 @@ func readLoop(ctx context.Context, c *client) {
 			switch wc.Kind {
 			case "descend":
 				c.wantDescend = true
+			case "route":
+				c.wantRoute = wc.Choice + 1
 			case "plant_portal":
 				c.wantPlant = true
 			case "enter_portal":
@@ -695,11 +706,16 @@ func (in *Instance) tick() {
 	var descends, portals, plants, sheets []*client
 	var social []socialWant
 	var stashes []stashWant
+	var routes []routeWant
 	for _, c := range in.clients {
 		c.mu.Lock()
 		if c.wantDescend {
 			c.wantDescend = false
 			descends = append(descends, c)
+		}
+		if c.wantRoute > 0 {
+			routes = append(routes, routeWant{c: c, choice: c.wantRoute - 1})
+			c.wantRoute = 0
 		}
 		if c.wantPortal {
 			c.wantPortal = false
@@ -799,7 +815,7 @@ func (in *Instance) tick() {
 
 		// The descent: deaths, stairs, portals — may swap the world and
 		// re-welcome everyone (descent.go).
-		in.runTick(fresh, descends, portals, plants)
+		in.runTick(fresh, descends, portals, plants, routes)
 
 		// Character sheets last, off the settled world: read-only, so no
 		// surgery flag — the replay never notices a sheet request.

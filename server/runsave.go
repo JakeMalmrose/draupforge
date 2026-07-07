@@ -16,32 +16,42 @@ import (
 const runSaveVersion = 2
 
 type runSave struct {
-	RunVersion   int             `json:"run_version"`
-	Run          int             `json:"run"`
-	RunSeed      uint64          `json:"run_seed"`
-	Floor        int             `json:"floor"`
-	PortalsLeft  int             `json:"portals_left"`
-	PortalFloor  int             `json:"portal_floor"`
-	PortalPos    space.Vec2      `json:"portal_pos"`
-	PortalPlaced bool            `json:"portal_placed"`
-	Best         int             `json:"best"`
-	World        json.RawMessage `json:"world"`
+	RunVersion   int        `json:"run_version"`
+	Run          int        `json:"run"`
+	RunSeed      uint64     `json:"run_seed"`
+	Floor        int        `json:"floor"`
+	PortalsLeft  int        `json:"portals_left"`
+	PortalFloor  int        `json:"portal_floor"`
+	PortalPos    space.Vec2 `json:"portal_pos"`
+	PortalPlaced bool       `json:"portal_placed"`
+	Best         int        `json:"best"`
+	// Route addresses (the descent chart) — additive to v2: old envelopes
+	// read as the trunk path, which is what they were.
+	Route         int             `json:"route,omitempty"`
+	Chamber       int             `json:"chamber,omitempty"`
+	PortalRoute   int             `json:"portal_route,omitempty"`
+	PortalChamber int             `json:"portal_chamber,omitempty"`
+	World         json.RawMessage `json:"world"`
 }
 
 // encodeRunSave wraps serialized world bytes with the instance's run state.
 // Call on the tick goroutine — it reads live run fields.
 func (in *Instance) encodeRunSave(world []byte) ([]byte, error) {
 	return json.Marshal(runSave{
-		RunVersion:   runSaveVersion,
-		Run:          in.run,
-		RunSeed:      in.runSeed,
-		Floor:        in.floor,
-		PortalsLeft:  in.portalsLeft,
-		PortalFloor:  in.portalFloor,
-		PortalPos:    in.portalPos,
-		PortalPlaced: in.portalPlaced,
-		Best:         in.best,
-		World:        world,
+		RunVersion:    runSaveVersion,
+		Run:           in.run,
+		RunSeed:       in.runSeed,
+		Floor:         in.floor,
+		PortalsLeft:   in.portalsLeft,
+		PortalFloor:   in.portalFloor,
+		PortalPos:     in.portalPos,
+		PortalPlaced:  in.portalPlaced,
+		Best:          in.best,
+		Route:         in.route,
+		Chamber:       in.chamber,
+		PortalRoute:   in.portalRoute,
+		PortalChamber: in.portalChmbr,
+		World:         world,
 	})
 }
 

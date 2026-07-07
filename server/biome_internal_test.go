@@ -43,7 +43,7 @@ func TestBuildFloorUsesBiomeRoster(t *testing.T) {
 	}
 
 	// Floor 11 (caves band, no set-piece schedule: 11%3 != 0, 11%5 != 0).
-	s11, err := in.buildFloor(11)
+	s11, err := in.buildFloor(11, 0, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -59,7 +59,7 @@ func TestBuildFloorUsesBiomeRoster(t *testing.T) {
 	}
 	// The scenario roster (descentInstance uses arena-style scatter) rides
 	// crypt floors unchanged.
-	s2, err := in.buildFloor(2)
+	s2, err := in.buildFloor(2, 0, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -72,11 +72,11 @@ func TestBuildFloorUsesBiomeRoster(t *testing.T) {
 // same seed carved as rooms — the map kind actually switched.
 func TestCavesFloorsCarveCaves(t *testing.T) {
 	in, _, _ := descentInstance(t, 3)
-	s11a, err := in.buildFloor(11)
+	s11a, err := in.buildFloor(11, 0, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	s11b, err := in.buildFloor(11)
+	s11b, err := in.buildFloor(11, 0, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,7 +93,7 @@ func TestCavesFloorsCarveCaves(t *testing.T) {
 	// And a crypt floor from the same run differs in generator character:
 	// rooms maps have long straight corridor walls; just assert the two
 	// floors aren't identical (they share width/height).
-	s2, err := in.buildFloor(2)
+	s2, err := in.buildFloor(2, 0, 0)
 	if err != nil {
 		t.Fatal(err)
 	}

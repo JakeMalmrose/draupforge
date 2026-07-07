@@ -98,6 +98,8 @@ function connect() {
       } else if (msg.type === "pause") {
         if (msg.paused) showOverlay("PAUSED");
         else hideOverlay();
+      } else if (msg.type === "chart") {
+        openChart(msg.chart);
       } else if (msg.type === "roster") {
         applyRoster(msg.roster);
       } else if (msg.type === "social") {
@@ -173,6 +175,7 @@ function resetWorld(msg) {
   cutSkillTable = msg.cut_skills || [];
   skillBarKey = "";
   closeCutDialog();
+  closeChart();
   autoCutShown = false;
   actorMotion.clear();
   telegraphMax.clear();
@@ -2110,6 +2113,7 @@ window.addEventListener("keydown", (e) => {
   const key = e.key.toLowerCase();
   if (key === "escape") {
     if (cutState) closeCutDialog();
+    if (chartOpen()) closeChart();
     return;
   }
   if (key in WASD_DIRS) {
@@ -3330,9 +3334,89 @@ function updateRunHUD() {
   let where = runState.floor === 0 ? "Hideout" : `Floor ${runState.floor}`;
   const biome = pal().name;
   if (runState.floor > 0 && biome) where += `, ${biome}`;
-  el.textContent =
+  let line =
     `Run ${runState.run} · ${where} · Portals ${runState.portals} · Best floor ${runState.best}`;
+  if (runState.mods && runState.mods.length) {
+    line += ` · ${runState.mods.join(" / ")}`;
+  }
+  el.textContent = line;
   updateAmbient();
+}
+
+// ------------------------------------------------------------ the chart
+
+// The descent chart: the stairs answer a descend request with routes to
+// read before committing — two exits down, and (at modded depths) a side
+// chamber that holds the floor with stacked mods and juiced rewards.
+
+const chartScrim = document.getElementById("chart-scrim");
+const chartDialog = document.getElementById("chart-dialog");
+
+function chartOpen() {
+  return !chartScrim.classList.contains("hidden");
+}
+
+function closeChart() {
+  chartScrim.classList.add("hidden");
+}
+
+function openChart(chart) {
+  if (!chart || !chart.routes || !chart.routes.length) return;
+  pendingDescend = false; // we're here; stop walking at the stairs
+  chartDialog.replaceChildren();
+  const h = document.createElement("h3");
+  h.textContent = "The Way Down";
+  const sub = document.createElement("p");
+  sub.className = "dlg-sub";
+  sub.textContent = "read the floor before you take it";
+  const row = document.createElement("div");
+  row.className = "draft-row";
+  for (const r of chart.routes) {
+    const card = document.createElement("button");
+    card.className = "draft-card route-card" + (r.side ? " side" : "");
+    const floor = document.createElement("div");
+    floor.className = "route-floor";
+    floor.textContent = r.side ? `Side chamber · floor ${r.floor}` : `Floor ${r.floor}`;
+    card.appendChild(floor);
+    const biome = (BIOME_PAL[r.biome] || {}).name;
+    if (biome) {
+      const b = document.createElement("div");
+      b.className = "route-biome";
+      b.textContent = biome;
+      card.appendChild(b);
+    }
+    let pips = 0;
+    if (r.mods && r.mods.length) {
+      for (const m of r.mods) {
+        const mod = document.createElement("div");
+        mod.className = "route-mod";
+        mod.textContent = m.name;
+        card.appendChild(mod);
+        pips += m.reward || 0;
+      }
+    } else {
+      const clean = document.createElement("div");
+      clean.className = "route-clean";
+      clean.textContent = "no modifiers";
+      card.appendChild(clean);
+    }
+    const pipEl = document.createElement("div");
+    pipEl.className = "route-pips";
+    pipEl.textContent = pips > 0 ? "◆".repeat(Math.min(pips, 8)) : "";
+    card.appendChild(pipEl);
+    card.onclick = () => {
+      closeChart();
+      send({ kind: "route", choice: r.choice });
+    };
+    row.appendChild(card);
+  }
+  const cancel = document.createElement("button");
+  cancel.id = "chart-cancel";
+  cancel.className = "ghost";
+  cancel.textContent = "not yet";
+  cancel.onclick = closeChart;
+  chartDialog.append(h, sub, row, cancel);
+  chartScrim.classList.remove("hidden");
 }
 
 function showOverlay(text) {

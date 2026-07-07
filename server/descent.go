@@ -37,6 +37,12 @@ var (
 	portalRange  = fm.FromInt(2)
 )
 
+// routeWant is one client's harvested chart pick for a tick.
+type routeWant struct {
+	c      *client
+	choice int
+}
+
 // deathXPPenaltyDiv: death costs 1/5 of the current level's XP requirement,
 // clamped so a level's progress never goes negative (no de-leveling).
 const deathXPPenaltyDiv = 5
@@ -76,11 +82,15 @@ func farthestWalkable(g *space.Grid) space.Vec2 {
 	return best
 }
 
-// buildFloor constructs floor N of the current run: terrain from the floor
-// seed carved by the floor's biome, the scenario's fixed spawns, and the
-// biome's scatter packs leveled and thickened by depth.
-func (in *Instance) buildFloor(floor int) (*sim.Sim, error) {
-	s := sim.New(in.db, deriveSeed(in.runSeed, uint64(floor)))
+// buildFloor constructs one floor of the current run at a route address
+// (floor, route, chamber): terrain from the address seed carved by the
+// floor's biome, the scenario's fixed spawns, the biome's scatter packs
+// leveled and thickened by depth, and the address's floor modifiers
+// applied to every monster. (0,0,0-style addresses: route and chamber are
+// 0 for the trunk path; side chambers bump chamber at the same floor.)
+// Pure in the address — a death-eject rebuild is byte-identical.
+func (in *Instance) buildFloor(floor, route, chamber int) (*sim.Sim, error) {
+	s := sim.New(in.db, deriveSeed(in.runSeed, uint64(floor)^uint64(route)<<40^uint64(chamber)<<48))
 	b := biomeForFloor(floor)
 	kind := ""
 	if b != nil {
@@ -95,28 +105,43 @@ func (in *Instance) buildFloor(floor int) (*sim.Sim, error) {
 			return nil, fmt.Errorf("server: floor %d spawn: %w", floor, err)
 		}
 	}
+	mods := rollFloorMods(in.runSeed, floor, route, chamber, modCountAt(floor, route, chamber))
 	// Rarity pressure grows with depth (numbers open for tuning): magic
-	// 10% +2%/floor capped at 30%, rare 2% +1%/floor capped at 12%.
+	// 10% +2%/floor capped at 30%, rare 2% +1%/floor capped at 12% — plus
+	// whatever juice the floor mods promise.
 	magicPm := min(uint64(100+20*(floor-1)), 300)
 	rarePm := min(uint64(20+10*(floor-1)), 120)
+	packsPct := 0
+	var monMods []string
+	for _, m := range mods {
+		magicPm += m.RarityPm
+		rarePm += m.RarityPm / 2
+		packsPct += m.PacksPct
+		if m.MonMod != "" {
+			monMods = append(monMods, m.MonMod)
+		}
+	}
 	scatter := in.cfg.Scatter
 	if b != nil && b.Scatter != nil {
 		scatter = b.Scatter
 	}
 	for _, sc := range scatter {
-		if err := s.ScatterSpawnPack(sc.Def, sc.Count+floor-1, floor, magicPm, rarePm); err != nil {
+		n := sc.Count + floor - 1
+		n += n * packsPct / 100
+		if err := s.ScatterSpawnPack(sc.Def, n, floor, magicPm, rarePm); err != nil {
 			return nil, fmt.Errorf("server: floor %d scatter: %w", floor, err)
 		}
 	}
 	// Set-piece fights at the stairs: every bossFloors-th floor the Barrow
 	// King (the telegraphed multi-stage boss), otherwise every
 	// guardianFloors-th floor a rare Bone Colossus. Both spawn two levels
-	// hot and leash tight: fight, or sneak the stairs at your peril.
-	if floor > 0 && floor%apexFloors == 0 {
+	// hot and leash tight: fight, or sneak the stairs at your peril. Side
+	// chambers don't repeat the set-piece — the trunk holds the guardians.
+	if floor > 0 && chamber == 0 && floor%apexFloors == 0 {
 		if _, err := s.SpawnRareLeveled(apexDef, farthestWalkable(s.W.Grid), floor+3); err != nil {
 			return nil, fmt.Errorf("server: floor %d apex: %w", floor, err)
 		}
-	} else if floor > 0 && floor%bossFloors == 0 {
+	} else if floor > 0 && chamber == 0 && floor%bossFloors == 0 {
 		// Boss floors alternate set-pieces: apex floors own the even
 		// multiples, so the remaining odd ones split by (floor/5)%4 —
 		// the King at 5, 25, 45…, the Ashen Warden at 15, 35, 55….
@@ -127,10 +152,13 @@ func (in *Instance) buildFloor(floor int) (*sim.Sim, error) {
 		if _, err := s.SpawnRareLeveled(def, farthestWalkable(s.W.Grid), floor+2); err != nil {
 			return nil, fmt.Errorf("server: floor %d boss: %w", floor, err)
 		}
-	} else if floor > 0 && floor%guardianFloors == 0 {
+	} else if floor > 0 && chamber == 0 && floor%guardianFloors == 0 {
 		if _, err := s.SpawnRareLeveled(guardianDef, farthestWalkable(s.W.Grid), floor+2); err != nil {
 			return nil, fmt.Errorf("server: floor %d guardian: %w", floor, err)
 		}
+	}
+	if err := s.ApplyFloorMods(monMods); err != nil {
+		return nil, fmt.Errorf("server: floor %d mods: %w", floor, err)
 	}
 	return s, nil
 }
@@ -154,12 +182,14 @@ func (in *Instance) buildHideout() *sim.Sim {
 // startNextRun, which carries the clients along.
 func (in *Instance) startRunWorld() error {
 	in.portalsLeft = in.cfg.Portals
+	in.route, in.chamber = 0, 0
+	in.portalRoute, in.portalChmbr = 0, 0
 	if in.cfg.StartFloor <= 0 {
 		in.sim = in.buildHideout()
 		in.floor = 0
 		in.portalFloor, in.portalPlaced = 1, false
 	} else {
-		s, err := in.buildFloor(in.cfg.StartFloor)
+		s, err := in.buildFloor(in.cfg.StartFloor, 0, 0)
 		if err != nil {
 			return err
 		}
@@ -180,11 +210,13 @@ func (in *Instance) startRunWorld() error {
 func (in *Instance) beginRun() {
 	g := in.sim.W.Grid
 	in.floor = 1
+	in.route, in.chamber = 0, 0
 	if in.best < 1 {
 		in.best = 1
 	}
 	in.stairs = farthestWalkable(g)
 	in.portalFloor, in.portalPos, in.portalPlaced = 1, g.Spawn, true
+	in.portalRoute, in.portalChmbr = 0, 0
 	in.portalsLeft = in.cfg.Portals
 }
 
@@ -196,13 +228,15 @@ func (in *Instance) startNextRun() {
 	in.run++
 	in.runSeed = deriveSeed(in.cfg.Seed, uint64(in.run))
 	in.portalsLeft = in.cfg.Portals
+	in.route, in.chamber = 0, 0
+	in.portalRoute, in.portalChmbr = 0, 0
 	if in.cfg.StartFloor <= 0 {
 		s := in.buildHideout()
 		in.portalFloor, in.portalPlaced = 1, false
 		in.swapWorld(s, 0, s.W.Grid.Spawn)
 		return
 	}
-	s, err := in.buildFloor(in.cfg.StartFloor)
+	s, err := in.buildFloor(in.cfg.StartFloor, 0, 0)
 	if err != nil {
 		log.Printf("server: new run: %v", err)
 		return
@@ -217,7 +251,7 @@ func (in *Instance) startNextRun() {
 // the portal anchor. At most one world swap happens per tick; whichever
 // fires first wins and the rest of this tick's requests are dropped (their
 // validation context is gone with the old world).
-func (in *Instance) runTick(fresh []protocol.EventSnap, descends, portals, plants []*client) {
+func (in *Instance) runTick(fresh []protocol.EventSnap, descends, portals, plants []*client, routes []routeWant) {
 	if in.run == 0 {
 		return
 	}
@@ -243,7 +277,31 @@ func (in *Instance) runTick(fresh []protocol.EventSnap, descends, portals, plant
 			if a == nil || a.Dead || space.Dist(a.Pos, in.stairs) > descendRange {
 				continue
 			}
-			in.descend()
+			// Modded depths offer the chart and wait for a route pick;
+			// clean early floors keep the classic instant descent.
+			offers := in.chartOffers()
+			if len(offers[0].mods) == 0 && len(offers) == 2 {
+				in.descendTo(offers[0])
+				swapped = true
+				break
+			}
+			frame, _ := json.Marshal(protocol.ServerMsg{Type: "chart", Chart: chartSnap(offers)})
+			if !c.send(frame, false) {
+				c.tr.Close()
+			}
+		}
+	}
+	if !swapped && in.floor > 0 {
+		for _, w := range routes {
+			a := in.sim.W.ActorByID(w.c.actor)
+			if a == nil || a.Dead || space.Dist(a.Pos, in.stairs) > descendRange {
+				continue
+			}
+			offers := in.chartOffers()
+			if w.choice < 0 || w.choice >= len(offers) {
+				continue
+			}
+			in.descendTo(offers[w.choice])
 			swapped = true
 			break
 		}
@@ -263,6 +321,7 @@ func (in *Instance) runTick(fresh []protocol.EventSnap, descends, portals, plant
 				continue
 			}
 			in.portalFloor, in.portalPos, in.portalPlaced = in.floor, a.Pos, true
+			in.portalRoute, in.portalChmbr = in.route, in.chamber
 			in.syntheticEvent("portal", int64(in.floor)*1000, "planted")
 			in.broadcastRun()
 		}
@@ -295,7 +354,7 @@ func (in *Instance) handleDeaths(dead []*client) {
 	}
 	if in.portalsLeft > 0 {
 		in.portalsLeft--
-		s, err := in.buildFloor(in.portalFloor)
+		s, err := in.buildFloor(in.portalFloor, in.portalRoute, in.portalChmbr)
 		if err != nil {
 			log.Printf("server: death eject: %v", err)
 			return
@@ -303,6 +362,7 @@ func (in *Instance) handleDeaths(dead []*client) {
 		if !in.portalPlaced { // defensive: deaths shouldn't precede placement
 			in.portalPos, in.portalPlaced = s.W.Grid.Spawn, true
 		}
+		in.route, in.chamber = in.portalRoute, in.portalChmbr
 		in.swapWorld(s, in.portalFloor, in.portalPos)
 		in.grantGrace()
 		in.syntheticEvent("death_eject", int64(in.portalsLeft)*1000, "")
@@ -331,16 +391,28 @@ func (in *Instance) grantGrace() {
 	in.surgery = true // replay: buffs granted outside Step
 }
 
-// descend swaps the instance one floor deeper, entering at the new floor's
-// spawn room.
+// descend takes the trunk route one floor down — the pre-chart descent,
+// kept as the shorthand tests and tools reach for.
 func (in *Instance) descend() {
-	s, err := in.buildFloor(in.floor + 1)
+	in.descendTo(routeOffer{floor: in.floor + 1})
+}
+
+// descendTo swaps the instance to a chart offer: one floor deeper on the
+// chosen route, or sideways into a chamber at the same depth (mods
+// stacked, depth held). Entry is the new world's spawn room.
+func (in *Instance) descendTo(o routeOffer) {
+	s, err := in.buildFloor(o.floor, o.route, o.chamber)
 	if err != nil {
 		log.Printf("server: descend: %v", err)
 		return
 	}
-	in.swapWorld(s, in.floor+1, s.W.Grid.Spawn)
-	in.syntheticEvent("descend", int64(in.floor)*1000, "")
+	in.route, in.chamber = o.route, o.chamber
+	in.swapWorld(s, o.floor, s.W.Grid.Spawn)
+	if o.side {
+		in.syntheticEvent("chamber", int64(o.floor)*1000, "")
+	} else {
+		in.syntheticEvent("descend", int64(o.floor-1)*1000, "")
+	}
 }
 
 // portalTravel handles one client's enter_portal request. From a dungeon
@@ -356,7 +428,7 @@ func (in *Instance) portalTravel(c *client) bool {
 		if space.Dist(a.Pos, in.sim.W.Grid.Spawn) > portalRange {
 			return false
 		}
-		s, err := in.buildFloor(in.portalFloor)
+		s, err := in.buildFloor(in.portalFloor, in.portalRoute, in.portalChmbr)
 		if err != nil {
 			log.Printf("server: portal return: %v", err)
 			return false
@@ -365,6 +437,7 @@ func (in *Instance) portalTravel(c *client) bool {
 		if !in.portalPlaced {
 			in.portalPos, in.portalPlaced = s.W.Grid.Spawn, true
 		}
+		in.route, in.chamber = in.portalRoute, in.portalChmbr
 		in.swapWorld(s, in.portalFloor, in.portalPos)
 		in.syntheticEvent("portal", int64(in.portalFloor)*1000, "return")
 		return true
@@ -449,6 +522,12 @@ func (in *Instance) runSnap() *protocol.RunSnap {
 	rs := &protocol.RunSnap{Floor: in.floor, Portals: in.portalsLeft, Run: in.run, Best: in.best}
 	if b := biomeForFloor(in.floor); b != nil {
 		rs.Biome = b.ID
+	}
+	if in.floor > 0 {
+		for _, m := range rollFloorMods(in.runSeed, in.floor, in.route, in.chamber,
+			modCountAt(in.floor, in.route, in.chamber)) {
+			rs.Mods = append(rs.Mods, m.Name)
+		}
 	}
 	var pp *space.Vec2
 	if in.floor == 0 {

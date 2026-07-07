@@ -381,6 +381,25 @@ func (a *Actor) ApplyMonsterMods(r Rarity, mods []*MonsterModDef) {
 	}
 }
 
+// ApplyExtraMods grants additional permanent modifier packages under
+// MonsterModSource without touching rarity — the descent's floor
+// modifiers ride this. Packages append to Mods, so saves restore them by
+// ID exactly like rarity mods. Callers refill pools afterwards.
+func (a *Actor) ApplyExtraMods(mods []*MonsterModDef) {
+	a.Mods = append(a.Mods, mods...)
+	for _, md := range mods {
+		for _, m := range md.Mods {
+			a.Sheet.Add(stats.Modifier{
+				Stat:   m.Stat,
+				Layer:  m.Layer,
+				Value:  m.Value,
+				Tags:   m.Tags,
+				Source: MonsterModSource,
+			})
+		}
+	}
+}
+
 // SetLevel sets the actor's level (clamped to ≥1) and rebuilds its
 // per-level growth modifiers: Def.PerLevel scaled by (level-1) under
 // LevelModSource. Pools are not touched — level-up rewards are the caller's

@@ -11,7 +11,7 @@ package protocol
 // v18 unifies two parallel branches that both claimed v16 (gems on main,
 // identity on the multiplayer branch; parties took v17) — jumping past all
 // of them so no deployed client can match a wrong meaning.
-const Version = 26 // v26: biome id on the run snap (v25: forge shards + 8-kind orb wallet)
+const Version = 27 // v27: descent chart + floor mods (v26: biome ids)
 
 // Command is the wire form of player intent. Kind is one of "move",
 // "use_skill", "stop", the item verbs "pickup", "equip", "unequip",
@@ -263,6 +263,32 @@ type RunSnap struct {
 	// Biome is the current floor's depth-band id ("" in the hideout); the
 	// client maps it to a palette, a display name, and an ambient tone.
 	Biome string `json:"biome,omitempty"`
+	// Mods are the current floor's modifier names, display-ready.
+	Mods []string `json:"mods,omitempty"`
+}
+
+// ChartSnap is the descent chart: the routes the stairs offer. Sent as a
+// "chart" frame to a client standing at the stairs; the pick comes back
+// as a "route" command whose Choice indexes Routes.
+type ChartSnap struct {
+	Routes []RouteSnap `json:"routes"`
+}
+
+// RouteSnap is one exit on the chart. Side marks a chamber that holds the
+// current depth (stacked mods, juiced rewards) instead of descending.
+type RouteSnap struct {
+	Choice int            `json:"choice"`
+	Floor  int            `json:"floor"`
+	Side   bool           `json:"side,omitempty"`
+	Biome  string         `json:"biome,omitempty"`
+	Mods   []FloorModSnap `json:"mods,omitempty"`
+}
+
+// FloorModSnap is one floor modifier as the chart shows it: a name and a
+// reward weight (pips).
+type FloorModSnap struct {
+	Name   string `json:"name"`
+	Reward int    `json:"reward,omitempty"`
 }
 
 // PassiveSnap is one milestone-passive choice as the client sees it: the
@@ -322,6 +348,9 @@ type ServerMsg struct {
 	// "sheet" frame in answer to a "sheet" verb (the C panel). Derived
 	// data the client can't compute — the stat engine lives server-side.
 	Sheet *SheetSnap `json:"sheet,omitempty"`
+	// Chart rides "chart" frames: the descent routes offered to a client
+	// standing at the stairs (floor mods, reward weights, side chambers).
+	Chart *ChartSnap `json:"chart,omitempty"`
 }
 
 // SheetSnap is one player's character sheet: evaluated stat lines plus

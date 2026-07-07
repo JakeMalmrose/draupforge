@@ -520,6 +520,10 @@ type ContentDB struct {
 	// MonsterMods is ordered — rarity rolls index into it, so reordering
 	// is a replay-relevant change (same rule as the affix table).
 	MonsterMods []*MonsterModDef
+	// FloorMods are modifier packages applied floor-wide by the descent's
+	// floor modifiers — same shape as MonsterMods but never part of the
+	// rarity roll pool, so appending here can't shift replay streams.
+	FloorMods []*MonsterModDef
 	// Passives is ordered for stable presentation; lookups go by ID.
 	Passives []*PassiveDef
 	// Supports is ordered — uncut-gem drafts roll indices into it, so
@@ -557,8 +561,15 @@ func (db *ContentDB) Support(id string) *SupportDef {
 
 // MonsterMod resolves a rarity-modifier ID; nil if unknown. Linear scan —
 // the table is a handful of entries and saves resolve it once at load.
+// Floor-mod packages resolve here too: actors save every package on their
+// Mods list by ID, whichever table it came from.
 func (db *ContentDB) MonsterMod(id string) *MonsterModDef {
 	for _, m := range db.MonsterMods {
+		if m.ID == id {
+			return m
+		}
+	}
+	for _, m := range db.FloorMods {
 		if m.ID == id {
 			return m
 		}
