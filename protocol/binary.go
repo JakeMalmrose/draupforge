@@ -251,6 +251,7 @@ func encodeActors(w *bwriter, base, view []ActorSnap) {
 				} else {
 					w.u8(0)
 				}
+				w.uv(uint64(g.Cd))
 			}
 		}
 		if c.mask&actorTelegraph != 0 {
@@ -418,6 +419,7 @@ func decodeActors(r *breader, base []ActorSnap) []ActorSnap {
 				}
 				g.ManaCost = r.sv()
 				g.On = r.u8() == 1
+				g.Cd = uint32(r.uv())
 				a.Gems = append(a.Gems, g)
 			}
 		}

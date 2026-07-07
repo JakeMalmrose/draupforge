@@ -71,6 +71,18 @@ func Upkeep(w *core.World) {
 		if a.StunTicks > 0 {
 			a.StunTicks--
 		}
+		// Skill cooldowns burn down here too, compacting at zero — slice
+		// order is start order, deterministic.
+		if len(a.Cooldowns) > 0 {
+			out := a.Cooldowns[:0]
+			for _, cd := range a.Cooldowns {
+				cd.TicksLeft--
+				if cd.TicksLeft > 0 {
+					out = append(out, cd)
+				}
+			}
+			a.Cooldowns = out
+		}
 		// Short-lived minions burn down here; expiry is a quiet despawn
 		// (no death event, no loot, no XP), swept by compaction like a
 		// cap despawn.

@@ -98,6 +98,12 @@ func (w *World) Hash() uint64 {
 				s.u64(v)
 			}
 		}
+		// Cooldowns: conditional like the volley ring — actors that never
+		// cast a gated skill keep their old hash stream.
+		for i := range a.Cooldowns {
+			s.str(a.Cooldowns[i].Skill)
+			s.u64(uint64(a.Cooldowns[i].TicksLeft))
+		}
 		s.u64(uint64(a.Level))
 		s.i64(a.XP)
 		// Rarity hashes only when rolled — normal actors keep the

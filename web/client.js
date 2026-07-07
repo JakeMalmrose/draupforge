@@ -1894,6 +1894,10 @@ const SKILL_META = {
     desc: "Hex everything near your cursor: fire resistance stripped a quarter — below zero, fire burns extra. One curse per target." },
   enfeeble: { color: "#9a6ae0", aimed: true, kind: "Curse",
     desc: "Hex everything near your cursor into weakness: a fifth less damage dealt. One curse per target." },
+  incinerate: { color: "#ff9a4a", aimed: true, kind: "Channel",
+    desc: "Hold a gout of flame on where you aimed — it repeats while your mana feeds it. Moving, casting, or stopping breaks the channel." },
+  blink: { color: "#7ad4e0", aimed: true, kind: "Movement",
+    desc: "Vanish and reappear toward your cursor — walls stop you honestly. Three seconds between blinks." },
 };
 
 // gemIconSVG is the one gem glyph, colored per skill: draft cards, the gem
@@ -1933,21 +1937,25 @@ function supportInfo(id) {
 // (cut, level, socket, support — anything that renames or re-costs a slot).
 function renderSkillBar(self) {
   const gems = (self && self.gems) || [];
-  const key = JSON.stringify(gems.map((g) => [g.skill, g.level, g.mana_cost, g.on]));
+  // Cooldowns render at whole-second grain so the bar rebuilds once a
+  // second while one runs, not thirty times.
+  const key = JSON.stringify(gems.map((g) => [g.skill, g.level, g.mana_cost, g.on, Math.ceil((g.cd || 0) / 30)]));
   if (key === skillBarKey) return;
   skillBarKey = key;
   skillBarEl.replaceChildren();
   gems.slice(0, GEM_KEYS.length).forEach((g, i) => {
     const meta = SKILL_META[g.skill] || { color: "#cfc9bf", aimed: true };
     const btn = document.createElement("button");
-    btn.className = g.on ? "skill-slot aura-on" : "skill-slot";
+    const cdS = Math.ceil((g.cd || 0) / 30);
+    btn.className = "skill-slot" + (g.on ? " aura-on" : "") + (cdS > 0 ? " on-cd" : "");
     btn.id = `slot-${i}`;
     btn.title = `${skillName(g.skill)} — level ${g.level}, ${fmtMana(g.mana_cost)} mana`;
     btn.innerHTML =
       `<div class="glyph">${gemIconSVG(meta.color, { size: 22 })}</div>` +
       `<span class="slot-name">${skillName(g.skill)}</span>` +
       `<span class="key">${GEM_KEYS[i].toUpperCase()}</span>` +
-      `<span class="gem-level">${g.level}</span>`;
+      `<span class="gem-level">${g.level}</span>` +
+      (cdS > 0 ? `<span class="cd">${cdS}</span>` : "");
     btn.onclick = () => castGem(i);
     skillBarEl.appendChild(btn);
   });

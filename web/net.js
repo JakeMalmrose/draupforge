@@ -189,6 +189,7 @@ function decodeViewFrame(buf, baseFor) {
         for (let k = r.uv(); k > 0; k--) g.supports.push(r.str());
         g.mana_cost = r.sv();
         g.on = r.u8() === 1;
+        g.cd = r.uv();
         a.gems.push(g);
       }
     }

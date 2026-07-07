@@ -11,9 +11,9 @@ tests, and session-log entries older than a few sessions (git history is the
 archive). If this file outgrows ~150 lines, it has stopped being a status doc
 and started being a changelog — cut it back.
 
-**Last updated: 2026-07-06** (session 76: curses — one-hex-per-target
-debuffs on the buff machinery; Track 1 item 3. Track work accumulates on
-the `track1-buildcraft` PR: separate commits, merged when the track is done)
+**Last updated: 2026-07-06** (session 77: channelling + blink — the action
+model's deliberate growth, and the first cooldown; Track 1 item 4. Track
+work accumulates on the `track1-buildcraft` PR, merged when the track ends)
 
 ## Where things stand
 
@@ -76,6 +76,7 @@ All foundational machinery from DESIGN.md is real, not stubbed:
 | Uniques: fixed-identity chase items (4 in content) with shape stats nothing else rolls (ExtraProjectiles/ExtraChains — the skill system reads them off the sheet); UniquePermille per table, orange styling + authored mod lines on the wire (v20); orbs refuse them; save v11 | `sim/items`, `sim/stats`, `content/`, `web/` | done, tested, verified live |
 | Currency: orb wallet (transmute/alch/chaos/jeweller) banked straight to the killer; `apply_orb` crafts bag items | `sim/items`, `web/` | done, tested |
 | Gems: cast only from cut gems; a fresh character spawns with `StartingUncut` draft-of-3 gems instead of a fixed starter; uncut drops carry a draft of 3 at the dier's level (cap 20); supports fold into the socketed skill's queries only (more/less, added flat, speed, mana, fans, chain, conversion); cast contexts bake at use; save v9 | `sim/core/gems.go`, `sim/items/gems.go`, `content/supports.go`, `web/` | done, tested, verified live |
+| Channelling + cooldowns: `ChannelTicks` skills hold in `PhaseChannel` after the windup's first shot, repeating the effect every use-time-bound interval while `ChannelMana` feeds it; a channel is NOT a commitment — its owner's next move/skill/stop command breaks it (stun too, free); `Actor.Cooldowns` (save v18, conditionally hashed, zone-local — never transfers) gates `CooldownTicks` skills at the command gate; `SkillBlink` teleports range-clamped + wall-honest (far-to-near ClearLine sampling); wire v24 GemSnap.Cd + "channel:" action string; the bar dims and counts down | `sim/skills`, `sim/sim.go`, `sim/core`, `content/`, `web/` | done, tested, verified live |
 | Curses: hex BuffDefs (`Curse` flag) on the ordinary buff machinery — SkillCurse casts hex every hostile within AoERadius of the aim (clamped to Range, no RNG, no hits); one curse per target, newest evicts; negative resistance now amplifies (hit + DoT mitigation gates read `res != 0` — inert for pre-curse content); AilCursed wire bit (64), EvCurse; the bone hexer is the support monster that hexes YOU | `sim/combat/buff.go`, `sim/skills`, `content/`, `web/` | done, tested, verified live |
 | Auras: SkillAura toggle gems — while on, AuraMods sit on the caster's sheet AND every owned minion's (no radius, by design), max mana reserved via More(-Reserve); event-driven application (toggle, DrainSpawns, injection — no per-tick scans); AuraOn is durable gem state (save v17, hashed, transfers; wire v23 carries it for the bar); gem replace/level keep applied mods honest; +5%/gem-level effect | `sim/core/aura.go`, `sim/skills`, `content/`, `web/` | done, tested, verified live |
 | Progression: leveled XP on kill, quadratic curve, cap 50, PerLevel mods, ding heal | `sim/progress` | done, tested |
@@ -98,7 +99,7 @@ All foundational machinery from DESIGN.md is real, not stubbed:
 | Minions: `Actor.Owner` (zone-local, saved+hashed), kill attribution up the chain (`World.CreditFor` — XP/flasks/orbs pay the summoner), `minion_melee` heel AI (mobile leash on the owner), `SkillSummon` w/ cap-despawns-oldest; Summon Skeleton cuttable gem (cap 3, minions at gem level); save v12 | `sim/core`, `sim/ai`, `sim/skills`, `content/`, `web/` | done, tested, verified live |
 | Phase order + command validation | `sim/sim.go` | done — this IS the determinism contract |
 | Wire types: versioned welcome (v18), JSON snapshots, binary delta codec | `protocol/` | done, tested |
-| Content tables | `content/` | 24 skills (12 cuttable incl. 2 auras + 2 curses, 4 staged), 15 supports, 13 actors (3 bosses), 36 affixes (ILvl-tiered), 9 bases, 5 uniques, 8 drop tables, 4 monster mods, 7 buffs (3 curses) |
+| Content tables | `content/` | 26 skills (14 cuttable incl. 2 auras + 2 curses + channel + blink, 4 staged), 15 supports, 13 actors (3 bosses), 36 affixes (ILvl-tiered), 9 bases, 5 uniques, 8 drop tables, 4 monster mods, 7 buffs (3 curses) |
 | Debug client + determinism/golden replay tests | `cmd/headless`, `sim/sim_test.go` | done |
 
 ## Invariants the code currently honors (don't break casually)
@@ -211,7 +212,9 @@ load-bearing (top entry: the action model is one-thing-at-a-time).
   auras reserve 35% each (multiplicative), Anger +5 flat fire / Determination
   50% inc armour, aura effect +5% per gem level; curses 8s (flammability
   -25% fire res, enfeeble 20% less dealt, weakness +20% taken), player
-  curse AoE 3u / range 10u, hexer hex 2.5u / 9u on a slow 1.5s cycle.
+  curse AoE 3u / range 10u, hexer hex 2.5u / 9u on a slow 1.5s cycle;
+  incinerate 5 gouts/s at 2 mana each (4 up front), 4–7 fire ~5.6u reach;
+  blink 7u range, 3s cooldown, 8 mana.
 
 ## Feature plan
 
@@ -235,6 +238,26 @@ starting either track. Jake's balance pass over the numbers stays open.
 
 ## Session log
 
+- **2026-07-06 (77)** — Channelling + blink: Track 1 item 4, RISKS #1's
+  named gaps grown on purpose. Channel: `ChannelTicks > 0` skills fire
+  their first effect at the windup's end then hold in the new
+  `PhaseChannel`, repeating every interval — bound at use time in the
+  otherwise-unused RecoveryTicks slot (speeds bind at use, same rule as
+  everything) — while `ChannelMana` (gem/support-scaled, `ChannelCost`)
+  is paid per repeat; starvation ends it. The deliberate semantics: a
+  channel is interruptible BY ITS OWNER — move/use_skill/stop commands
+  break it and process (windup/recovery stay committed) — and stun breaks
+  it for free. Cooldowns: `Actor.Cooldowns` slice (start order), checked
+  and started at the command gate, decremented in Upkeep, save v18 +
+  conditional hash, deliberately zone-local (transfers arrive clear).
+  Blink (`SkillBlink`): teleport toward the aim, range-clamped, then the
+  furthest of 16 line samples with a walkable landing AND ClearLine from
+  the start — never through a wall; all blocked = fizzle in place. Wire
+  v24: GemSnap.Cd (bar dims + whole-second countdown), "channel:" action
+  string. Content: Incinerate (channelled flamethrower — LMP fans it) and
+  Blink, cuttable (pool 12→14, goldens re-recorded). Verified live: a TCP
+  client channelled for 3s (projectiles flowing, mana draining), a move
+  command broke it, blink jumped exactly 7u with cd:63 on the wire.
 - **2026-07-06 (76)** — Curses: Track 1 item 3, on the buff machinery
   exactly as the roadmap hoped. A curse is a `BuffDef{Curse: true}`:
   applied whole, refreshed whole, expired by TickStatuses, saved/hashed by

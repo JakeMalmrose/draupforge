@@ -286,7 +286,10 @@ func applyCommands(w *core.World, cmds []core.Command) {
 		switch c.Kind {
 		case core.CmdMove:
 			if a.Action.Kind == core.ActionSkill {
-				continue // committed: no canceling windup/recovery in v1
+				if a.Action.Phase != core.PhaseChannel {
+					continue // committed: no canceling windup/recovery in v1
+				}
+				a.Action = core.Action{} // a channel breaks for its owner's next order
 			}
 			if w.Grid == nil {
 				a.Action = core.Action{Kind: core.ActionMove, MoveTarget: c.Point}
@@ -306,7 +309,8 @@ func applyCommands(w *core.World, cmds []core.Command) {
 			a.Action = core.Action{Kind: core.ActionMove, MoveTarget: c.Point, Path: path}
 
 		case core.CmdStop:
-			if a.Action.Kind == core.ActionMove {
+			if a.Action.Kind == core.ActionMove ||
+				(a.Action.Kind == core.ActionSkill && a.Action.Phase == core.PhaseChannel) {
 				a.Action = core.Action{}
 			}
 
@@ -375,10 +379,16 @@ func applyCommands(w *core.World, cmds []core.Command) {
 
 		case core.CmdUseSkill:
 			if a.Action.Kind == core.ActionSkill {
-				continue
+				if a.Action.Phase != core.PhaseChannel {
+					continue
+				}
+				a.Action = core.Action{} // a channel yields to the next cast
 			}
 			sk := w.Content.Skills[c.Skill]
 			if sk == nil {
+				continue
+			}
+			if sk.CooldownTicks > 0 && a.OnCooldown(sk.ID) {
 				continue
 			}
 			// Cut gems first (the player path — gem level and supports come
@@ -396,9 +406,16 @@ func applyCommands(w *core.World, cmds []core.Command) {
 			}
 			speed := speedWithSupports(a, sk, ctx)
 			a.Mana -= cost
+			a.StartCooldown(sk.ID, sk.CooldownTicks)
 			if sk.Kind == core.SkillStaged {
 				skills.BeginStaged(w, a, sk, ctx, c.Point, c.TargetID, speed)
 				continue
+			}
+			// Channelled skills bind their repeat interval where recovery
+			// would live — both are use-time speed-bound tails.
+			tail := sk.RecoveryTicks
+			if sk.ChannelTicks > 0 {
+				tail = sk.ChannelTicks
 			}
 			a.Action = core.Action{
 				Kind:          core.ActionSkill,
@@ -407,7 +424,7 @@ func applyCommands(w *core.World, cmds []core.Command) {
 				TargetID:      c.TargetID,
 				Phase:         core.PhaseWindup,
 				TicksLeft:     skills.ScaleTicks(sk.WindupTicks, speed),
-				RecoveryTicks: skills.ScaleTicks(sk.RecoveryTicks, speed),
+				RecoveryTicks: skills.ScaleTicks(tail, speed),
 				Gem:           ctx,
 			}
 		}

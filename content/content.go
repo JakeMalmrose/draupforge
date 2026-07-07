@@ -891,6 +891,47 @@ func skillDefs() []*core.SkillDef {
 		CurseBuff:     "weakness",
 	}
 
+	// Incinerate: the channel that ships the channelling machinery. Short
+	// gouts of flame while held — each repeat is a full projectile cast
+	// (supports fold in: LMP makes it a fan), fed by mana per repeat.
+	incinerate := &core.SkillDef{
+		ID:            "incinerate",
+		Name:          "Incinerate",
+		Cuttable:      true,
+		Kind:          core.SkillProjectile,
+		Tags:          stats.T(stats.TagSpell, stats.TagProjectile, stats.TagFire),
+		Effectiveness: fm.One,
+		ManaCost:      fm.FromInt(4), // the spark; the burn is per repeat
+		ChannelTicks:  6,             // 5 gouts a second at base speed
+		ChannelMana:   fm.FromInt(2),
+		WindupTicks:   9,
+		SpeedStat:     stats.CastSpeed,
+		ProjSpeed:     fm.FromInt(14),
+		ProjTTL:       12, // ~5.6u — a flamethrower, not a fireball
+		ProjRadius:    fm.FromMilli(400),
+		ExplodeRadius: fm.FromMilli(1200),
+		IgniteChance:  fm.FromMilli(150),
+	}
+	incinerate.BaseMin[core.Fire] = fm.FromInt(4)
+	incinerate.BaseMax[core.Fire] = fm.FromInt(7)
+
+	// Blink: the reposition you can't spam. Teleports toward the aim,
+	// range-clamped and wall-honest, on a real cooldown — the first
+	// cooldown in the game.
+	blink := &core.SkillDef{
+		ID:            "blink",
+		Name:          "Blink",
+		Cuttable:      true,
+		Kind:          core.SkillBlink,
+		Tags:          stats.T(stats.TagSpell),
+		ManaCost:      fm.FromInt(8),
+		CooldownTicks: 90, // 3s
+		WindupTicks:   3,  // a blink, not a cast
+		RecoveryTicks: 3,
+		SpeedStat:     stats.CastSpeed,
+		Range:         fm.FromInt(7),
+	}
+
 	// The carrion husk's own slam: zombie_slam's arc with rot on it — the
 	// monster that teaches poison (stacking chaos DoT).
 	putridSlam := &core.SkillDef{
@@ -908,7 +949,7 @@ func skillDefs() []*core.SkillDef {
 	putridSlam.BaseMin[core.Physical] = fm.FromInt(8)
 	putridSlam.BaseMax[core.Physical] = fm.FromInt(12)
 
-	return []*core.SkillDef{fireball, slam, frostNova, spark, boneArrow, adrenaline, claws, arcBolt, arc, colossusSlam, boneVolley, barrowSlam, graveVolley, graveStorm, summonSkeleton, sweep, tyrantQuake, raiseThralls, summonMarksman, summonSpirit, spiritBite, putridSlam, anger, determination, flammability, enfeeble, hexWeakness}
+	return []*core.SkillDef{fireball, slam, frostNova, spark, boneArrow, adrenaline, claws, arcBolt, arc, colossusSlam, boneVolley, barrowSlam, graveVolley, graveStorm, summonSkeleton, sweep, tyrantQuake, raiseThralls, summonMarksman, summonSpirit, spiritBite, putridSlam, anger, determination, flammability, enfeeble, hexWeakness, incinerate, blink}
 }
 
 func baseStats(pairs map[stats.StatID]fm.Fixed) [stats.StatCount]fm.Fixed {

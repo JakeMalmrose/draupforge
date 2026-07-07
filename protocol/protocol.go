@@ -11,7 +11,7 @@ package protocol
 // v18 unifies two parallel branches that both claimed v16 (gems on main,
 // identity on the multiplayer branch; parties took v17) — jumping past all
 // of them so no deployed client can match a wrong meaning.
-const Version = 23 // v23: aura toggle state on gem snaps (v22: character-sheet frames)
+const Version = 24 // v24: gem cooldown ticks (v23: aura toggle state on gem snaps)
 
 // Command is the wire form of player intent. Kind is one of "move",
 // "use_skill", "stop", the item verbs "pickup", "equip", "unequip",
@@ -188,6 +188,9 @@ type GemSnap struct {
 	// On marks a running aura (SkillAura gems only) — the bar renders the
 	// toggle state.
 	On bool `json:"on,omitempty"`
+	// Cd is the remaining cooldown in ticks (0 = ready) — the bar renders
+	// the lockout without re-deriving cooldown math.
+	Cd uint32 `json:"cd,omitempty"`
 }
 
 // SupportSnap is one support gem's static content: what the cutting/socket

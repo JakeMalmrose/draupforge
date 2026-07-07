@@ -97,6 +97,10 @@ const (
 	// BuffDef on the ordinary pending-buff queue. One curse per target:
 	// applying a second evicts the first. No hits, no RNG.
 	SkillCurse
+	// SkillBlink teleports the caster toward the aim point: clamped to
+	// Range, stopped by walls (furthest clear, walkable landing along the
+	// line). Usually cooldown-gated — the reposition you can't spam.
+	SkillBlink
 )
 
 // StageEffect is what fires when a stage's countdown ends.
@@ -216,6 +220,20 @@ type SkillDef struct {
 	// minion, values scaled by GemAuraScale of the gem's level.
 	Reserve  fm.Fixed
 	AuraMods []BuffMod
+
+	// Channel fields: ChannelTicks > 0 makes the skill channelled — after
+	// the windup fires the first effect, the action holds in PhaseChannel
+	// and repeats the effect every interval (bound at use time, speed-
+	// scaled) as long as ChannelMana is paid per repeat. The channel
+	// breaks on a new move/skill command, a stop, a stun, or an unpaid
+	// repeat. ManaCost is still the up-front cost of starting.
+	ChannelTicks uint32
+	ChannelMana  fm.Fixed
+
+	// CooldownTicks > 0 gates re-use: the command validator refuses the
+	// skill while the caster's cooldown for it runs. Started on cast
+	// acceptance, never speed-scaled, zone-local (transfers arrive clear).
+	CooldownTicks uint32
 
 	// SelfBuff names the BuffDef a SkillBuff skill applies to its caster.
 	SelfBuff string

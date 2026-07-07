@@ -112,6 +112,7 @@ func (s *Sim) BuildSnapshotFor(viewer core.EntityID, radius fm.Fixed, events []p
 			gs := protocol.GemSnap{
 				Skill: g.Skill.ID, Level: g.Level, Sockets: g.Sockets,
 				ManaCost: g.ManaCost().Milli(), On: g.AuraOn,
+				Cd: a.CooldownLeft(g.Skill.ID),
 			}
 			for _, sup := range g.Supports {
 				if sup == nil {
@@ -271,6 +272,9 @@ func actionString(a core.Action) string {
 		}
 		if a.Phase == core.PhaseWindup {
 			return "windup:" + a.Skill.ID
+		}
+		if a.Phase == core.PhaseChannel {
+			return "channel:" + a.Skill.ID
 		}
 		return "recovery:" + a.Skill.ID
 	default:

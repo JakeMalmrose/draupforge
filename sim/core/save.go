@@ -22,7 +22,7 @@ import (
 // SaveVersion gates restores: a format change bumps it, and old files fail
 // loudly instead of misloading. Saves are durable state — unlike replays,
 // they must never depend on re-execution of the code that wrote them.
-const SaveVersion = 17 // v17: aura toggle state on gems (v16: anti-shotgun volleys)
+const SaveVersion = 18 // v18: skill cooldowns (v17: aura toggle state on gems)
 
 type saveFile struct {
 	Version     int              `json:"version"`
@@ -105,6 +105,11 @@ type dotSave struct {
 	Source    uint64   `json:"source"`
 }
 
+type cdSave struct {
+	Skill     string `json:"skill"`
+	TicksLeft uint32 `json:"ticks_left"`
+}
+
 type statusSave struct {
 	Kind      uint8    `json:"kind"`
 	Buff      string   `json:"buff,omitempty"` // BuffDef ID for StatusBuff entries
@@ -140,7 +145,8 @@ type actorSave struct {
 	Stun      uint32       `json:"stun,omitempty"`     // stun lockout+immunity ticks
 	Lifespan  uint32       `json:"lifespan,omitempty"` // short-lived minion ticks left
 	Volleys   []uint64     `json:"volleys,omitempty"`  // anti-shotgun memory, newest first
-	Equipment []*itemSave  `json:"equipment"`          // EquipSlotCount entries, null = empty
+	Cooldowns []cdSave     `json:"cooldowns,omitempty"`
+	Equipment []*itemSave  `json:"equipment"` // EquipSlotCount entries, null = empty
 	Inventory []itemSave   `json:"inventory,omitempty"`
 }
 
@@ -250,6 +256,9 @@ func encodeActor(a *Actor) actorSave {
 		if v != 0 {
 			as.Volleys = append(as.Volleys, v)
 		}
+	}
+	for _, cd := range a.Cooldowns {
+		as.Cooldowns = append(as.Cooldowns, cdSave{Skill: cd.Skill, TicksLeft: cd.TicksLeft})
 	}
 	as.Action.GemLevel = a.Action.Gem.Level
 	as.Action.GemSupports = supportIDs(a.Action.Gem.Supports)
@@ -470,6 +479,9 @@ func decodeActor(db *ContentDB, affixes map[string]*AffixDef, as actorSave) (*Ac
 			break
 		}
 		a.RecentVolleys[i] = v
+	}
+	for _, cd := range as.Cooldowns {
+		a.Cooldowns = append(a.Cooldowns, SkillCooldown{Skill: cd.Skill, TicksLeft: cd.TicksLeft})
 	}
 	if as.Action.Skill != "" {
 		sk := db.Skills[as.Action.Skill]

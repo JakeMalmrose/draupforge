@@ -23,6 +23,11 @@ type ActionPhase uint8
 const (
 	PhaseWindup ActionPhase = iota
 	PhaseRecovery
+	// PhaseChannel: the held loop of a channelled skill. TicksLeft counts
+	// down to the next repeat; the interval lives in RecoveryTicks (bound
+	// at use time like any recovery). Unlike windup/recovery, a channel is
+	// NOT a commitment — new move/skill commands break it and process.
+	PhaseChannel
 )
 
 // Action is what an actor is currently doing. One action at a time; skill
@@ -57,6 +62,42 @@ type Action struct {
 	// Gem is the level/support context baked at use time; zero for
 	// monsters and gem-less casts.
 	Gem GemCtx
+}
+
+// SkillCooldown is one running cooldown: the skill it gates and the ticks
+// until it clears.
+type SkillCooldown struct {
+	Skill     string
+	TicksLeft uint32
+}
+
+// OnCooldown reports whether the skill is still gated.
+func (a *Actor) OnCooldown(skillID string) bool {
+	for i := range a.Cooldowns {
+		if a.Cooldowns[i].Skill == skillID {
+			return true
+		}
+	}
+	return false
+}
+
+// StartCooldown begins a cooldown for the skill. Callers check OnCooldown
+// first; a duplicate entry would double-gate harmlessly but never happens.
+func (a *Actor) StartCooldown(skillID string, ticks uint32) {
+	if ticks == 0 {
+		return
+	}
+	a.Cooldowns = append(a.Cooldowns, SkillCooldown{Skill: skillID, TicksLeft: ticks})
+}
+
+// CooldownLeft returns the remaining ticks for the skill (0 = ready).
+func (a *Actor) CooldownLeft(skillID string) uint32 {
+	for i := range a.Cooldowns {
+		if a.Cooldowns[i].Skill == skillID {
+			return a.Cooldowns[i].TicksLeft
+		}
+	}
+	return 0
 }
 
 // DoT is an active damage-over-time effect. DoTs are not hits — they skip
@@ -169,6 +210,11 @@ type Actor struct {
 	// cast damages a target once; projectile TTLs are short, so a tiny
 	// ring is plenty. Zone-local combat state like StunTicks.
 	RecentVolleys [4]uint64
+
+	// Cooldowns holds the running skill cooldowns, in start order —
+	// decremented in Upkeep, compacted at zero. Zone-local like StunTicks:
+	// transfers arrive with everything off cooldown.
+	Cooldowns []SkillCooldown
 
 	// Equipment by concrete slot; nil = empty. Equipped items grant their
 	// affixes as sheet modifiers sourced by the item's ID.
