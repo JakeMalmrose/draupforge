@@ -12,3 +12,6 @@ go.work.sum
 .DS_Store
 .idea/
 .vscode/
+
+# Server-generated local state
+identities.json

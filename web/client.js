@@ -18,7 +18,8 @@ const VIEW_HISTORY = 32;   // kept as delta baselines; matches the server cap
 let ws = null;
 let myId = 0;
 let gen = 0;                // welcome generation; acks echo it
-let myName = "";            // our identity name ("" = guest)
+let myName = "";            // our character's name ("" = guest)
+let myChar = "";            // roster pick sent at connect ("" = server default)
 let roster = new Map();     // actor id → identity name, server-maintained
 let guestMode = false;      // the join screen chose "play as guest"
 let fatalError = false;     // server refused us; keep that overlay on close
@@ -70,6 +71,7 @@ function connect() {
   const wsProto = location.protocol === "https:" ? "wss" : "ws";
   const params = new URLSearchParams(location.search);
   if (guestMode) params.set("guest", "1");
+  else if (myChar) params.set("char", myChar);
   const qs = params.toString();
   ws = new WebSocket(`${wsProto}://${location.host}/ws${qs ? "?" + qs : ""}`);
   ws.binaryType = "arraybuffer";
@@ -109,10 +111,10 @@ function connect() {
         renderCharSheet();
       } else if (msg.type === "error") {
         // Refused (duplicate session, say). Back to the join screen, which
-        // offers the ways forward: another name, or guest mode.
+        // offers the ways forward: another character, or guest mode.
         fatalError = true;
-        document.getElementById("join").classList.remove("hidden");
         document.getElementById("join-error").textContent = msg.error || "refused";
+        showJoinScreen();
       } else if (msg.type === "snapshot") {
         onView(jsonToView(msg.snapshot)); // ?format=json debug wire
       }
@@ -151,6 +153,13 @@ function applyRoster(obj) {
 function resetWorld(msg) {
   myId = msg.actor;
   myName = msg.name || "";
+  // Remember which character this browser session is playing, so a reload
+  // reconnects straight in (and lands the grace-window reconnect) instead
+  // of detouring through character select.
+  if (myName) {
+    myChar = myName;
+    try { sessionStorage.setItem("draupforge_char", myName); } catch {}
+  }
   applyRoster(msg.roster);
   gen = msg.gen || 0;
   worldMap = msg.map || null;
@@ -2710,9 +2719,10 @@ function renderPanel(self, force) {
 
 // --- character deletion: the reset lever. Named players, offered in the
 // hideout only (like the stash — a bricked run always ends back home).
-// Deleting erases the identity server-side and frees the name, which is
-// the whole point: reusing an old name with a fresh character was
-// impossible. The server authenticates by cookie; the panel gating is UX.
+// Deleting erases one roster character server-side and frees the name;
+// the account, its other characters, and the shared stash survive unless
+// this was the last one. The server authenticates by cookie; the panel
+// gating is UX.
 
 const charSectionEl = document.getElementById("character-section");
 const confirmEl = document.getElementById("confirm");
@@ -2721,23 +2731,48 @@ function renderCharacterSection() {
   charSectionEl.classList.toggle("hidden", !(myName && runState && runState.floor === 0));
 }
 
-document.getElementById("delete-character").onclick = () => {
-  // myName passed the server's name regexp (letters/digits/space/-/_),
-  // so inlining it is safe — same trust as the tooltip.
-  document.getElementById("confirm-text").innerHTML =
-    `Delete <b>${myName}</b> forever?<br>Character, stash, and progress are erased. ` +
-    `The name becomes claimable again.`;
+// askConfirm arms the shared confirmation overlay: one question, one
+// destructive yes. Names passed the server's claim regexp, so inlining
+// them in html is safe — same trust as the tooltip.
+function askConfirm(html, onYes) {
+  document.getElementById("confirm-text").innerHTML = html;
+  document.getElementById("confirm-yes").onclick = () => {
+    confirmEl.classList.add("hidden");
+    onYes();
+  };
   confirmEl.classList.remove("hidden");
+}
+
+// forgetChar asks the server to erase one character by name.
+async function forgetChar(name) {
+  try {
+    await fetch("/api/forget", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }),
+    });
+  } catch {} // server unreachable: nothing was deleted; the UI re-syncs on reload
+  try {
+    if (sessionStorage.getItem("draupforge_char") === name) {
+      sessionStorage.removeItem("draupforge_char");
+    }
+  } catch {}
+}
+
+document.getElementById("delete-character").onclick = () => {
+  askConfirm(
+    `Delete <b>${myName}</b> forever?<br>This character and its progress are ` +
+      `erased; the name becomes claimable again. The account's other ` +
+      `characters and the shared stash survive.`,
+    async () => {
+      await forgetChar(myName);
+      // The socket is kicked server-side; a clean reload boots to the
+      // character select (or the join screen if that was the last one).
+      location.reload();
+    },
+  );
 };
 document.getElementById("confirm-no").onclick = () => confirmEl.classList.add("hidden");
-document.getElementById("confirm-yes").onclick = async () => {
-  try {
-    await fetch("/api/forget", { method: "POST" });
-  } catch {} // server unreachable: the reload lands on the join screen anyway
-  // The cookie is expired and the socket kicked server-side; a clean
-  // reload boots straight to the join screen with the name free.
-  location.reload();
-};
 
 // --- stash: the hideout bank. Named players only, hideout only — the
 // server enforces both; the panel just doesn't offer it elsewhere. Items
@@ -3323,13 +3358,22 @@ function sendLeaveParty() {
 
 // ---------------------------------------------------------------- join
 
+// The join overlay has two shapes: a fresh visitor sees the name-claim
+// form; a recognized cookie sees its character roster (click to play,
+// "new character" reveals the claim form, × deletes). Claiming under an
+// existing cookie grows the roster — the alt loop's front door.
+
+const charSelectEl = document.getElementById("char-select");
+const joinNewEl = document.getElementById("join-new");
+
 function joinOpen() {
   return !document.getElementById("join").classList.contains("hidden");
 }
 
 // claimName registers the typed name: the server answers with an HttpOnly
 // token cookie that authenticates every later visit — no password, and the
-// name itself grants nothing.
+// name itself grants nothing. Under an existing cookie the name becomes a
+// new roster character instead of a new account.
 async function claimName() {
   const err = document.getElementById("join-error");
   const name = document.getElementById("join-name").value.trim();
@@ -3348,11 +3392,19 @@ async function claimName() {
       err.textContent = body.error || "that didn't work";
       return;
     }
-    document.getElementById("join").classList.add("hidden");
-    connect();
+    playChar(body.name || name);
   } catch {
     err.textContent = "server unreachable";
   }
+}
+
+// playChar connects as one roster character and remembers the pick for
+// this browser session, so reloads skip the select screen.
+function playChar(name) {
+  myChar = name;
+  try { sessionStorage.setItem("draupforge_char", name); } catch {}
+  document.getElementById("join").classList.add("hidden");
+  connect();
 }
 
 function playGuest() {
@@ -3361,19 +3413,89 @@ function playGuest() {
   connect();
 }
 
-// boot: a remembered identity goes straight in; everyone else picks a name
-// or plays as a guest.
-async function boot() {
-  let name = "";
+function renderCharSelect(chars) {
+  charSelectEl.replaceChildren();
+  for (const ch of chars) {
+    const card = document.createElement("div");
+    card.className = "char-card";
+    const name = document.createElement("div");
+    name.className = "char-name";
+    name.textContent = ch.name;
+    const lvl = document.createElement("div");
+    lvl.className = "char-level";
+    lvl.textContent = `Lv ${ch.level}`;
+    const del = document.createElement("button");
+    del.className = "char-delete";
+    del.textContent = "×";
+    del.title = "delete character";
+    del.onclick = (e) => {
+      e.stopPropagation();
+      askConfirm(
+        `Delete <b>${ch.name}</b> forever?<br>This character and its ` +
+          `progress are erased; the name becomes claimable again.` +
+          (chars.length === 1
+            ? `<br>It is your last character — the shared stash goes with it.`
+            : ` The account's other characters and the shared stash survive.`),
+        async () => {
+          await forgetChar(ch.name);
+          showJoinScreen();
+        },
+      );
+    };
+    card.append(name, lvl, del);
+    card.onclick = () => playChar(ch.name);
+    charSelectEl.appendChild(card);
+  }
+  const add = document.createElement("button");
+  add.id = "char-new";
+  add.className = "ghost";
+  add.textContent = "+ new character";
+  add.onclick = () => {
+    joinNewEl.classList.remove("hidden");
+    add.classList.add("hidden");
+    document.getElementById("join-name").focus();
+  };
+  charSelectEl.appendChild(add);
+}
+
+// showJoinScreen renders the join overlay off a fresh whoami: roster mode
+// for a recognized cookie, the plain claim form otherwise. Never
+// auto-connects — this is also the landing spot after refusals/deletes.
+async function showJoinScreen() {
+  let who = {};
   try {
-    name = (await (await fetch("/api/whoami")).json()).name || "";
+    who = await (await fetch("/api/whoami")).json();
+  } catch {} // unreachable server: fall through to the claim form
+  const chars = who.chars || [];
+  document.getElementById("join").classList.remove("hidden");
+  if (chars.length) {
+    renderCharSelect(chars);
+    charSelectEl.classList.remove("hidden");
+    joinNewEl.classList.add("hidden");
+  } else {
+    charSelectEl.classList.add("hidden");
+    joinNewEl.classList.remove("hidden");
+    document.getElementById("join-name").focus();
+  }
+}
+
+// boot: the character this browser session was already playing goes
+// straight back in (reload = grace reconnect); everyone else picks from
+// the roster, claims a name, or plays as a guest.
+async function boot() {
+  let who = {};
+  try {
+    who = await (await fetch("/api/whoami")).json();
   } catch {} // unreachable server: fall through, connect() will say so
-  if (name) {
+  const chars = who.chars || [];
+  let remembered = "";
+  try { remembered = sessionStorage.getItem("draupforge_char") || ""; } catch {}
+  if (remembered && chars.some((c) => c.name === remembered)) {
+    myChar = remembered;
     connect();
     return;
   }
-  document.getElementById("join").classList.remove("hidden");
-  document.getElementById("join-name").focus();
+  showJoinScreen();
 }
 
 boot();

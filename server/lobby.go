@@ -52,9 +52,9 @@ type Lobby struct {
 	// newInstanceLocked consumes it (nil afterwards, and for lobbies booted
 	// without -load).
 	pendingLoad []byte
-	online    map[string]*client   // token → connected client
-	homes     map[string]*Instance // token → last instance, for grace reconnects
-	invites   map[string]string    // invitee token → inviter token
+	online      map[string]*client   // token → connected client
+	homes       map[string]*Instance // token → last instance, for grace reconnects
+	invites     map[string]string    // invitee token → inviter token
 
 	listenerAddr chan net.Addr
 }
@@ -246,7 +246,7 @@ func (lb *Lobby) HandleWS(w http.ResponseWriter, r *http.Request) {
 	}
 	c := newClient(&wsTransport{conn: ws}, m)
 	if tok := cookieToken(r); tok != "" && r.URL.Query().Get("guest") == "" {
-		name, char, ok, dup := lb.ids.connectWithGrace(tok)
+		name, char, ok, dup := lb.ids.connectWithGrace(tok, r.URL.Query().Get("char"))
 		switch {
 		case dup:
 			frame, _ := json.Marshal(protocol.ServerMsg{

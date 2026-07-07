@@ -243,3 +243,107 @@ func TestForgetAPI(t *testing.T) {
 		t.Fatal("re-claim returned the deleted token")
 	}
 }
+
+// claimAs posts a name under an existing cookie — the roster-grow path.
+func claimAs(t *testing.T, base string, cookie *http.Cookie, name string) {
+	t.Helper()
+	req, _ := http.NewRequest("POST", base+"/api/claim",
+		bytes.NewBufferString(`{"name":"`+name+`"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.AddCookie(cookie)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("claim %q under cookie: status %d", name, resp.StatusCode)
+	}
+	for _, c := range resp.Cookies() {
+		if c.Name == "draupforge_token" {
+			t.Fatal("roster claim minted a new cookie — it forked the account")
+		}
+	}
+}
+
+// TestCharacterRosterOverWire: one cookie, several characters (ROADMAP v2
+// Track 2 item 1). A second claim under the same cookie grows the roster
+// instead of orphaning the account; ?char= picks who to play; forgetting
+// one character leaves the account standing.
+func TestCharacterRosterOverWire(t *testing.T) {
+	base := startIdentityServer(t)
+	cookie := claim(t, base, "Alpha")
+	claimAs(t, base, cookie, "Beta")
+
+	// whoami lists the roster.
+	req, _ := http.NewRequest("GET", base+"/api/whoami", nil)
+	req.AddCookie(cookie)
+	wr, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var who struct {
+		Name  string
+		Chars []struct {
+			Name  string
+			Level int
+		}
+	}
+	json.NewDecoder(wr.Body).Decode(&who)
+	wr.Body.Close()
+	if len(who.Chars) != 2 || who.Chars[0].Name != "Alpha" || who.Chars[1].Name != "Beta" {
+		t.Fatalf("whoami chars = %+v, want [Alpha Beta]", who.Chars)
+	}
+
+	// ?char= picks the character; the welcome carries its name.
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	hdr := http.Header{}
+	hdr.Set("Cookie", cookie.String())
+	url := "ws" + strings.TrimPrefix(base, "http") + "/ws?char=Beta"
+	ws, _, err := websocket.Dial(ctx, url, &websocket.DialOptions{HTTPHeader: hdr})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, data, err := ws.Read(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var msg protocol.ServerMsg
+	json.Unmarshal(data, &msg)
+	if msg.Type != "welcome" || msg.Name != "Beta" {
+		t.Fatalf("welcome = type %q name %q, want Beta", msg.Type, msg.Name)
+	}
+	ws.Close(websocket.StatusNormalClosure, "")
+
+	// Forgetting Beta (offline) leaves Alpha and keeps the cookie alive.
+	req, _ = http.NewRequest("POST", base+"/api/forget",
+		bytes.NewBufferString(`{"name":"Beta"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.AddCookie(cookie)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out struct {
+		Deleted string
+		Gone    bool
+	}
+	json.NewDecoder(resp.Body).Decode(&out)
+	resp.Body.Close()
+	if out.Deleted != "Beta" || out.Gone {
+		t.Fatalf("forget = %+v, want Beta deleted, account standing", out)
+	}
+	for _, c := range resp.Cookies() {
+		if c.Name == "draupforge_token" && c.MaxAge < 0 {
+			t.Fatal("forgetting one character expired the account cookie")
+		}
+	}
+
+	// The next connect (no ?char=) falls back to the surviving character.
+	ws2, welcome := dialCookie(t, base, cookie)
+	defer ws2.Close(websocket.StatusNormalClosure, "")
+	if welcome.Name != "Alpha" {
+		t.Fatalf("post-forget welcome name = %q, want Alpha", welcome.Name)
+	}
+}

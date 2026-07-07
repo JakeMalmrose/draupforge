@@ -515,7 +515,10 @@ body {
 .socket-pick:disabled { cursor: default; }
 #log .ev-gem { color: #4ad1c8; }
 
-/* Join screen: name claim or guest, shown before the socket opens. */
+/* Join screen: character select / name claim / guest, shown before the
+   socket opens. #char-select lists an account's roster; #join-new is the
+   name-claim form (a fresh visitor's whole screen, a returning player's
+   "new character" flow). */
 #join {
   position: fixed; inset: 0;
   background: rgba(10, 0, 0, 0.88);
@@ -541,6 +544,30 @@ body {
 #join button.ghost { background: none; border-color: transparent; color: #55504a; }
 #join button.ghost:hover { color: #8d8678; }
 #join-error { font-size: 13px; color: #a32626; min-height: 16px; }
+#join-new { display: flex; flex-direction: column; align-items: center; gap: 14px; }
+#char-select {
+  display: flex; flex-direction: column; align-items: center; gap: 10px;
+  max-height: 50vh; overflow-y: auto; padding: 4px;
+}
+.char-card {
+  position: relative;
+  display: flex; align-items: baseline; gap: 12px;
+  background: #1a1a22; border: 1px solid #3a3a45; border-radius: 3px;
+  padding: 12px 40px 12px 20px; width: 274px; box-sizing: border-box;
+  cursor: pointer;
+}
+.char-card:hover { border-color: #6a6455; }
+.char-name { font-size: 18px; color: #cfc9bf; }
+.char-level { font-size: 13px; color: #8d8678; margin-left: auto; }
+.char-delete {
+  position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
+  width: 22px !important; padding: 0 !important;
+  background: none !important; border: none !important;
+  color: #55504a !important; font-size: 15px; line-height: 22px;
+  cursor: pointer;
+}
+.char-delete:hover { color: #a32626 !important; }
+#char-new { width: 274px; }
 
 /* Social panel (F): party + the online directory. */
 #social {

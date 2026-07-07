@@ -135,7 +135,7 @@ func (in *Instance) HandleWS(w http.ResponseWriter, r *http.Request) {
 	c := newClient(&wsTransport{conn: ws}, m)
 	c.inst = in
 	if tok := cookieToken(r); tok != "" && r.URL.Query().Get("guest") == "" {
-		name, char, ok, dup := in.ids.connectWithGrace(tok)
+		name, char, ok, dup := in.ids.connectWithGrace(tok, r.URL.Query().Get("char"))
 		switch {
 		case dup:
 			frame, _ := json.Marshal(protocol.ServerMsg{

@@ -21,7 +21,7 @@ func namedClient(t *testing.T, in *Instance, name string) *client {
 	if err != nil {
 		t.Fatal(err)
 	}
-	gotName, char, ok, dup := in.ids.Connect(tok)
+	gotName, char, ok, dup := in.ids.Connect(tok, "")
 	if !ok || dup || gotName != name {
 		t.Fatalf("Connect = (%q, ok=%v, dup=%v), want fresh %q", gotName, ok, dup, name)
 	}
@@ -50,7 +50,7 @@ func TestNamedCharacterRoundTrip(t *testing.T) {
 	}
 
 	// Reconnect: the banked character comes back and re-injects.
-	_, char, ok, dup := in.ids.Connect(tok)
+	_, char, ok, dup := in.ids.Connect(tok, "")
 	if !ok || dup {
 		t.Fatalf("reconnect refused (ok=%v dup=%v)", ok, dup)
 	}
@@ -70,7 +70,7 @@ func TestNamedCharacterRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, char, ok, _ := in2.ids.Connect(tok); !ok || char == nil || char.XP != 1234 {
+	if _, char, ok, _ := in2.ids.Connect(tok, ""); !ok || char == nil || char.XP != 1234 {
 		t.Fatalf("after reload: ok=%v char=%+v, want XP 1234", ok, char)
 	}
 }
@@ -81,7 +81,7 @@ func TestDuplicateSessionAndRelease(t *testing.T) {
 		t.Fatal(err)
 	}
 	c := namedClient(t, in, "Hero")
-	if _, _, ok, dup := in.ids.Connect(c.token); ok || !dup {
+	if _, _, ok, dup := in.ids.Connect(c.token, ""); ok || !dup {
 		t.Fatalf("second Connect = ok=%v dup=%v, want a dup refusal", ok, dup)
 	}
 	if !in.spawnClient(c) {
@@ -92,7 +92,7 @@ func TestDuplicateSessionAndRelease(t *testing.T) {
 	// A processed leave frees the slot — and a double-filed leave (readLoop
 	// and a failed send can both file one) must not blow up.
 	in.removeClient(c)
-	if _, _, ok, dup := in.ids.Connect(tok); !ok || dup {
+	if _, _, ok, dup := in.ids.Connect(tok, ""); !ok || dup {
 		t.Fatalf("after leave: ok=%v dup=%v, want reconnectable", ok, dup)
 	}
 }
@@ -156,9 +156,10 @@ func TestClaimValidation(t *testing.T) {
 	}
 }
 
-// TestDeleteResistsResurrection: after Delete, the late writes a dying
+// TestDeleteResistsResurrection: after DeleteChar, the late writes a dying
 // session fires (periodic Bank, the leave's Disconnect) must not re-create
-// the identity — the name stays free.
+// the character — the name stays free. Deleting the last character takes
+// the whole account with it.
 func TestDeleteResistsResurrection(t *testing.T) {
 	st, err := NewIdentityStore("")
 	if err != nil {
@@ -168,11 +169,15 @@ func TestDeleteResistsResurrection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if _, _, ok, dup := st.Connect(tok, ""); !ok || dup {
+		t.Fatalf("Connect: ok=%v dup=%v", ok, dup)
+	}
 	ch := core.Character{Def: "player", Level: 3}
 	st.Bank(tok, &ch)
 
-	if name := st.Delete(tok); name != "Ghost" {
-		t.Fatalf("Delete returned %q, want Ghost", name)
+	deleted, wasActive, gone := st.DeleteChar(tok, "Ghost")
+	if deleted != "Ghost" || !wasActive || !gone {
+		t.Fatalf("DeleteChar = (%q, active=%v, gone=%v), want live last-char delete", deleted, wasActive, gone)
 	}
 	if st.Name(tok) != "" {
 		t.Fatal("token still resolves after delete")
@@ -192,7 +197,7 @@ func TestDeleteResistsResurrection(t *testing.T) {
 	if tok2 == tok {
 		t.Fatal("re-claim reissued the deleted token")
 	}
-	if _, char, ok, _ := st.Connect(tok2); !ok || char != nil {
+	if _, char, ok, _ := st.Connect(tok2, ""); !ok || char != nil {
 		t.Fatalf("re-claimed identity should be fresh: ok=%v char=%v", ok, char)
 	}
 }

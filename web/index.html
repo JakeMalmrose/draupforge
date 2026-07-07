@@ -102,10 +102,13 @@
 
   <div id="join" class="hidden">
     <div id="join-title">DRAUPFORGE</div>
-    <input id="join-name" maxlength="16" placeholder="choose a name" autocomplete="off"
-           onkeydown="if (event.key === 'Enter') claimName()">
-    <div id="join-error"></div>
-    <button onclick="claimName()">descend</button>
+    <div id="char-select" class="hidden"></div>
+    <div id="join-new">
+      <input id="join-name" maxlength="16" placeholder="choose a name" autocomplete="off"
+             onkeydown="if (event.key === 'Enter') claimName()">
+      <div id="join-error"></div>
+      <button onclick="claimName()">descend</button>
+    </div>
     <button class="ghost" onclick="playGuest()">play as guest</button>
   </div>
 
