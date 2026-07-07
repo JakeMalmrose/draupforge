@@ -310,7 +310,10 @@ func applyDamage(w *core.World, att, def *core.Actor, total fm.Fixed, note strin
 func kill(w *core.World, def *core.Actor, killer core.EntityID) {
 	def.Dead = true
 	def.Life = 0
-	w.Emit(core.Event{Kind: core.EvDeath, Actor: def.ID, Other: killer})
+	// Note carries the dier's def id: the corpse compacts away before the
+	// host layer processes events, and the descent needs to recognize a
+	// fallen guardian. Event payload only — no state, no hash, no RNG.
+	w.Emit(core.Event{Kind: core.EvDeath, Actor: def.ID, Other: killer, Note: def.Def.ID})
 }
 
 // rollBleed: physical-damage hits can tear a bleed — a physical DoT that

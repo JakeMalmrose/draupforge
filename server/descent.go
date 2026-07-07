@@ -265,6 +265,16 @@ func (in *Instance) runTick(fresh []protocol.EventSnap, descends, portals, plant
 				dead = append(dead, c)
 			}
 		}
+		// A fallen set-piece marks the floor as an account checkpoint for
+		// every named player present — deep starts for the whole roster.
+		if in.floor > 1 && (ev.Note == guardianDef || ev.Note == bossDef || ev.Note == apexDef) {
+			for _, c := range in.clients {
+				if c.token != "" {
+					in.ids.AddCheckpoint(c.token, in.floor)
+				}
+			}
+			in.syntheticEvent("checkpoint", int64(in.floor)*1000, "")
+		}
 	}
 	swapped := false
 	if len(dead) > 0 {
@@ -302,6 +312,23 @@ func (in *Instance) runTick(fresh []protocol.EventSnap, descends, portals, plant
 				continue
 			}
 			in.descendTo(offers[w.choice])
+			swapped = true
+			break
+		}
+	}
+	if !swapped && in.floor == 0 {
+		// Route picks at the hideout portal: the deep-start chart's answer.
+		for _, w := range routes {
+			a := in.sim.W.ActorByID(w.c.actor)
+			if a == nil || a.Dead || in.portalPlaced || w.c.token == "" ||
+				space.Dist(a.Pos, in.sim.W.Grid.Spawn) > portalRange {
+				continue
+			}
+			offers := in.portalStartOffers(w.c, a)
+			if w.choice < 0 || w.choice >= len(offers) {
+				continue
+			}
+			in.startRunAt(offers[w.choice])
 			swapped = true
 			break
 		}
@@ -397,6 +424,44 @@ func (in *Instance) descend() {
 	in.descendTo(routeOffer{floor: in.floor + 1})
 }
 
+// portalStartOffers is the deep-start chart for a fresh run: from the top
+// with the full portal budget, or any earned checkpoint the character's
+// level covers — one portal lighter, so "from the top" stays a choice.
+func (in *Instance) portalStartOffers(c *client, a *core.Actor) []routeOffer {
+	offers := []routeOffer{{
+		choice: 0, floor: in.portalFloor, portals: in.cfg.Portals,
+		mods: rollFloorMods(in.runSeed, in.portalFloor, 0, 0, modCountAt(in.portalFloor, 0, 0)),
+	}}
+	deep := max(1, in.cfg.Portals-1)
+	for _, cp := range in.ids.Checkpoints(c.token) {
+		if cp <= in.portalFloor || a.Level < cp {
+			continue
+		}
+		offers = append(offers, routeOffer{
+			choice: len(offers), floor: cp, portals: deep,
+			mods: rollFloorMods(in.runSeed, cp, 0, 0, modCountAt(cp, 0, 0)),
+		})
+	}
+	return offers
+}
+
+// startRunAt begins the fresh run's descent at a deep-start offer: the
+// portal anchors on the chosen floor's spawn and the portal budget is the
+// offer's — the depth was bought with it.
+func (in *Instance) startRunAt(o routeOffer) {
+	s, err := in.buildFloor(o.floor, 0, 0)
+	if err != nil {
+		log.Printf("server: deep start: %v", err)
+		return
+	}
+	in.portalsLeft = o.portals
+	in.route, in.chamber = 0, 0
+	in.portalFloor, in.portalPos, in.portalPlaced = o.floor, s.W.Grid.Spawn, true
+	in.portalRoute, in.portalChmbr = 0, 0
+	in.swapWorld(s, o.floor, in.portalPos)
+	in.syntheticEvent("portal", int64(o.floor)*1000, "checkpoint")
+}
+
 // descendTo swaps the instance to a chart offer: one floor deeper on the
 // chosen route, or sideways into a chamber at the same depth (mods
 // stacked, depth held). Entry is the new world's spawn room.
@@ -427,6 +492,19 @@ func (in *Instance) portalTravel(c *client) bool {
 	if in.floor == 0 {
 		if space.Dist(a.Pos, in.sim.W.Grid.Spawn) > portalRange {
 			return false
+		}
+		// A fresh run's first descent offers the account's earned deep
+		// starts (level-gated); the pick comes back as a "route" verb.
+		if !in.portalPlaced && c.token != "" {
+			if offers := in.portalStartOffers(c, a); len(offers) > 1 {
+				frame, _ := json.Marshal(protocol.ServerMsg{
+					Type: "chart", Chart: chartSnapKind("portal", offers),
+				})
+				if !c.send(frame, false) {
+					c.tr.Close()
+				}
+				return false
+			}
 		}
 		s, err := in.buildFloor(in.portalFloor, in.portalRoute, in.portalChmbr)
 		if err != nil {

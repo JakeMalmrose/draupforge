@@ -72,6 +72,11 @@ type Identity struct {
 	Chars   []*CharSlot     `json:"chars"`
 	Stash   []core.CharItem `json:"stash,omitempty"`
 	Created time.Time       `json:"created"`
+	// Checkpoints are guardian floors this account has beaten, ascending
+	// unique — deep-start options for every character, gated by character
+	// level at the hideout portal. Strictly additive, like all account
+	// progression (v2's non-seasonal rule).
+	Checkpoints []int `json:"checkpoints,omitempty"`
 
 	online bool
 	// active is the lowercased name of the slot in play while online.
@@ -455,6 +460,40 @@ func (st *IdentityStore) DeleteChar(token, name string) (deleted string, wasActi
 	st.dirty = true
 	st.saveLocked()
 	return deleted, wasActive, gone
+}
+
+// AddCheckpoint records a beaten guardian floor on the account — sorted,
+// unique, persisted on the usual flush schedule. Unknown tokens no-op
+// (guests earn nothing durable).
+func (st *IdentityStore) AddCheckpoint(token string, floor int) {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	id := st.byToken[token]
+	if id == nil || floor <= 1 {
+		return
+	}
+	i := sort.SearchInts(id.Checkpoints, floor)
+	if i < len(id.Checkpoints) && id.Checkpoints[i] == floor {
+		return
+	}
+	id.Checkpoints = append(id.Checkpoints, 0)
+	copy(id.Checkpoints[i+1:], id.Checkpoints[i:])
+	id.Checkpoints[i] = floor
+	st.dirty = true
+}
+
+// Checkpoints copies a token's beaten guardian floors (nil for guests and
+// unknown tokens).
+func (st *IdentityStore) Checkpoints(token string) []int {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	id := st.byToken[token]
+	if id == nil || len(id.Checkpoints) == 0 {
+		return nil
+	}
+	out := make([]int, len(id.Checkpoints))
+	copy(out, id.Checkpoints)
+	return out
 }
 
 // Bank updates the connected account's in-play character without touching

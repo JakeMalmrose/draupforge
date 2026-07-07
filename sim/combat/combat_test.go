@@ -109,6 +109,27 @@ func TestArmourMitigatesPhysical(t *testing.T) {
 	}
 }
 
+// TestDeathEventNamesTheDef: the death event's Note carries the dier's
+// def id — payload the descent's checkpoint hook keys on (the corpse
+// compacts away before the host layer reads events).
+func TestDeathEventNamesTheDef(t *testing.T) {
+	w := testWorld()
+	att := w.SpawnActor(actorDef(100, nil), space.V(0, 0))
+	def := w.SpawnActor(actorDef(5, nil), space.V(fm.One, 0))
+
+	w.BeginTick()
+	queueAndResolve(w, att, def, spellDef(10, 10, core.Fire))
+	for _, ev := range w.Events() {
+		if ev.Kind == core.EvDeath {
+			if ev.Note != def.Def.ID {
+				t.Errorf("death note = %q, want the def id %q", ev.Note, def.Def.ID)
+			}
+			return
+		}
+	}
+	t.Fatal("no death event")
+}
+
 func TestDeathEmitsEventOnce(t *testing.T) {
 	w := testWorld()
 	att := w.SpawnActor(actorDef(100, nil), space.V(0, 0))

@@ -1536,9 +1536,13 @@ function sfxForEvent(ev) {
       if (ev.other === myId && ev.note && ev.note.endsWith("_flask")) sfx("flask");
       break;
     case "descend":
+    case "chamber":
     case "portal":
     case "death_eject":
       sfx("travel");
+      break;
+    case "checkpoint":
+      sfx("level_up"); // the account just grew — same triumph fanfare
       break;
     case "block":
       sfx("block");
@@ -3219,6 +3223,12 @@ function logEvent(ev) {
     case "descend":
       text = `descended to floor ${Math.round(ev.amount / 1000)}`;
       break;
+    case "chamber":
+      text = `entered a side chamber — holding floor ${Math.round(ev.amount / 1000)}`;
+      break;
+    case "checkpoint":
+      text = `CHECKPOINT — floor ${Math.round(ev.amount / 1000)} deep-starts unlocked for your account`;
+      break;
     case "death_eject":
       text = `death! ejected to the portal — ${Math.round(ev.amount / 1000)} portal uses left`;
       break;
@@ -3229,6 +3239,9 @@ function logEvent(ev) {
       switch (ev.note) {
         case "planted":
           text = `portal planted on floor ${Math.round(ev.amount / 1000)}`;
+          break;
+        case "checkpoint":
+          text = `deep start — the descent begins on floor ${Math.round(ev.amount / 1000)}`;
           break;
         case "hideout":
           text = `stepped through to the hideout — ${Math.round(ev.amount / 1000)} portal uses left`;
@@ -3363,12 +3376,16 @@ function closeChart() {
 function openChart(chart) {
   if (!chart || !chart.routes || !chart.routes.length) return;
   pendingDescend = false; // we're here; stop walking at the stairs
+  pendingPortal = false;
   chartDialog.replaceChildren();
+  const portalKind = chart.kind === "portal";
   const h = document.createElement("h3");
-  h.textContent = "The Way Down";
+  h.textContent = portalKind ? "The Descent" : "The Way Down";
   const sub = document.createElement("p");
   sub.className = "dlg-sub";
-  sub.textContent = "read the floor before you take it";
+  sub.textContent = portalKind
+    ? "start where you've earned — going deep trades a portal"
+    : "read the floor before you take it";
   const row = document.createElement("div");
   row.className = "draft-row";
   for (const r of chart.routes) {
@@ -3399,6 +3416,12 @@ function openChart(chart) {
       clean.className = "route-clean";
       clean.textContent = "no modifiers";
       card.appendChild(clean);
+    }
+    if (r.portals) {
+      const p = document.createElement("div");
+      p.className = "route-biome";
+      p.textContent = `${r.portals} portal${r.portals === 1 ? "" : "s"}`;
+      card.appendChild(p);
     }
     const pipEl = document.createElement("div");
     pipEl.className = "route-pips";

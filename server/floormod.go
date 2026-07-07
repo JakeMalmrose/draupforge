@@ -99,13 +99,16 @@ func rollFloorMods(runSeed uint64, floor, route, chamber, count int) []floorModD
 	return picks
 }
 
-// routeOffer is one exit on the descent chart.
+// routeOffer is one exit on the descent chart (stairs routes and hideout
+// deep starts share the shape; portals is the deep-start budget, 0 on
+// stairs offers where the budget doesn't change).
 type routeOffer struct {
 	choice  int
 	floor   int // destination
 	route   int // roll address of the destination
 	chamber int
 	side    bool
+	portals int
 	mods    []floorModDef
 }
 
@@ -131,11 +134,17 @@ func (in *Instance) chartOffers() []routeOffer {
 	return offers
 }
 
-// chartSnap is the wire form of the chart.
+// chartSnap is the wire form of the stairs chart.
 func chartSnap(offers []routeOffer) *protocol.ChartSnap {
-	cs := &protocol.ChartSnap{}
+	return chartSnapKind("", offers)
+}
+
+// chartSnapKind builds a chart frame body of a given kind ("" = stairs,
+// "portal" = the hideout's deep-start chart).
+func chartSnapKind(kind string, offers []routeOffer) *protocol.ChartSnap {
+	cs := &protocol.ChartSnap{Kind: kind}
 	for _, o := range offers {
-		rs := protocol.RouteSnap{Choice: o.choice, Floor: o.floor, Side: o.side}
+		rs := protocol.RouteSnap{Choice: o.choice, Floor: o.floor, Side: o.side, Portals: o.portals}
 		if b := biomeForFloor(o.floor); b != nil {
 			rs.Biome = b.ID
 		}

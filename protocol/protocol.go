@@ -267,21 +267,25 @@ type RunSnap struct {
 	Mods []string `json:"mods,omitempty"`
 }
 
-// ChartSnap is the descent chart: the routes the stairs offer. Sent as a
-// "chart" frame to a client standing at the stairs; the pick comes back
-// as a "route" command whose Choice indexes Routes.
+// ChartSnap is the descent chart: the routes the stairs offer ("" kind),
+// or the hideout portal's deep-start options ("portal" kind). Sent as a
+// "chart" frame; the pick comes back as a "route" command whose Choice
+// indexes Routes.
 type ChartSnap struct {
+	Kind   string      `json:"kind,omitempty"`
 	Routes []RouteSnap `json:"routes"`
 }
 
 // RouteSnap is one exit on the chart. Side marks a chamber that holds the
-// current depth (stacked mods, juiced rewards) instead of descending.
+// current depth (stacked mods, juiced rewards) instead of descending;
+// Portals is a deep start's traded-down portal budget.
 type RouteSnap struct {
-	Choice int            `json:"choice"`
-	Floor  int            `json:"floor"`
-	Side   bool           `json:"side,omitempty"`
-	Biome  string         `json:"biome,omitempty"`
-	Mods   []FloorModSnap `json:"mods,omitempty"`
+	Choice  int            `json:"choice"`
+	Floor   int            `json:"floor"`
+	Side    bool           `json:"side,omitempty"`
+	Portals int            `json:"portals,omitempty"`
+	Biome   string         `json:"biome,omitempty"`
+	Mods    []FloorModSnap `json:"mods,omitempty"`
 }
 
 // FloorModSnap is one floor modifier as the chart shows it: a name and a
