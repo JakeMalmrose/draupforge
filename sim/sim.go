@@ -80,8 +80,13 @@ func (s *Sim) GrantGem(actor core.EntityID, skillID string, level int) error {
 }
 
 // GenerateMap rolls terrain from the world's map RNG stream and installs
-// it. Call before any spawns; terrain is immutable afterwards.
+// it. Call before any spawns; terrain is immutable afterwards. spec.Kind
+// picks the generator (rooms by default; caves for the deep biomes).
 func (s *Sim) GenerateMap(spec space.MapSpec) {
+	if spec.Kind == space.MapCaves {
+		s.W.Grid = space.GenerateCaves(spec, s.W.RNGMap)
+		return
+	}
 	s.W.Grid = space.GenerateRooms(spec, s.W.RNGMap)
 }
 
@@ -463,4 +468,3 @@ func speedWithSupports(a *core.Actor, sk *core.SkillDef, ctx core.GemCtx) fm.Fix
 	}
 	return fm.Mul(a.Sheet.Base(sk.SpeedStat)+p.Flat, p.Multiplier())
 }
-

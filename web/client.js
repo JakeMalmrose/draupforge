@@ -643,6 +643,25 @@ function litNow(mx, my) {
   return dx * dx + dy * dy <= lightR * lightR;
 }
 
+// Biome palettes — each depth band's visual identity (server sends the id
+// on the run snap; unknown ids fall back to the crypt look, so new bands
+// degrade gracefully on an older client). drone is the ambient tone in Hz
+// (0 = silence — the hideout is quiet).
+const BIOME_PAL = {
+  "": { name: "", floorLit: "#191924", floorDim: "#101017", wall: "#2b2b3a", wallDim: "#1d1d28",
+        wallTop: "#3a3a4e", wallTopDim: "#272734", grid: "#1b1b26", mmWall: "#1c1c26", mmFloor: "#3a3a4e", drone: 0 },
+  crypt: { name: "the Barrow Crypt", floorLit: "#191924", floorDim: "#101017", wall: "#2b2b3a", wallDim: "#1d1d28",
+        wallTop: "#3a3a4e", wallTopDim: "#272734", grid: "#1b1b26", mmWall: "#1c1c26", mmFloor: "#3a3a4e", drone: 36 },
+  caves: { name: "the Sunken Caves", floorLit: "#1d1a12", floorDim: "#12100b", wall: "#3a3122", wallDim: "#251f16",
+        wallTop: "#52452f", wallTopDim: "#31291c", grid: "#211d13", mmWall: "#251f14", mmFloor: "#52452f", drone: 48 },
+  frost: { name: "the Frozen Deep", floorLit: "#141d28", floorDim: "#0c1219", wall: "#25364a", wallDim: "#182330",
+        wallTop: "#33506e", wallTopDim: "#1f3143", grid: "#16212d", mmWall: "#16222e", mmFloor: "#33506e", drone: 66 },
+};
+
+function pal() {
+  return BIOME_PAL[(runState && runState.biome) || ""] || BIOME_PAL[""];
+}
+
 // drawTerrain paints the map when the welcome delivered one (floor tiles +
 // walls, only the visible range), and falls back to the open-plane
 // reference grid otherwise. Outside the map is void — the background color.
@@ -668,11 +687,12 @@ function drawTerrain() {
     return dx * dx + dy * dy <= lightR * lightR;
   };
 
+  const p = pal();
   for (let y = y0; y <= y1; y++) {
     const row = worldMap.rows[y];
     for (let x = x0; x <= x1; x++) {
       if (row[x] === "#" || !seenAt(x, y)) continue;
-      ctx.fillStyle = litAt(x, y) ? "#191924" : "#101017"; // lit floor glows over explored
+      ctx.fillStyle = litAt(x, y) ? p.floorLit : p.floorDim; // lit floor glows over explored
       ctx.fillRect(px(x * t), py(y * t), ts + 1, ts + 1);
     }
   }
@@ -688,14 +708,14 @@ function drawTerrain() {
         (y < worldMap.h - 1 && worldMap.rows[y + 1][x] === ".");
       if (!nearFloor) continue;
       const lit = litAt(x, y);
-      ctx.fillStyle = lit ? "#2b2b3a" : "#1d1d28";
+      ctx.fillStyle = lit ? p.wall : p.wallDim;
       ctx.fillRect(px(x * t), py(y * t), ts + 1, ts + 1);
-      ctx.fillStyle = lit ? "#3a3a4e" : "#272734";
+      ctx.fillStyle = lit ? p.wallTop : p.wallTopDim;
       ctx.fillRect(px(x * t), py(y * t), ts + 1, 3);
     }
   }
   // Subtle floor grid to keep the movement reference the open plane had.
-  ctx.strokeStyle = "#1b1b26";
+  ctx.strokeStyle = p.grid;
   ctx.lineWidth = 1;
   ctx.beginPath();
   for (let x = x0; x <= x1 + 1; x++) {
@@ -1352,13 +1372,14 @@ function buildMinimapBase() {
   mmBase.width = mmCanvas.width;
   mmBase.height = mmCanvas.height;
   const b = mmBase.getContext("2d");
+  const p = pal();
   for (let y = 0; y < worldMap.h; y++) {
     const row = worldMap.rows[y];
     for (let x = 0; x < worldMap.w; x++) {
       if (fog && !fog[y * worldMap.w + x]) {
         b.fillStyle = "#101018"; // unexplored: uniform dark
       } else {
-        b.fillStyle = row[x] === "#" ? "#1c1c26" : "#3a3a4e";
+        b.fillStyle = row[x] === "#" ? p.mmWall : p.mmFloor;
       }
       b.fillRect(x * MM_TILE, y * MM_TILE, MM_TILE, MM_TILE);
     }
@@ -1407,6 +1428,38 @@ function audioUnlock() {
     audioCtx = new AC();
   }
   if (audioCtx.state === "suspended") audioCtx.resume();
+  updateAmbient();
+}
+
+// Ambient drone — each biome's tone (BIOME_PAL.drone, Hz; 0 = silence).
+// Two slightly detuned triangles through one gain node, ramped over ~2s so
+// biome changes and mutes fade instead of clicking. Runs only once audio
+// is unlocked by a gesture; the hideout and mute both ramp to zero.
+let ambientNodes = null;
+
+function updateAmbient() {
+  if (!audioCtx) return;
+  if (!ambientNodes) {
+    const gain = audioCtx.createGain();
+    gain.gain.value = 0;
+    const oscA = audioCtx.createOscillator();
+    const oscB = audioCtx.createOscillator();
+    oscA.type = oscB.type = "triangle";
+    oscA.connect(gain);
+    oscB.connect(gain);
+    gain.connect(audioCtx.destination);
+    oscA.start();
+    oscB.start();
+    ambientNodes = { gain, oscA, oscB };
+  }
+  const f = pal().drone;
+  const t = audioCtx.currentTime;
+  if (f > 0) {
+    ambientNodes.oscA.frequency.setTargetAtTime(f, t, 1);
+    ambientNodes.oscB.frequency.setTargetAtTime(f * 1.012, t, 1);
+  }
+  const want = !audioMuted && f > 0 ? 0.012 : 0;
+  ambientNodes.gain.gain.setTargetAtTime(want, t, 0.8);
 }
 
 // blip: one enveloped oscillator. freq can be [start, end] for a sweep.
@@ -2067,6 +2120,7 @@ window.addEventListener("keydown", (e) => {
     audioMuted = !audioMuted;
     localStorage.setItem("df-muted", audioMuted ? "1" : "0");
     logLine(audioMuted ? "sound muted (M to unmute)" : "sound on");
+    updateAmbient();
     return;
   }
   const slot = GEM_KEYS.indexOf(key);
@@ -3273,9 +3327,12 @@ function updateRunHUD() {
     el.textContent = "";
     return;
   }
-  const where = runState.floor === 0 ? "Hideout" : `Floor ${runState.floor}`;
+  let where = runState.floor === 0 ? "Hideout" : `Floor ${runState.floor}`;
+  const biome = pal().name;
+  if (runState.floor > 0 && biome) where += `, ${biome}`;
   el.textContent =
     `Run ${runState.run} · ${where} · Portals ${runState.portals} · Best floor ${runState.best}`;
+  updateAmbient();
 }
 
 function showOverlay(text) {

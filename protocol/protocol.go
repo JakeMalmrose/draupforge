@@ -11,7 +11,7 @@ package protocol
 // v18 unifies two parallel branches that both claimed v16 (gems on main,
 // identity on the multiplayer branch; parties took v17) — jumping past all
 // of them so no deployed client can match a wrong meaning.
-const Version = 25 // v25: forge shards + 8-kind orb wallet (v24: gem cooldown ticks)
+const Version = 26 // v26: biome id on the run snap (v25: forge shards + 8-kind orb wallet)
 
 // Command is the wire form of player intent. Kind is one of "move",
 // "use_skill", "stop", the item verbs "pickup", "equip", "unequip",
@@ -260,6 +260,9 @@ type RunSnap struct {
 	Run     int  `json:"run"`
 	Best    int  `json:"best"`
 	Portal  *Vec `json:"portal,omitempty"`
+	// Biome is the current floor's depth-band id ("" in the hideout); the
+	// client maps it to a palette, a display name, and an ambient tone.
+	Biome string `json:"biome,omitempty"`
 }
 
 // PassiveSnap is one milestone-passive choice as the client sees it: the

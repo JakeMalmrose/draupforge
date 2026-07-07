@@ -16,11 +16,15 @@ type Rand interface {
 
 // MapSpec sizes a generated map. Zero Tile/Clearance take the defaults:
 // 1-unit tiles, clearance just over the fattest actor (zombie, 0.6).
+// Kind picks the generator: "" is rooms-and-corridors, MapCaves the
+// cellular-automata caverns — additive, so old specs behave exactly as
+// they always did.
 type MapSpec struct {
 	Width, Height int // tiles
 	Rooms         int // target room count; placement gives up gracefully
 	Tile          fm.Fixed
 	Clearance     fm.Fixed
+	Kind          string
 }
 
 const (

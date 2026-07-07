@@ -77,12 +77,18 @@ func farthestWalkable(g *space.Grid) space.Vec2 {
 }
 
 // buildFloor constructs floor N of the current run: terrain from the floor
-// seed, the scenario's fixed spawns, and scatter packs leveled and
-// thickened by depth.
+// seed carved by the floor's biome, the scenario's fixed spawns, and the
+// biome's scatter packs leveled and thickened by depth.
 func (in *Instance) buildFloor(floor int) (*sim.Sim, error) {
 	s := sim.New(in.db, deriveSeed(in.runSeed, uint64(floor)))
+	b := biomeForFloor(floor)
+	kind := ""
+	if b != nil {
+		kind = b.MapKind
+	}
 	s.GenerateMap(space.MapSpec{
 		Width: in.cfg.Map.Width, Height: in.cfg.Map.Height, Rooms: in.cfg.Map.Rooms,
+		Kind: kind,
 	})
 	for _, sp := range in.cfg.Spawns {
 		if _, err := s.Spawn(sp.Def, space.V(fm.FromMilli(sp.X), fm.FromMilli(sp.Y))); err != nil {
@@ -93,7 +99,11 @@ func (in *Instance) buildFloor(floor int) (*sim.Sim, error) {
 	// 10% +2%/floor capped at 30%, rare 2% +1%/floor capped at 12%.
 	magicPm := min(uint64(100+20*(floor-1)), 300)
 	rarePm := min(uint64(20+10*(floor-1)), 120)
-	for _, sc := range in.cfg.Scatter {
+	scatter := in.cfg.Scatter
+	if b != nil && b.Scatter != nil {
+		scatter = b.Scatter
+	}
+	for _, sc := range scatter {
 		if err := s.ScatterSpawnPack(sc.Def, sc.Count+floor-1, floor, magicPm, rarePm); err != nil {
 			return nil, fmt.Errorf("server: floor %d scatter: %w", floor, err)
 		}
@@ -437,6 +447,9 @@ func (in *Instance) swapWorld(s *sim.Sim, floor int, at space.Vec2) {
 // portal position is included when the portal stands on the current world.
 func (in *Instance) runSnap() *protocol.RunSnap {
 	rs := &protocol.RunSnap{Floor: in.floor, Portals: in.portalsLeft, Run: in.run, Best: in.best}
+	if b := biomeForFloor(in.floor); b != nil {
+		rs.Biome = b.ID
+	}
 	var pp *space.Vec2
 	if in.floor == 0 {
 		p := in.sim.W.Grid.Spawn
