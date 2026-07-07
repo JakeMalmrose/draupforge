@@ -618,4 +618,5 @@ type Hit struct {
 	Ignited bool
 	Chilled bool
 	Shocked bool
+	Bled    bool
 }

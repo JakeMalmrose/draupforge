@@ -70,7 +70,7 @@ type ActorSnap struct {
 	ES      int64  `json:"es,omitempty"`
 	Action  string `json:"action"`
 	// Ail is the active-status bitmask: 1 ignited, 2 chilled, 4 shocked,
-	// 8 buffed.
+	// 8 buffed, 16 bleeding.
 	Ail uint8 `json:"ail,omitempty"`
 	// InvSize is the bag capacity (0 = carries nothing). Static per def;
 	// travels in the identity field group on the binary wire.
@@ -120,7 +120,8 @@ const (
 	AilIgnited uint8 = 1 << iota
 	AilChilled
 	AilShocked
-	AilBuffed // any content-defined buff is active
+	AilBuffed   // any content-defined buff is active
+	AilBleeding // a physical DoT is ticking
 )
 
 type EquippedSnap struct {

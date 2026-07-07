@@ -115,6 +115,9 @@ const (
 	// EvStun fires when a hit stuns its target (Actor = attacker,
 	// Other = defender): the target's action was interrupted.
 	EvStun
+	// EvBleed fires when a hit tears a bleed (Actor = attacker,
+	// Other = defender, Amount = damage per tick).
+	EvBleed
 )
 
 func (k EventKind) String() string {
@@ -155,6 +158,8 @@ func (k EventKind) String() string {
 		return "block"
 	case EvStun:
 		return "stun"
+	case EvBleed:
+		return "bleed"
 	default:
 		return "unequip"
 	}

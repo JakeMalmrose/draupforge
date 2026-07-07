@@ -15,6 +15,10 @@ const (
 	minHitChance   = fm.Fixed(50)  // attacks always have ≥5% to hit
 	igniteFrac     = fm.Fixed(500) // ignite dps = 50% of the fire hit
 	igniteTicks    = 4 * core.TicksPerSecond
+	// bleed dps = 35% of the phys hit — a slower burn with a longer tail
+	// than ignite.
+	bleedFrac  = fm.Fixed(350)
+	bleedTicks = 6 * core.TicksPerSecond
 	maxBlockChance = fm.Fixed(750) // 75% block cap — never a certainty
 )
 
@@ -110,12 +114,14 @@ func resolve(w *core.World, h *core.Hit) {
 		}
 	}
 
-	// Stage: post-hit effects, fixed order (ignite → chill → shock; the
-	// order is part of the RNG-consumption contract).
+	// Stage: post-hit effects, fixed order (ignite → chill → shock → bleed;
+	// the order is part of the RNG-consumption contract — bleed appended
+	// last so the older ailments' draws keep their positions).
 	if !def.Dead {
 		rollIgnite(w, att, def, h, tags)
 		applyChill(w, att, def, h)
 		rollShock(w, att, def, h, tags)
+		rollBleed(w, att, def, h, tags)
 	}
 }
 
@@ -291,6 +297,51 @@ func kill(w *core.World, def *core.Actor, killer core.EntityID) {
 	def.Dead = true
 	def.Life = 0
 	w.Emit(core.Event{Kind: core.EvDeath, Actor: def.ID, Other: killer})
+}
+
+// rollBleed: physical-damage hits can tear a bleed — a physical DoT that
+// armour and resists ignore (dot.go's Physical path). Unlike ignite/shock,
+// the roll consumes RNG only when the attacker has any bleed chance at all
+// (skill base + BleedChance stats + support fold): physical damage is on
+// nearly every hit in the game, and an unconditional draw would shift every
+// replay. Block's conditional-consumption discipline, pinned by
+// TestBleedRNGConsumption.
+func rollBleed(w *core.World, att, def *core.Actor, h *core.Hit, tags stats.TagSet) {
+	phys := h.Damage[core.Physical]
+	if phys <= 0 {
+		return
+	}
+	p := h.Gem.FoldSupportMods(att.Sheet.Layers(stats.BleedChance, tags), stats.BleedChance, tags)
+	chance := h.Skill.BleedChance + fm.Mul(att.Sheet.Base(stats.BleedChance)+p.Flat, p.Multiplier())
+	if chance <= 0 {
+		return
+	}
+	if !w.RNGCombat.Chance(chance) {
+		return
+	}
+	perTick := fm.Div(fm.Mul(phys, bleedFrac), fm.FromInt(core.TicksPerSecond))
+	if perTick <= 0 {
+		return
+	}
+	h.Bled = true
+	// Strongest bleed wins; weaker ones are discarded, not stacked (the
+	// ignite model — poison will be the stacking one, designed on purpose).
+	for i := range def.DoTs {
+		d := &def.DoTs[i]
+		if d.Type == core.Physical {
+			if perTick > d.PerTick {
+				d.PerTick = perTick
+				d.TicksLeft = bleedTicks
+				d.Source = att.ID
+				w.Emit(core.Event{Kind: core.EvBleed, Actor: att.ID, Other: def.ID, Amount: perTick})
+			}
+			return
+		}
+	}
+	def.DoTs = append(def.DoTs, core.DoT{
+		Type: core.Physical, PerTick: perTick, TicksLeft: bleedTicks, Source: att.ID,
+	})
+	w.Emit(core.Event{Kind: core.EvBleed, Actor: att.ID, Other: def.ID, Amount: perTick})
 }
 
 func rollIgnite(w *core.World, att, def *core.Actor, h *core.Hit, tags stats.TagSet) {

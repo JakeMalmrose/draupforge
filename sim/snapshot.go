@@ -199,8 +199,11 @@ func (s *Sim) BuildSnapshotFor(viewer core.EntityID, radius fm.Fixed, events []p
 func ailmentBits(a *core.Actor) uint8 {
 	var b uint8
 	for _, d := range a.DoTs {
-		if d.Type == core.Fire {
+		switch d.Type {
+		case core.Fire:
 			b |= protocol.AilIgnited
+		case core.Physical:
+			b |= protocol.AilBleeding
 		}
 	}
 	for _, st := range a.Statuses {
