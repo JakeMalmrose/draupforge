@@ -33,6 +33,7 @@ let pendingPickup = 0;      // drop entity we're walking toward
 let lastPickupSent = 0;
 let stairs = null;          // {x, y} milli — this floor's descent stairs
 let runState = null;        // RunSnap: {floor, portals, run, best, portal?}
+let delveChart = null;      // DelveSnap: the revealed node map (welcome + "delve" frames)
 let pendingDescend = false; // walking toward the stairs to take them
 let lastDescendSent = 0;
 let pendingPortal = false;  // walking toward the portal to enter it
@@ -103,6 +104,8 @@ function connect() {
         else hideOverlay();
       } else if (msg.type === "chart") {
         openChart(msg.chart);
+      } else if (msg.type === "delve") {
+        onDelve(msg.delve);
       } else if (msg.type === "recap") {
         showRecap(msg.recap);
       } else if (msg.type === "chat") {
@@ -187,6 +190,8 @@ function resetWorld(msg) {
   skillBarKey = "";
   closeCutDialog();
   closeChart();
+  delveChart = msg.delve || null; // the chart rides floor welcomes, warm
+  closeDelve();
   autoCutShown = false;
   actorMotion.clear();
   telegraphMax.clear();
@@ -2217,6 +2222,10 @@ window.addEventListener("keydown", (e) => {
       closeChart();
       return;
     }
+    if (delveOpen()) {
+      closeDelve();
+      return;
+    }
     if (anyPaneOpen()) {
       closeAllPanes();
       return;
@@ -2235,6 +2244,10 @@ window.addEventListener("keydown", (e) => {
   }
   if (key === "l") {
     toggleLadder();
+    return;
+  }
+  if (key === "n") {
+    toggleDelve();
     return;
   }
   if (key === "o") {
@@ -2293,6 +2306,10 @@ for (const btn of document.querySelectorAll("#esc-menu [data-menu]")) {
       case "social":
         closePane("esc-menu");
         toggleSocial();
+        break;
+      case "delve":
+        closePane("esc-menu");
+        toggleDelve();
         break;
       case "ladder":
         toggleLadder();
@@ -3544,6 +3561,9 @@ function updateRunHUD() {
     return;
   }
   let where = runState.floor === 0 ? "Hideout" : `Floor ${runState.floor}`;
+  if (runState.floor > 0 && runState.fin) {
+    where += ` (${runState.fin}/3${runState.cleared ? " ✓" : ""})`;
+  }
   const biome = pal().name;
   if (runState.floor > 0 && biome) where += `, ${biome}`;
   let line =
@@ -3918,6 +3938,215 @@ function openChart(chart) {
   cancel.onclick = closeChart;
   chartDialog.append(h, sub, row, cancel);
   chartScrim.classList.remove("hidden");
+}
+
+// -------------------------------------------------------- the delve chart
+
+// The delve chart: the descent is a node map — rows are depth, edges lead
+// down, up, and sideways. The server reveals everywhere the run has been
+// plus a ring of neighbors (full detail) and one veiled ring beyond
+// (biome silhouettes). Clearing a node's set-piece opens travel to its
+// neighbors; picks go back as "travel" verbs, validated server-side (you
+// must stand at a node's last-floor stairs).
+
+const delveScrim = document.getElementById("delve-scrim");
+const delveSvg = document.getElementById("delve-svg");
+const delveSub = document.getElementById("delve-sub");
+const delveInfo = document.getElementById("delve-info");
+const delveViewport = document.getElementById("delve-viewport");
+document.getElementById("delve-close").onclick = () => closeDelve();
+
+const DELVE_NODE_COL = { crypt: "#7d6fae", caves: "#b08d3f", frost: "#5b8fc4", "": "#5a5a6a" };
+const DELVE_CELL_X = 92, DELVE_CELL_Y = 80, DELVE_PAD_X = 64, DELVE_PAD_Y = 56;
+
+function delveOpen() {
+  return !delveScrim.classList.contains("hidden");
+}
+
+function closeDelve() {
+  delveScrim.classList.add("hidden");
+}
+
+function toggleDelve() {
+  if (delveOpen()) {
+    closeDelve();
+    return;
+  }
+  if (!delveChart) {
+    if (runState && runState.floor > 0) send({ kind: "delve" });
+    return; // the frame will arrive; N again shows it (hideout has no chart)
+  }
+  send({ kind: "delve" }); // refresh in the background; render what we have
+  openDelve();
+}
+
+// onDelve banks a chart frame. Travel mode (sent by the stairs) opens the
+// map; info frames just refresh an open one.
+function onDelve(d) {
+  if (!d) return;
+  delveChart = d;
+  if (d.kind === "travel") openDelve();
+  else if (delveOpen()) renderDelve();
+}
+
+// delveJitter: a deterministic per-node wobble so the lattice reads as a
+// hand-drawn chart instead of graph paper.
+function delveJitter(row, col) {
+  let h = ((row * 73856093) ^ (col * 19349663)) >>> 0;
+  h = ((h ^ (h >> 13)) * 0x5bd1e995) >>> 0;
+  return { x: (h % 29) - 14, y: ((h >> 5) % 25) - 12 };
+}
+
+function delveNodePos(n) {
+  const j = delveJitter(n.row, n.col);
+  return { x: DELVE_PAD_X + n.col * DELVE_CELL_X + j.x, y: DELVE_PAD_Y + (n.row - 1) * DELVE_CELL_Y + j.y };
+}
+
+// The set-piece glyph mirrors the server's row cadence (descent.go
+// setPieceFor): the tyrant every 10th row, a boss every 3rd, else the
+// guardian — worth seeing while planning a route.
+function delveGlyph(row) {
+  if (row % 10 === 0) return "♛";
+  if (row % 3 === 0) return "☠";
+  return "";
+}
+
+function delveNodeInfo(n) {
+  const biome = (BIOME_PAL[n.biome] || {}).name || "";
+  const depth = `depth ${n.row}`;
+  if (n.veiled) return `${depth} · something stirs in ${biome || "the dark"}…`;
+  let s = `${depth} · ${biome}`;
+  if (n.mods && n.mods.length) s += ` · ${n.mods.map((m) => m.name).join(" / ")}`;
+  else s += " · no modifiers";
+  if (n.cleared) s += " · cleared";
+  else if (n.visited) s += " · set-piece stands";
+  if (n.can_go) s += " — click to travel (from a node's last stairs)";
+  return s;
+}
+
+function openDelve() {
+  pendingDescend = false; // we're reading the map, not walking
+  pendingPortal = false;
+  renderDelve();
+  delveScrim.classList.remove("hidden");
+  // Center the viewport on the current node.
+  const cur = delveSvg.querySelector(".delve-current");
+  if (cur) {
+    const y = Number(cur.dataset.y || 0);
+    delveViewport.scrollTop = Math.max(0, y - delveViewport.clientHeight / 2);
+  }
+}
+
+function renderDelve() {
+  const d = delveChart;
+  if (!d || !d.nodes || !d.nodes.length) return;
+  const NS = "http://www.w3.org/2000/svg";
+  delveSvg.replaceChildren();
+  delveSub.textContent = d.kind === "travel"
+    ? "the way is open — pick where the descent goes next"
+    : "clear a node's set-piece, then travel from its stairs";
+  delveInfo.innerHTML = "&nbsp;";
+
+  const byId = new Map();
+  let maxRow = 1;
+  for (const n of d.nodes) {
+    byId.set(`${n.row}:${n.col}`, n);
+    if (n.row > maxRow) maxRow = n.row;
+  }
+  delveSvg.setAttribute("width", DELVE_PAD_X * 2 + 6 * DELVE_CELL_X);
+  delveSvg.setAttribute("height", DELVE_PAD_Y + maxRow * DELVE_CELL_Y);
+
+  // Edges first, under the nodes. Each edge rides once (lesser endpoint).
+  for (const n of d.nodes) {
+    if (!n.edges) continue;
+    const a = delveNodePos(n);
+    for (const id of n.edges) {
+      const m = byId.get(id);
+      if (!m) continue;
+      const b = delveNodePos(m);
+      const line = document.createElementNS(NS, "line");
+      line.setAttribute("x1", a.x); line.setAttribute("y1", a.y);
+      line.setAttribute("x2", b.x); line.setAttribute("y2", b.y);
+      let cls = "delve-edge";
+      if (n.visited && m.visited) cls += " trail";
+      else if (n.veiled || m.veiled) cls += " veiled";
+      line.setAttribute("class", cls);
+      delveSvg.appendChild(line);
+    }
+  }
+
+  for (const n of d.nodes) {
+    const p = delveNodePos(n);
+    const g = document.createElementNS(NS, "g");
+    let cls = "delve-node";
+    if (n.veiled) cls += " veiled";
+    if (n.visited) cls += " visited";
+    if (n.cleared) cls += " cleared";
+    if (n.can_go) cls += " cango";
+    const isCur = n.row === d.row && n.col === d.col;
+    if (isCur) cls += " delve-current";
+    g.setAttribute("class", cls);
+    g.dataset.y = p.y;
+
+    const c = document.createElementNS(NS, "circle");
+    c.setAttribute("cx", p.x); c.setAttribute("cy", p.y);
+    c.setAttribute("r", n.veiled ? 7 : 13);
+    c.setAttribute("fill", DELVE_NODE_COL[n.biome] || DELVE_NODE_COL[""]);
+    g.appendChild(c);
+
+    if (isCur) {
+      const ring = document.createElementNS(NS, "circle");
+      ring.setAttribute("cx", p.x); ring.setAttribute("cy", p.y);
+      ring.setAttribute("r", 18);
+      ring.setAttribute("class", "delve-you");
+      g.appendChild(ring);
+    }
+    if (!n.veiled) {
+      const glyph = n.cleared ? "✓" : delveGlyph(n.row);
+      if (glyph) {
+        const t = document.createElementNS(NS, "text");
+        t.setAttribute("x", p.x); t.setAttribute("y", p.y + 4.5);
+        t.setAttribute("class", "delve-glyph");
+        t.textContent = glyph;
+        g.appendChild(t);
+      }
+      let pips = 0;
+      for (const m of n.mods || []) pips += m.reward || 0;
+      if (pips > 0) {
+        const t = document.createElementNS(NS, "text");
+        t.setAttribute("x", p.x); t.setAttribute("y", p.y + 27);
+        t.setAttribute("class", "delve-pips");
+        t.textContent = "◆".repeat(Math.min(pips, 6));
+        g.appendChild(t);
+      }
+    }
+
+    g.addEventListener("mouseenter", () => { delveInfo.textContent = delveNodeInfo(n); });
+    g.addEventListener("mouseleave", () => { delveInfo.innerHTML = "&nbsp;"; });
+    if (n.can_go) {
+      g.addEventListener("click", () => {
+        send({ kind: "travel", row: n.row, col: n.col });
+        closeDelve();
+      });
+    } else if (!isCur && !n.veiled) {
+      g.addEventListener("click", () => {
+        delveInfo.textContent = n.visited
+          ? "travel from a node's last-floor stairs"
+          : "barred — clear an adjacent node's set-piece first";
+      });
+    }
+    delveSvg.appendChild(g);
+  }
+
+  // Depth rules down the left edge, every other row.
+  for (let row = 1; row <= maxRow; row += 2) {
+    const t = document.createElementNS(NS, "text");
+    t.setAttribute("x", 16);
+    t.setAttribute("y", DELVE_PAD_Y + (row - 1) * DELVE_CELL_Y + 4);
+    t.setAttribute("class", "delve-depth");
+    t.textContent = String(row);
+    delveSvg.appendChild(t);
+  }
 }
 
 function showOverlay(text) {

@@ -86,17 +86,17 @@ func TestDeathRecapFrame(t *testing.T) {
 		{Kind: "hit", Actor: 999, Other: uint64(c.actor), Amount: 12000, Note: "zombie_slam"},
 		{Kind: "hit", Actor: 999, Other: uint64(c.actor), Amount: 15500, Note: "zombie_slam"},
 	}
-	in.runTick(hits, nil, nil, nil, nil)
+	in.runTick(hits, runWants{})
 	if len(c.recentHits) != 2 {
 		t.Fatalf("recorded %d hits, want 2", len(c.recentHits))
 	}
 
 	a.Dead = true
+	deathNode := in.node // the eject moves in.node; the recap reads this one
 	tr.mu.Lock()
 	tr.frames = nil
 	tr.mu.Unlock()
-	in.runTick([]protocol.EventSnap{{Kind: "death", Actor: uint64(c.actor), Note: "player"}},
-		nil, nil, nil, nil)
+	in.runTick([]protocol.EventSnap{{Kind: "death", Actor: uint64(c.actor), Note: "player"}}, runWants{})
 
 	var recap *protocol.RecapSnap
 	tr.mu.Lock()
@@ -116,8 +116,8 @@ func TestDeathRecapFrame(t *testing.T) {
 	if len(recap.Hits) != 2 || recap.Hits[1].Amount != 15500 || recap.Hits[1].From == "" {
 		t.Errorf("recap hits = %+v, want the two recorded slams", recap.Hits)
 	}
-	if len(recap.Mods) != modCountAt(4, in.route, in.chamber) {
-		t.Errorf("recap mods = %v, want the floor's rolled mods", recap.Mods)
+	if len(recap.Mods) != len(delveNodeMods(in.runSeed, deathNode)) {
+		t.Errorf("recap mods = %v, want the node's rolled mods", recap.Mods)
 	}
 	// The eject cleared the evidence for the next world.
 	if len(c.recentHits) != 0 {

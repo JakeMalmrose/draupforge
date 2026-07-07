@@ -91,8 +91,7 @@ func TestHardcoreDeathEndsTheCharacter(t *testing.T) {
 	in.descend() // floor 2
 	a := in.sim.W.ActorByID(c.actor)
 	a.Dead = true
-	in.runTick([]protocol.EventSnap{{Kind: "death", Actor: uint64(c.actor), Note: "player"}},
-		nil, nil, nil, nil)
+	in.runTick([]protocol.EventSnap{{Kind: "death", Actor: uint64(c.actor), Note: "player"}}, runWants{})
 
 	if c.doom == 0 {
 		t.Error("no doom fuse lit on the hardcore dier")

@@ -1,8 +1,8 @@
 package server
 
-// Floor-modifier + descent-chart unit tests: deterministic rolls, mods
-// actually landing on monsters, the chart's offer shape, and the
-// stairs → chart → route flow.
+// Floor-modifier unit tests under the delve chart: deterministic per-node
+// rolls, depth-scaled counts, mods actually landing on monsters, and the
+// stairs → map → travel flow.
 
 import (
 	"encoding/json"
@@ -13,74 +13,81 @@ import (
 )
 
 func TestModCountBands(t *testing.T) {
-	cases := []struct{ floor, want int }{{1, 0}, {3, 0}, {4, 1}, {9, 1}, {10, 2}, {19, 2}, {20, 3}, {50, 3}}
+	cases := []struct{ row, want int }{{1, 0}, {2, 1}, {3, 1}, {4, 2}, {6, 2}, {7, 3}, {17, 3}}
 	for _, c := range cases {
-		if got := modCountForFloor(c.floor); got != c.want {
-			t.Errorf("modCountForFloor(%d) = %d, want %d", c.floor, got, c.want)
+		if got := modCountForRow(c.row); got != c.want {
+			t.Errorf("modCountForRow(%d) = %d, want %d", c.row, got, c.want)
 		}
 	}
-	if modCountAt(4, 1, 0) != 2 {
-		t.Error("route 1 should be one mod greedier")
-	}
-	if modCountAt(4, 0, 2) != 3 {
-		t.Error("chambers should stack one mod each")
+	// Row 1 stays clean even for a would-be juiced node.
+	for col := 0; col < delveCols; col++ {
+		if mods := delveNodeMods(99, nodeAddr{1, col}); len(mods) != 0 {
+			t.Errorf("row-1 node rolled mods: %v", mods)
+		}
 	}
 }
 
-func TestRollFloorModsDeterministicAndDistinct(t *testing.T) {
-	a := rollFloorMods(99, 12, 1, 0, 3)
-	b := rollFloorMods(99, 12, 1, 0, 3)
-	if len(a) != 3 || len(b) != 3 {
-		t.Fatalf("rolled %d/%d mods, want 3", len(a), len(b))
+func TestNodeModsDeterministicAndDistinct(t *testing.T) {
+	n := nodeAddr{Row: 7, Col: 3}
+	a := delveNodeMods(99, n)
+	b := delveNodeMods(99, n)
+	if len(a) < 3 || len(a) != len(b) {
+		t.Fatalf("rolled %d/%d mods, want the row-7 band (3+)", len(a), len(b))
 	}
 	seen := map[string]bool{}
 	for i := range a {
 		if a[i].ID != b[i].ID {
-			t.Fatalf("same address rolled different mods: %v vs %v", a, b)
+			t.Fatalf("same node rolled different mods: %v vs %v", a, b)
 		}
 		if seen[a[i].ID] {
 			t.Fatalf("duplicate mod %q in one roll", a[i].ID)
 		}
 		seen[a[i].ID] = true
 	}
-	c := rollFloorMods(99, 12, 0, 0, 3)
-	same := true
-	for i := range c {
-		if c[i].ID != a[i].ID {
-			same = false
+	// Sibling nodes diverge somewhere along the row — the column salts.
+	diverged := false
+	for col := 0; col < delveCols && !diverged; col++ {
+		c := delveNodeMods(99, nodeAddr{Row: 7, Col: col})
+		if len(c) != len(a) {
+			diverged = true
+			break
+		}
+		for i := range c {
+			if c[i].ID != a[i].ID {
+				diverged = true
+				break
+			}
 		}
 	}
-	if same {
-		t.Error("different routes rolled identical mods — suspicious salt")
+	if !diverged {
+		t.Error("every row-7 node rolled identical mods — suspicious salt")
 	}
 }
 
-// TestFloorModsLandOnMonsters: build a modded floor whose roll includes a
-// monster-facing package and assert every monster carries it; and the
-// same address rebuilds to the same world hash while a different route
-// diverges.
+// TestFloorModsLandOnMonsters: build a modded node whose roll includes a
+// monster-facing package and assert every monster carries it; the same
+// address rebuilds to the same world hash.
 func TestFloorModsLandOnMonsters(t *testing.T) {
 	in, _, _ := descentInstance(t, 3)
-	// Find a route address at floor 12 whose mods include a MonMod package
-	// (12 rolls two mods from a table of seven; scan chambers until one
-	// includes a monster-facing mod — deterministic for the fixed seed).
-	var route, chamber = -1, -1
+	// Scan the chart for a node whose mods include a MonMod package —
+	// deterministic for the fixed seed.
+	var node nodeAddr
 	var wantMod string
 scan:
-	for r := 0; r < 2; r++ {
-		for ch := 0; ch < 4; ch++ {
-			for _, m := range rollFloorMods(in.runSeed, 12, r, ch, modCountAt(12, r, ch)) {
+	for row := 4; row <= 8; row++ {
+		for _, col := range delveRow(in.runSeed, row) {
+			for _, m := range delveNodeMods(in.runSeed, nodeAddr{row, col}) {
 				if m.MonMod != "" {
-					route, chamber, wantMod = r, ch, m.MonMod
+					node, wantMod = nodeAddr{row, col}, m.MonMod
 					break scan
 				}
 			}
 		}
 	}
-	if route < 0 {
-		t.Fatal("no address at floor 12 rolled a monster-facing mod — table drifted?")
+	if wantMod == "" {
+		t.Fatal("no node in rows 4–8 rolled a monster-facing mod — table drifted?")
 	}
-	s, err := in.buildFloor(12, route, chamber)
+	s, err := in.buildFloor(node, 2)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -101,84 +108,124 @@ scan:
 		t.Fatalf("%d/%d monsters carry floor mod %q, want all", carrying, monsters, wantMod)
 	}
 
-	// Replayable: same address → same hash; different route → different.
-	s2, err := in.buildFloor(12, route, chamber)
+	// Replayable: same address → same hash.
+	s2, err := in.buildFloor(node, 2)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if s.W.Hash() != s2.W.Hash() {
-		t.Error("same route address built different worlds")
-	}
-	s3, err := in.buildFloor(12, 1-route, chamber)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if s.W.Hash() == s3.W.Hash() {
-		t.Error("different routes built identical worlds")
+		t.Error("same node address built different worlds")
 	}
 }
 
-// TestChartFlowOverRunTick: standing at the stairs, "descend" answers with
-// a chart frame (no swap); a "route" pick executes it. The side chamber
-// holds the depth.
-func TestChartFlowOverRunTick(t *testing.T) {
+// TestTravelFlowOverRunTick: at a node's last-floor stairs, "descend"
+// answers with a travel-mode delve frame (no swap); new ground stays barred
+// until the set-piece falls; a travel pick then enters the chosen neighbor.
+func TestTravelFlowOverRunTick(t *testing.T) {
 	in, c, tr := descentInstance(t, 3)
-	// Jump to floor 4 (first modded depth) with the client carried along.
 	in.descend()
-	in.descend()
-	in.descend()
-	if in.floor != 4 {
-		t.Fatalf("floor = %d, want 4", in.floor)
+	in.descend() // fin 3: the entry node's last floor
+	if in.fin != nodeFloors || in.floor != 3 {
+		t.Fatalf("node/fin/floor = %v/%d/%d, want the entry node's last floor", in.node, in.fin, in.floor)
 	}
-	// Stand at the stairs and ask to descend: a chart, not a swap.
+
+	// Stand at the stairs and ask to descend: a map, not a swap.
 	a := in.sim.W.ActorByID(c.actor)
 	a.Pos = in.stairs
 	tr.mu.Lock()
 	tr.frames = nil
 	tr.mu.Unlock()
-	in.runTick(nil, []*client{c}, nil, nil, nil)
-	if in.floor != 4 {
-		t.Fatalf("descend swapped immediately to floor %d; want a chart first", in.floor)
+	in.runTick(nil, runWants{descends: []*client{c}})
+	if in.floor != 3 {
+		t.Fatalf("descend swapped immediately to floor %d; want the map first", in.floor)
 	}
-	var chart *protocol.ChartSnap
+	var delve *protocol.DelveSnap
 	tr.mu.Lock()
 	for _, f := range tr.frames {
 		var msg protocol.ServerMsg
-		if json.Unmarshal(f, &msg) == nil && msg.Type == "chart" {
-			chart = msg.Chart
+		if json.Unmarshal(f, &msg) == nil && msg.Type == "delve" {
+			delve = msg.Delve
 		}
 	}
 	tr.mu.Unlock()
-	if chart == nil {
-		t.Fatal("no chart frame arrived")
+	if delve == nil || delve.Kind != "travel" {
+		t.Fatalf("delve frame = %+v, want travel mode", delve)
 	}
-	if len(chart.Routes) != 3 {
-		t.Fatalf("chart offers %d routes, want 2 down + 1 side chamber", len(chart.Routes))
+	if delve.Row != in.node.Row || delve.Col != in.node.Col {
+		t.Errorf("delve current = %d:%d, want %v", delve.Row, delve.Col, in.node)
 	}
-	if !chart.Routes[2].Side || chart.Routes[2].Floor != 4 {
-		t.Fatalf("route 2 = %+v, want a side chamber at floor 4", chart.Routes[2])
-	}
-	if len(chart.Routes[1].Mods) != len(chart.Routes[0].Mods)+1 {
-		t.Errorf("route 1 should be one mod greedier: %d vs %d",
-			len(chart.Routes[1].Mods), len(chart.Routes[0].Mods))
+	// Uncleared: no unvisited node is travelable yet.
+	for _, n := range delve.Nodes {
+		if n.CanGo && !n.Visited {
+			t.Errorf("uncleared node offers new ground %d:%d", n.Row, n.Col)
+		}
 	}
 
-	// Take the greedy route down.
+	// Pick a downward neighbor anyway: refused (the set-piece stands).
+	var next nodeAddr
+	for _, nb := range delveNeighbors(in.runSeed, in.node) {
+		if nb.Row == in.node.Row+1 {
+			next = nb
+			break
+		}
+	}
+	if next.Row == 0 {
+		t.Fatal("entry node has no downward edge — generation broke connectivity")
+	}
 	a.Pos = in.stairs
-	in.runTick(nil, nil, nil, nil, []routeWant{{c: c, choice: 1}})
-	if in.floor != 5 || in.route != 1 || in.chamber != 0 {
-		t.Fatalf("after route 1: floor=%d route=%d chamber=%d, want 5/1/0", in.floor, in.route, in.chamber)
+	in.runTick(nil, runWants{travels: []travelWant{{c: c, to: next}}})
+	if in.floor != 3 {
+		t.Fatalf("travel through a live set-piece swapped to floor %d", in.floor)
 	}
 
-	// And a side chamber from there: depth held, chamber counted.
+	// The set-piece falls: the node clears, and the same pick now travels.
+	in.runTick([]protocol.EventSnap{{Kind: "death", Actor: 999, Note: setPieceFor(in.node.Row)}}, runWants{})
+	if !in.cleared[in.node] {
+		t.Fatal("set-piece death did not clear the node")
+	}
 	a = in.sim.W.ActorByID(c.actor)
 	a.Pos = in.stairs
-	in.runTick(nil, nil, nil, nil, []routeWant{{c: c, choice: 2}})
-	if in.floor != 5 || in.chamber != 1 {
-		t.Fatalf("after side chamber: floor=%d chamber=%d, want 5/1", in.floor, in.chamber)
+	in.runTick(nil, runWants{travels: []travelWant{{c: c, to: next}}})
+	if in.node != next || in.fin != 1 || in.floor != globalFloor(next.Row, 1) {
+		t.Fatalf("after travel: node=%v fin=%d floor=%d, want %v/1/%d",
+			in.node, in.fin, in.floor, next, globalFloor(next.Row, 1))
 	}
-	// The run snap reads the chamber's stacked mods.
-	if rs := in.runSnap(); len(rs.Mods) != modCountAt(5, in.route, 1) {
-		t.Errorf("run snap mods = %v, want %d entries", rs.Mods, modCountAt(5, in.route, 1))
+	if !in.visited[next] {
+		t.Error("travelled node not marked visited")
+	}
+
+	// The run snap reads the new node's mods and address.
+	rs := in.runSnap()
+	if rs.Row != next.Row || rs.Col != next.Col || rs.Fin != 1 {
+		t.Errorf("run snap address = %d:%d fin %d, want %v fin 1", rs.Row, rs.Col, rs.Fin, next)
+	}
+	if len(rs.Mods) != len(delveNodeMods(in.runSeed, next)) {
+		t.Errorf("run snap mods = %v, want the node's %d", rs.Mods, len(delveNodeMods(in.runSeed, next)))
+	}
+}
+
+// TestTravelBackUp: cleared ground is a highway — from a cleared node's
+// stairs you can re-enter any visited node, holding or raising your depth.
+func TestTravelBackUp(t *testing.T) {
+	in, c, _ := descentInstance(t, 3)
+	first := in.node
+	in.descend()
+	in.descend()
+	in.cleared[in.node] = true // the entry node's set-piece falls
+	down := trunkNodeAt(in.runSeed, 2)
+	in.travelTo(down)
+	in.descend()
+	in.descend() // row 2's last floor
+	if in.floor != 6 {
+		t.Fatalf("floor = %d, want 6", in.floor)
+	}
+
+	// Travel back up to the visited entry node — no clear needed here,
+	// visited is enough.
+	a := in.sim.W.ActorByID(c.actor)
+	a.Pos = in.stairs
+	in.runTick(nil, runWants{travels: []travelWant{{c: c, to: first}}})
+	if in.node != first || in.floor != 1 {
+		t.Fatalf("after retreat: node=%v floor=%d, want %v/1", in.node, in.floor, first)
 	}
 }

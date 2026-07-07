@@ -145,20 +145,28 @@ type Instance struct {
 	// Descent run state (descent.go), tick-goroutine-only. run == 0 means
 	// no descent (open-plane worlds); everything else is meaningful only
 	// when run > 0.
-	run         int        // 1-based run counter; a run ends when the portals run out
-	runSeed     uint64     // this run's seed; floor worlds derive from it
-	floor       int        // current depth; 0 is the hideout
-	route       int        // current floor's route address (descent chart)
-	chamber     int        // side chambers taken at this depth (mods stack)
-	best        int        // deepest floor reached this process — the score
-	stairs      space.Vec2 // this floor's descent stairs (farthest walkable from spawn)
-	portalFloor int        // where death ejects to
-	portalRoute int        // the anchor floor's full route address...
-	portalChmbr int        // ...so an eject rebuilds the exact same world
-	portalPos   space.Vec2
-	// portalPlaced: portalPos is valid for portalFloor. False while a run
-	// starts in the hideout — the anchor lands on the floor's spawn the
-	// first time someone steps through.
+	run     int        // 1-based run counter; a run ends when the portals run out
+	runSeed uint64     // this run's seed; the delve chart and floor worlds derive from it
+	floor   int        // current global depth (node row and fin folded); 0 is the hideout
+	node    nodeAddr   // current delve-chart node (zero value in the hideout)
+	fin     int        // floor within the node, 1..nodeFloors (0 in the hideout)
+	best    int        // deepest floor reached this process — the score
+	stairs  space.Vec2 // this floor's descent stairs (farthest walkable from spawn)
+	// visited/cleared are the run's chart bookkeeping: nodes entered, and
+	// nodes whose set-piece fell (travel unlocks their neighbors). Lookup
+	// and insert only — never iterated (delveSnap scans rows instead);
+	// maxRow bounds that scan (deepest visited row).
+	visited map[nodeAddr]bool
+	cleared map[nodeAddr]bool
+	maxRow  int
+	// The death anchor: which node and floor-within-node the portal stands
+	// on, so an eject rebuilds the exact same world.
+	portalNode nodeAddr
+	portalFin  int
+	portalPos  space.Vec2
+	// portalPlaced: portalPos is valid for the anchor address. False while
+	// a run starts in the hideout — the anchor lands on the floor's spawn
+	// the first time someone steps through.
 	portalPlaced bool
 	portalsLeft  int
 
@@ -261,9 +269,12 @@ type client struct {
 	// for the tick goroutine, like ack. The social verbs ride along:
 	// wantInvite names the invitee, the rest are flags.
 	wantDescend bool
-	// wantRoute is a "route" verb's chart pick, stored +1 so the zero
-	// value means "none pending".
+	// wantRoute is a "route" verb's deep-start pick, stored +1 so the zero
+	// value means "none pending". wantTravel is a "travel" verb's delve
+	// node pick (nil = none); wantDelve asks for a chart refresh.
 	wantRoute   int
+	wantTravel  *nodeAddr
+	wantDelve   bool
 	wantPlant   bool
 	wantPortal  bool
 	wantInvite  string
@@ -425,11 +436,17 @@ func New(db *core.ContentDB, cfg Config) (*Instance, error) {
 			// hideout visit (floor 0: no stairs, portal anchored elsewhere).
 			in.run, in.runSeed = rs.Run, rs.RunSeed
 			in.floor, in.portalsLeft = rs.Floor, rs.PortalsLeft
-			in.route, in.chamber = rs.Route, rs.Chamber
-			in.portalFloor, in.portalPos = rs.PortalFloor, rs.PortalPos
-			in.portalRoute, in.portalChmbr = rs.PortalRoute, rs.PortalChamber
-			in.portalPlaced = rs.PortalPlaced
+			in.node, in.fin = rs.Node, rs.Fin
+			in.portalNode, in.portalFin = rs.PortalNode, rs.PortalFin
+			in.portalPos, in.portalPlaced = rs.PortalPos, rs.PortalPlaced
 			in.best = rs.Best
+			in.resetChart()
+			for _, n := range rs.Visited {
+				in.markVisited(n)
+			}
+			for _, n := range rs.Cleared {
+				in.cleared[n] = true
+			}
 			if in.floor > 0 && s.W.Grid != nil {
 				in.stairs = farthestWalkable(s.W.Grid)
 			}
@@ -657,7 +674,7 @@ func readLoop(ctx context.Context, c *client) {
 			}
 			c.mu.Unlock()
 			continue
-		case "descend", "route", "plant_portal", "enter_portal",
+		case "descend", "route", "travel", "delve", "plant_portal", "enter_portal",
 			"invite", "accept_invite", "decline_invite", "leave_party",
 			"stash_put", "stash_take", "sheet", "chat":
 			// Run, social, stash, sheet, and chat verbs are host-layer,
@@ -668,6 +685,10 @@ func readLoop(ctx context.Context, c *client) {
 				c.wantDescend = true
 			case "route":
 				c.wantRoute = wc.Choice + 1
+			case "travel":
+				c.wantTravel = &nodeAddr{Row: wc.Row, Col: wc.Col}
+			case "delve":
+				c.wantDelve = true
 			case "plant_portal":
 				c.wantPlant = true
 			case "enter_portal":
@@ -733,28 +754,36 @@ func (in *Instance) tick() {
 	ops := in.adminOps
 	in.joins, in.leaves, in.pending, in.adminOps = nil, nil, nil, nil
 	in.mu.Unlock()
-	var descends, portals, plants, sheets []*client
+	var sheets []*client
 	var social []socialWant
 	var stashes []stashWant
-	var routes []routeWant
 	var chats []chatWant
+	var rw runWants
 	for _, c := range in.clients {
 		c.mu.Lock()
 		if c.wantDescend {
 			c.wantDescend = false
-			descends = append(descends, c)
+			rw.descends = append(rw.descends, c)
 		}
 		if c.wantRoute > 0 {
-			routes = append(routes, routeWant{c: c, choice: c.wantRoute - 1})
+			rw.routes = append(rw.routes, routeWant{c: c, choice: c.wantRoute - 1})
 			c.wantRoute = 0
+		}
+		if c.wantTravel != nil {
+			rw.travels = append(rw.travels, travelWant{c: c, to: *c.wantTravel})
+			c.wantTravel = nil
+		}
+		if c.wantDelve {
+			c.wantDelve = false
+			rw.delves = append(rw.delves, c)
 		}
 		if c.wantPortal {
 			c.wantPortal = false
-			portals = append(portals, c)
+			rw.portals = append(rw.portals, c)
 		}
 		if c.wantPlant {
 			c.wantPlant = false
-			plants = append(plants, c)
+			rw.plants = append(rw.plants, c)
 		}
 		if c.wantInvite != "" || c.wantAccept || c.wantDecline || c.wantLeave {
 			social = append(social, socialWant{
@@ -852,9 +881,9 @@ func (in *Instance) tick() {
 		// that copy's bag (put + crash would otherwise duplicate it).
 		in.processStash(stashes)
 
-		// The descent: deaths, stairs, portals — may swap the world and
-		// re-welcome everyone (descent.go).
-		in.runTick(fresh, descends, portals, plants, routes)
+		// The descent: deaths, stairs, travel, portals — may swap the world
+		// and re-welcome everyone (descent.go).
+		in.runTick(fresh, rw)
 
 		// Doomed clients (hardcore falls) close once their fuse burns —
 		// the delay lets the recap and farewell frames flush first.
@@ -1036,6 +1065,7 @@ func (in *Instance) welcomeFrame(c *client) []byte {
 	if in.run > 0 {
 		if in.floor > 0 {
 			msg.Stairs = &protocol.Vec{X: in.stairs.X.Milli(), Y: in.stairs.Y.Milli()}
+			msg.Delve = in.delveSnap("") // the chart, warm for the map panel
 		}
 		msg.Run = in.runSnap()
 	}

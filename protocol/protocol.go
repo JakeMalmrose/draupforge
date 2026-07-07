@@ -11,7 +11,7 @@ package protocol
 // v18 unifies two parallel branches that both claimed v16 (gems on main,
 // identity on the multiplayer branch; parties took v17) — jumping past all
 // of them so no deployed client can match a wrong meaning.
-const Version = 27 // v27: descent chart + floor mods (v26: biome ids)
+const Version = 28 // v28: the delve chart (node map, travel verb); v27: descent chart + floor mods
 
 // Command is the wire form of player intent. Kind is one of "move",
 // "use_skill", "stop", the item verbs "pickup", "equip", "unequip",
@@ -53,6 +53,10 @@ type Command struct {
 	Gem     int  `json:"gem,omitempty"`
 	Socket  int  `json:"socket,omitempty"`
 	Replace bool `json:"replace,omitempty"`
+	// Row/Col address a delve-chart node for the host-layer "travel" verb
+	// (rows start at 1, so a zero Row is never a real address).
+	Row int `json:"row,omitempty"`
+	Col int `json:"col,omitempty"`
 }
 
 type Vec struct {
@@ -263,11 +267,18 @@ type RunSnap struct {
 	Run     int  `json:"run"`
 	Best    int  `json:"best"`
 	Portal  *Vec `json:"portal,omitempty"`
-	// Biome is the current floor's depth-band id ("" in the hideout); the
-	// client maps it to a palette, a display name, and an ambient tone.
+	// Biome is the current node's biome id ("" in the hideout); the client
+	// maps it to a palette, a display name, and an ambient tone.
 	Biome string `json:"biome,omitempty"`
-	// Mods are the current floor's modifier names, display-ready.
+	// Mods are the current node's modifier names, display-ready.
 	Mods []string `json:"mods,omitempty"`
+	// The delve-chart address: which node the party is in (Row ≥ 1 on a
+	// dungeon floor) and which of its three floors (Fin 1–3). Cleared marks
+	// the node's set-piece down — the way to its neighbors is open.
+	Row     int  `json:"row,omitempty"`
+	Col     int  `json:"col,omitempty"`
+	Fin     int  `json:"fin,omitempty"`
+	Cleared bool `json:"cleared,omitempty"`
 }
 
 // ChartSnap is the descent chart: the routes the stairs offer ("" kind),
@@ -296,6 +307,35 @@ type RouteSnap struct {
 type FloorModSnap struct {
 	Name   string `json:"name"`
 	Reward int    `json:"reward,omitempty"`
+}
+
+// DelveSnap is the delve chart as one client may see it: the revealed
+// nodes around everywhere the run has been. Kind "travel" means a pick is
+// live right now (the client stands at a cleared node's stairs) and comes
+// back as a "travel" command carrying a node's Row/Col.
+type DelveSnap struct {
+	Kind string `json:"kind,omitempty"` // "" info, "travel" pick is live
+	Row  int    `json:"row"`            // current node
+	Col  int    `json:"col"`
+	Nodes []DelveNodeSnap `json:"nodes"`
+}
+
+// DelveNodeSnap is one revealed node on the chart. Veiled nodes are the
+// far rim of the fog — biome silhouette only, no mods, never travelable.
+// Edges list neighbor addresses as "row:col" strings (only toward nodes
+// present in the same snap).
+type DelveNodeSnap struct {
+	Row     int            `json:"row"`
+	Col     int            `json:"col"`
+	Biome   string         `json:"biome,omitempty"`
+	Mods    []FloorModSnap `json:"mods,omitempty"`
+	Edges   []string       `json:"edges,omitempty"`
+	Visited bool           `json:"visited,omitempty"`
+	Cleared bool           `json:"cleared,omitempty"`
+	Veiled  bool           `json:"veiled,omitempty"`
+	// CanGo: this node is a legal travel target — already visited, or a
+	// frontier neighbor of a cleared node.
+	CanGo bool `json:"can_go,omitempty"`
 }
 
 // PassiveSnap is one milestone-passive choice as the client sees it: the
@@ -360,9 +400,13 @@ type ServerMsg struct {
 	// "sheet" frame in answer to a "sheet" verb (the C panel). Derived
 	// data the client can't compute — the stat engine lives server-side.
 	Sheet *SheetSnap `json:"sheet,omitempty"`
-	// Chart rides "chart" frames: the descent routes offered to a client
-	// standing at the stairs (floor mods, reward weights, side chambers).
+	// Chart rides "chart" frames: the hideout portal's deep-start offers
+	// (floor mods, reward weights, portal budgets).
 	Chart *ChartSnap `json:"chart,omitempty"`
+	// Delve rides "delve" frames: the revealed delve chart — on request
+	// (the map panel), after every clear, and in travel mode when the
+	// client stands at a cleared node's stairs.
+	Delve *DelveSnap `json:"delve,omitempty"`
 	// Recap rides "recap" frames: the dying client's death report — what
 	// hit them, for how much, on which floor, under which mods.
 	Recap *RecapSnap `json:"recap,omitempty"`

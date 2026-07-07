@@ -11,10 +11,9 @@ tests, and session-log entries older than a few sessions (git history is the
 archive). If this file outgrows ~150 lines, it has stopped being a status doc
 and started being a changelog — cut it back.
 
-**Last updated: 2026-07-07** (session 81: UI shell pass on `ui-polish` —
-the escape menu, panel slots, Tab inventory, the help-line/HUD overlap
-fix. Both ROADMAP v2 tracks are complete and merged: Track 1 via PR #62,
-Track 2 via PR #63.)
+**Last updated: 2026-07-07** (session 82: the delve chart on `delve-chart` —
+the descent is a PoE1-Delve-style node map now: 3-floor nodes, biome
+clumps, clear-the-boss-to-travel, wire v28.)
 
 ## Where things stand
 
@@ -32,19 +31,26 @@ run; party = instance — the F panel lists all online named players, an
 accepted invite transfers you into the inviter's world via the floor-swap
 machinery, and empty instances reap after 60s, doubling as reconnect grace.
 
-The game is a game now: you descend — from home. Every run starts in the
-hideout (floor 0, a small safe world derived from the instance seed); its
-portal leads down to floor 1, anchoring there on first use. Each boot rolls a fresh world seed (logged — `-seed` pins it to
-reproduce a session), and every instance derives its dungeons from that one
-number. Floors are whole fresh Worlds seeded from (run seed, floor index);
-stairs at the far end take everyone a level deeper; packs grow and level
-with depth, a rare guardian holds the stairs every 3rd floor. Death costs XP
-(never de-levels) and ejects everyone to the portal, burning one portal use
-(`-portals`, default 3) — none left and the run is over: a new run starts
-back home on a fresh seed, best-floor kept as the score, the character
-(level/XP/gear/gems) surviving it all. The portal re-plants wherever you
-stand (P); a trip home costs one use, returning is free. The HUD shows run ·
-floor · portals · best.
+The game is a game now: you descend — from home, across a map. Every run
+starts in the hideout (floor 0, a small safe world derived from the
+instance seed); its portal leads to the delve chart's entry node. The
+chart (PoE1-Delve style, `server/delvemap.go`) is a node lattice derived
+purely from the run seed: rows are depth, edges lead down/up/sideways,
+biomes land as spatial clumps (blob-Voronoi, depth-weighted), and each
+node is a 3-floor dungeon sharing one biome and one rolled mod set. Stairs
+walk a node's floors; the third floor's set-piece (guardian; King/Warden
+every 3rd row alternating; Tyrant every 10th) CLEARS the node when it
+falls — the stairs then open the map (N reads it anytime) and you travel
+to any neighbor of cleared ground or anywhere already visited: deeper,
+sideways to hold a depth, or back up. Floors are whole fresh Worlds seeded
+from (run seed, node, fin); packs grow and level with global depth
+((row−1)·3+fin — the ladder/checkpoint/feat currency throughout). Death
+costs XP (never de-levels) and ejects everyone to the portal anchor
+(node+fin), burning one portal use (`-portals`, default 3) — none left and
+the run is over: a new run starts back home on a fresh seed and a fresh
+chart, best-floor kept as the score, the character surviving it all. The
+portal re-plants wherever you stand (P); a trip home costs one use,
+returning is free. The HUD shows run · floor (fin/3) · portals · best.
 
 Player skills are gems (session 34): a fresh exile wakes holding one uncut
 skill gem and picks its first skill from the draft (the dialog opens
@@ -88,7 +94,8 @@ All foundational machinery from DESIGN.md is real, not stubbed:
 | Flasks: charge-gated regen-burst sips (keys 1/2), kills feed charges, durable (save v7) | `sim/`, `content/`, `web/` | done, tested |
 | Passive forks: a pick-3 milestone every 5 levels to the cap (5–50, 30 passives in themed tiers: procs, defense, tempo, shape (+1 minion/projectile/chain at 30), sustain, elements, gambles, More-capstones at 50), permanent, durable, client chooser; DB() asserts the ladder has no missing rung | `sim/core`, `content/`, `web/` | done, tested |
 | Character extract/inject: durables only, item IDs re-minted, sheet rebuilt | `sim/core/character.go` | done, tested |
-| The descent: hideout start (`Config.StartFloor`, 0 = home; hideout world derived from the instance seed), floor swaps, portal economy, XP death penalty, run-over → new run at home, leveled+thickened packs, stairs guardian every 3rd floor | `server/descent.go` | done, unit + e2e tested, verified live |
+| The descent: hideout start (`Config.StartFloor`, 0 = home; >0 maps to the chart's trunk), node floor swaps, portal economy (anchor = node+fin), XP death penalty, run-over → new run at home, leveled+thickened packs, per-node set-piece cadence | `server/descent.go` | done, unit + e2e tested, verified live |
+| The delve chart: run-seed-pure node lattice (rows deep, 7 cols, guaranteed up/down connectivity, lateral corridors), biome blob-Voronoi clumps, per-node mods (+20% juiced), visited/cleared bookkeeping, fog-of-reveal snapshots, travel validation (stairs + cleared-frontier) | `server/delvemap.go`, `web/` (N panel, SVG map) | done, tested, verified live (wire v28) |
 | Monster rarity: magic/rare rolls with mod packages, XP ×3/×6, extra drops, floor-scaled chances, rings + nameplates | `sim/sim.go`, `content/`, `web/` | done, tested |
 | Equipment + inventory: 10 slots, slot-addressed equip, pickup/unequip/drop, capacity | `sim/items/equip.go` | done, tested |
 | Server: TCP + WS transports, send-rate decoupling, interest culling, binary deltas + acks, pause, per-client send queues (a stalled socket dies alone; the tick never blocks on I/O) | `server/` | done, race-tested |
@@ -96,7 +103,7 @@ All foundational machinery from DESIGN.md is real, not stubbed:
 | Identity: account roster (file v2, v1 auto-migrates) — one 32-byte cookie token, up to 12 named characters; `?char=` selects at the WS door, banks land on the slot in play (tracked by name, so a mid-session delete banks nowhere); one session per account; per-character delete via /api/forget (last one takes the account); character-select join screen | `server/identity.go`, `web/` | done, tested, verified live |
 | Stash: account-wide hideout bank (240 items as four 60-slot client tabs, durable CharItem form on the identity, shared by every character — the alt loop); stash_put/stash_take verbs, hideout-only, processed at the host layer between ticks; drag between bag and stash in the panel | `server/stash.go`, `server/identity.go`, `web/` | done, tested, verified live |
 | Lobby: many instances per process, party = instance, invite/leave transfers via floor-swap machinery, 60s empty reap = reconnect grace | `server/lobby.go`, `cmd/partybot` | done, race-tested, verified live |
-| The Living Descent (ROADMAP v2 Track 2): biomes (3 depth bands, cave mapgen kind, palettes/drones), floor mods + descent chart (route/chamber addresses, side chambers), account checkpoints w/ level-gated deep starts, per-character ladder w/ builds + death recap, hardcore (memorials) + SSF modes, 8 feats + hideout trophies, instance chat + map pings, stash tabs + settings panel | `server/biome.go`, `server/floormod.go`, `server/ladder.go`, `server/feats.go`, `server/chat.go`, `sim/space/mapgen_caves.go`, `web/` | done, tested, verified live (wire v27 after the rebase) |
+| The Living Descent (ROADMAP v2 Track 2): biomes (cave mapgen kind, palettes/drones — now chart clumps, not depth bands), floor mods (now node-scoped; the v27 route/chamber chart superseded by the delve chart), account checkpoints w/ level-gated deep starts, per-character ladder w/ builds + death recap, hardcore (memorials) + SSF modes, 8 feats + hideout trophies, instance chat + map pings, stash tabs + settings panel | `server/biome.go`, `server/floormod.go`, `server/ladder.go`, `server/feats.go`, `server/chat.go`, `sim/space/mapgen_caves.go`, `web/` | done, tested, verified live |
 | Hosting + CI/CD: public via Tailscale Funnel; every push to main builds, swaps (prev kept), restarts, health-checks; `identities.json` never touched. CI gates every PR and main push: `go vet`, race-tested suite, JS syntax | `.github/workflows/deploy.yml`, `ci.yml` | done, verified e2e |
 | Admin dashboard: observe (tick health, counts, events, hash, run line) + poke (pause, spawn, kick, save) + dev cheats (god/gem/orbs); lobby index at `/i/{id}/` | `server/admin.go` | done, tested; NO AUTH — on the nuc it binds loopback, tailnet-only via `tailscale serve` at http://nuc:9090 (see multiplayer.md) |
 | Web client: canvas render, vector actor models (shaded per-archetype bodies, motion-derived facing), drag-drop inventory, delta decoding + tick-timeline interpolation, VFX/damage numbers/audio stingers, PoE2 HUD + gem bar (shared gem-icon SVGs), centered pick-3 draft dialog (auto-opens for gemless characters), WASD + click, minimap, join screen, party panel | `web/` | working, no build step |
@@ -253,6 +260,38 @@ chat bucket join the list.
 
 ## Session log
 
+- **2026-07-07 (82)** — The delve chart (`delve-chart`): descent becomes a
+  PoE1-Delve-style node map, per Jake's spec (visual up/down/sideways
+  navigation, biomes as clumps, 3-floor nodes, boss gates the next pick).
+  `server/delvemap.go`: a lattice pure in the run seed — 3–5 nodes per
+  row (7 cols, row 1 forces the entry), every row guaranteed reachable
+  and every node given a way down, ~65% lateral corridors; biomes via
+  depth-weighted jittered blob centers + Voronoi (rows 1–2 pinned crypt);
+  node mods (all 3 floors share them) on the old floorModTable at the old
+  depth bands, +1 on a 20% "juiced" roll. Instance state: (node, fin) +
+  visited/cleared sets replace (floor, route, chamber); `floor` stays as
+  the derived global depth ((row−1)·3+fin), so ladder/checkpoints/feats/
+  ilvl scaling are untouched; run-save envelope v3 carries it all
+  (visited/cleared serialized in lattice order — no map iteration). Every
+  node's fin-3 stakes a set-piece (guardian / King‑Warden every 3rd row /
+  Tyrant every 10th); its death event clears the node, marks checkpoints
+  (Warden now included — it never checkpointed before), and broadcasts
+  the grown chart. Stairs: fins 1–2 instant, fin 3 answers a travel-mode
+  "delve" frame; travel picks (`travel` verb, Row/Col on Command) are
+  validated at the stairs against visited ∪ cleared-frontier. Deep starts
+  map stored global-floor checkpoints onto the fresh chart's trunk row.
+  Wire v28: DelveSnap fog (visited + neighbors full, ring-2 veiled
+  silhouettes), RunSnap row/col/fin/cleared. Client: SVG chart panel
+  (N / Esc-menu; biome-colored nodes, jittered lattice, cleared ✓, boss
+  glyphs, reward pips, pulsing frontier, hover info, click travels),
+  chart dialog kept for portal deep starts, HUD shows fin/3. Old chart
+  machinery (chartOffers/modCountAt/biome bands) deleted. Sim untouched,
+  goldens byte-stable; suite green. Verified live in Chrome: guest run —
+  portal → node 1:3, fins walked, guardian burned down (admin god+gem),
+  `cleared` on the run snap, travel-mode map with 3 pulsing exits, travel
+  to 2:4 (floor 4, Iron-boned, reveal grown), death/eject/run-over path
+  exercised, zero console errors. Balance knobs now in play: row bands
+  for mod counts, 20% juice, 45%/65% edge odds, biome weights.
 - **2026-07-07 (81)** — UI shell pass (`ui-polish`): the escape menu —
   Esc opens a centered menu of every panel (inventory, character sheet,
   party, ladder, settings, exit-to-character-select) plus the full
@@ -321,248 +360,4 @@ chat bucket join the list.
   kill rolled the new window). Verified live over the wire: melted the
   starting uncut gem (5 shards), bought a transmutation (1 left),
   8-slot wallet + both forge events on the snapshot.
-- **2026-07-06 (77)** — Channelling + blink: Track 1 item 4, RISKS #1's
-  named gaps grown on purpose. Channel: `ChannelTicks > 0` skills fire
-  their first effect at the windup's end then hold in the new
-  `PhaseChannel`, repeating every interval — bound at use time in the
-  otherwise-unused RecoveryTicks slot (speeds bind at use, same rule as
-  everything) — while `ChannelMana` (gem/support-scaled, `ChannelCost`)
-  is paid per repeat; starvation ends it. The deliberate semantics: a
-  channel is interruptible BY ITS OWNER — move/use_skill/stop commands
-  break it and process (windup/recovery stay committed) — and stun breaks
-  it for free. Cooldowns: `Actor.Cooldowns` slice (start order), checked
-  and started at the command gate, decremented in Upkeep, save v18 +
-  conditional hash, deliberately zone-local (transfers arrive clear).
-  Blink (`SkillBlink`): teleport toward the aim, range-clamped, then the
-  furthest of 16 line samples with a walkable landing AND ClearLine from
-  the start — never through a wall; all blocked = fizzle in place. Wire
-  v24: GemSnap.Cd (bar dims + whole-second countdown), "channel:" action
-  string. Content: Incinerate (channelled flamethrower — LMP fans it) and
-  Blink, cuttable (pool 12→14, goldens re-recorded). Verified live: a TCP
-  client channelled for 3s (projectiles flowing, mana draining), a move
-  command broke it, blink jumped exactly 7u with cd:63 on the wire.
-- **2026-07-06 (76)** — Curses: Track 1 item 3, on the buff machinery
-  exactly as the roadmap hoped. A curse is a `BuffDef{Curse: true}`:
-  applied whole, refreshed whole, expired by TickStatuses, saved/hashed by
-  ID — zero new persistence. ApplyBuff grew the one-hex-per-target rule
-  (an incoming curse first evicts any OTHER curse + its mods; newest
-  wins). SkillCurse casts hex every hostile within AoERadius of the aim
-  point (clamped to Range), through the pending-buff queue — no hits, no
-  RNG (pinned). The enabling mitigation change: negative resistance now
-  amplifies (`res != 0` gates in pipeline + dot.go) — nothing pre-curse
-  could go negative, so it's byte-inert for old replays; it's what makes
-  flammability pay off against 0-res trash too, hits and ignite ticks
-  both. Content: flammability / enfeeble cuttable curse gems (pool 10→12,
-  goldens re-recorded), the weakness hex, and the bone_hexer — a pure
-  support caster (ranged_kiter, no damage skill at all) that hexes YOU
-  from the back line; added to the arena scatter. Wire: AilCursed bit 64
-  + EvCurse, no version bump. Verified live: the hexer cursed a TCP
-  client (weakness events, ail:64), and the player's flammability hexed
-  it back.
-- **2026-07-06 (75)** — Auras: Track 1 item 2. SkillAura gems toggle at the
-  effect point: on grants the def's AuraMods (scaled +5%/gem level) to the
-  caster's sheet and every owned minion's — no radius by Jake's call, so
-  application stays event-driven (toggle, DrainSpawns inheritance for late
-  summons, character injection) with zero per-tick scans — and reserves
-  Reserve of max mana (More(-Reserve) on Mana, mana clamped). AuraOn lives
-  on the Gem: durable, save v17, hashed, transfers (injection re-applies as
-  part of the sheet rebuild, before the pool clamp). Aura mod source space
-  is bits 63+59 | FNV(skill ID), collision-asserted in DB(). Sharp edges
-  closed: cut-replace over a running aura deactivates it first (mods would
-  leak on every sheet), level_gem re-applies at the new scale. Wire v23:
-  GemSnap.On (binary codec + net.js updated in lockstep); the bar glows on
-  a running aura; EvAura narrates. Content: Anger (+5 flat fire — the
-  skeleton army's campfire) and Determination (50% inc armour), both 35%
-  reserve, cuttable (pool 8→10 → goldens re-recorded). Verified live over
-  a FIFO-driven TCP client: use_skill toggled Anger on (max mana 50000 →
-  32500 exactly, on:true, EvAura) and off (restored, regen climbing).
-- **2026-07-06 (74)** — Poison: the stacking half of Track 1 item 1, and a
-  new workflow. The mechanic: a chaos DoT off the hit's phys+chaos portion
-  (30% as dps, 2s), and THE deliberate design — every application appends
-  its own DoT instance instead of competing (attack speed is now a DoT
-  multiplier; the short duration is the stack cap; chaos res mitigates the
-  ticks via dot.go's existing tail). Same conditional-RNG rule as bleed,
-  rolled after it (append-last keeps older draws in place); goldens again
-  byte-stable, pinned by TestPoisonRNGConsumption. Content: the carrion
-  husk trades zombie_slam for its own putrid_slam (30% poison — the rot
-  monster teaches the rot mechanic), poison_chance suffix appended last,
-  Envenom support (ungated, 40% + 4 flat chaos that feeds the basis).
-  Wire: EvPoison + AilPoisoned (32). Workflow (Jake): Track 1 features now
-  land as separate commits on ONE long-running PR (`track1-buildcraft`),
-  merged when the track is done; no play server during track work.
-- **2026-07-06 (73)** — Bleed: Track 1's first mechanic. A physical DoT on
-  the ignite model (strongest wins, no stacking — stacking is poison's
-  deliberate design, next), 35% of the phys hit as dps for 6s, riding the
-  existing Physical path in `dot.go` (armour and resists ignore it). The
-  RNG discipline is block's, not ignite's: the roll consumes a draw only
-  when the attacker has any bleed chance at all (skill base + sheet base +
-  flat mods + support fold, composed like Eval) — physical damage is on
-  nearly every hit, and an unconditional draw would have shifted every
-  replay. Both goldens stayed byte-stable; pinned by
-  TestBleedRNGConsumption (chanceless phys ≡ chaos, chanced phys ≡ fire).
-  Content: ghoul claws 25% base chance (the monster that teaches it),
-  bleed_chance suffix appended last (5–10%, proc slots), Rupture support
-  (attack-gated, 35% + 10% more phys). Wire: EvBleed event + AilBleeding
-  bit (16) in the existing Ail byte — no codec change, no version bump.
-  Client: red ail ring, "is bleeding" log line, tooltip formatter.
-  Verified live on a branch server: a spawned ghoul bled a TCP client to
-  death (bleed events + ail:16 on the wire); a zombie control landed 7
-  hits with zero bleed. No save shape change (DoTs already save/hash).
-- **2026-07-06 (73b, Track 2)** — Track 2 items 2–9, one commit each, all on the
-  same branch/PR as item 1. **Biomes** (v26 after the rebase): three depth bands — crypt
-  1–9 (untouched), the Sunken Caves 10–19 (new CA cave mapgen via
-  `MapSpec.Kind`, flesh roster, earth palette), the Frozen Deep 20+
-  (mage roster, ice palette); biome id on the run snap; client palettes,
-  HUD names, soft ambient drone per band. **Floor mods + the descent
-  chart** (v27): floors roll named depth-scaled mods (7-entry host table;
-  monster packages ride the monster-mod machinery via additive
-  `ApplyExtraMods`/`ApplyFloorMods` + a separate `content.FloorMods`
-  table so the rarity pool never shifts); the stairs answer with a chart
-  — two routes down (one greedier) plus a mod-stacking same-depth side
-  chamber; all pure in (runSeed, floor, route, chamber) so eject rebuilds
-  are hash-identical; route address rides the run envelope.
-  **Checkpoints**: fallen set-pieces mark account checkpoints (death
-  events now carry the def id in Note — payload only); a fresh run's
-  hideout portal offers level-gated deep starts at one portal traded.
-  **Ladder + recap**: per-character best + the build that reached it
-  (display names resolved at record time) on `/api/ladder`, L panel with
-  per-mode boards; deaths get a recap frame (floor, mods, last hits off a
-  per-client ring). **Hardcore/SSF**: permanent creation flags; hardcore
-  death = memorial row + slot gone, account survives empty (stash,
-  checkpoints, memorials, feats live on); SSF = no stash, no parties,
-  gated server-side. **Feats**: eight deterministic-trigger achievements
-  incl. Untouchable (king down, clean recap ring); trophies stand in the
-  hideout. **Chat**: instance-relayed lines (Enter) + map pings (G,
-  minimap click), scrubbed + bucketed. **Polish**: 240-slot stash as 4
-  client tabs, settings panel (O: volume/damage numbers/mute). All sim
-  changes additive; goldens byte-stable throughout; suite green.
-- **2026-07-06 (73, Track 2)** — Track 2 item 1: account roster + shared stash.
-  One cookie token is now an account holding up to 12 named characters
-  (`Identity.Chars []*CharSlot`; identity file v2, v1 loads via migration
-  and rewrites on the next flush); character names stay globally unique;
-  the stash rides the account, so every character shares it — the alt
-  loop. The WS door takes `?char=Name` (default: most recently played);
-  banks land on the slot *in play*, tracked by lowercased name rather
-  than index so a mid-session delete banks nowhere (session 71's
-  resurrection lesson, roster edition). `/api/claim` under a valid cookie
-  grows the roster instead of orphaning the old identity (the roadmap's
-  headline fix); `/api/whoami` returns the roster with levels;
-  `/api/forget` takes `{"name"}` and only expires the cookie when the
-  last character goes. Client: the join screen becomes a character select
-  (cards with level, × delete behind the shared confirm overlay, "+ new
-  character" reveals the claim form, guest unchanged);
-  `sessionStorage` remembers the pick so reloads reconnect straight into
-  the grace window. Sim untouched (seam contract: goldens byte-stable);
-  wire types untouched — all of it rides HTTP JSON and the WS query
-  string. Pinned: roster add/select/bank-to-slot, cap, cross-account name
-  dupes, active-delete kick + no-resurrection, last-delete account wipe,
-  v1 migration round-trip, roster claim/whoami/forget + `?char=` over a
-  real socket. Verified live in Chrome: v1 file migrated, alt created and
-  played, switch via select, per-card delete, guest; partybot untouched.
-- **2026-07-06 (72)** — ROADMAP v2, docs only. The shipped roadmap (every
-  phase ✅) is rewritten as two concurrently-developable tracks sliced
-  along the codebase's natural seam: Track 1 "Buildcraft" owns sim
-  behavior, content, goldens, and SaveVersion (bleed/poison → auras →
-  curses → channelling + dash → crafting orbs + the Forge vendor →
-  passive milestones past 10 → content riding each mechanic); Track 2
-  "The Living Descent" owns server/, web/, and protocol.Version (account
-  roster + shared stash → biomes → depth-scaled floor mods w/ delve-chart
-  route choice incl. same-depth side chambers → account-wide level-gated
-  checkpoints → build-visible ladders + death recap → hardcore/SSF modes
-  w/ per-mode boards → feats + hideout trophies → chat → shell polish),
-  deliberately non-seasonal (permanent characters, additive account
-  progression, no resets), with an additive-only sim rule so
-  existing goldens stay byte-stable on its branches. Version numbers are
-  taken at merge time, never reserved; golden conflicts re-record, never
-  hand-merge. No code changed.
-- **2026-07-06 (71)** — Character deletion: the reset lever a bricked
-  character needed (its name was squatted forever). `IdentityStore.Delete`
-  removes the identity outright — character, stash, name reservation —
-  and `POST /api/forget` (cookie-authed) drives it: store entry first,
-  THEN the live session is kicked (lobby `online` index / instance client
-  scan), so the dying session's Disconnect/Bank no-op on the gone token
-  instead of resurrecting it; the cookie expires in the response. Client:
-  a "delete this character" button in the hideout panel (named + floor 0,
-  same gating as the stash) behind a real confirmation overlay, then a
-  clean reload to the join screen with the name claimable again. Pinned
-  at three layers: pure store (resurrection resistance), instance wire,
-  and lobby wire (kick + fresh re-claim).
-- **2026-07-06 (70)** — The balance patch, two fronts from playtesting.
-  (1) Anti-shotgun: one cast damages each target at most once. A real fan
-  (n > 1) shares a `Projectile.Volley` id; a target the volley already
-  damaged is flown past at collision time (extra projectiles reach what's
-  behind) and any sibling hit — direct or splash — drops at the top of
-  the pipeline before any roll, reading only hashed state so RNG
-  consumption stays deterministic. The volley is spent only when damage
-  lands (evaded/blocked siblings don't count); memory is a 4-slot ring on
-  the actor (`RecentVolleys`, saved v16 + conditionally hashed). Pinned:
-  a GMP fan hits once, a second cast hits again, solo casts carry no
-  volley. (2) Defensive gear trim ~25%: life/armour/evasion/ES flats,
-  all resist tiers, regen, leech (2–5%→1–3%), block suffix and the
-  shield's block implicit all shaved — "invincible-adjacent after
-  non-normal gear" was the note. Offense untouched. Goldens re-recorded.
-- **2026-07-06 (69)** — Two new minion skills on the session-52 machinery.
-  Summon Marksman: the first ranged minion (cap 2) — `minion_ranged` AI
-  shoots bone arrows from PreferredRange with rangedKiter's firing logic
-  under minionMelee's owner-anchored leash (shared `minionTarget`/
-  `liveOwner` helpers). Summon Raging Spirit: the first short-lived minion
-  (cap 5, 8s) — new `Actor.LifespanTicks` counts down in Upkeep and expiry
-  is a quiet despawn (no death/loot/XP, like a cap despawn); plumbed
-  through `PendingSpawn.Lifespan` from `SkillDef.SummonTTL`. Save v15,
-  conditional hash. Cuttable pool grew → goldens re-recorded. Pinned:
-  spirit expires quietly with a real 8s step loop, marksman fires from
-  range instead of charging. Client: bow-armed skeleton + flaming-skull
-  models, gem metadata.
-- **2026-07-06 (68)** — Light radius. A new `light_radius` suffix
-  (+0.5–1.5u in 0.5 steps, helmet/amulet/ring) reaches further into the
-  fog of war, and the base lit circle grew 9→10 units. The trick: fog is
-  pure client presentation, so the client sums equipped rolls off the
-  equipment snaps it already receives (`updateLightRadius` per view) —
-  no sim query, no wire change; `stats.LightRadius` exists only because
-  the affix machinery mods a sheet. Appended last in the ordered affix
-  table; goldens didn't move.
-- **2026-07-06 (67)** — The character sheet (C): finally a way to see your
-  stats. Server-computed — `sim.BuildSheet` evaluates stat lines off the
-  live sheet (pools, defenses, resists, crit, regen, leech) plus per-gem
-  combat numbers: nominal average hit via the new `combat.NominalHit`
-  (mirrors rollDamage step for step with roll averages instead of RNG —
-  pure, pinned read-only by `TestBuildSheetReadOnly`), cast time at
-  current speed, DPS, mana cost, fan/chain shape after supports and gear.
-  Flow is the stash pattern: a host-layer "sheet" verb, answered after the
-  tick with a "sheet" JSON frame (wire v22, binary codec untouched); the
-  C panel re-requests on an 800ms pulse while open, two tabs (Character /
-  Gems). Goldens unmoved.
-- **2026-07-06 (66)** — Loot ergonomics. Sim: multiple drops from one death
-  scatter onto a ~1.1u eight-point ring around the corpse (widening per
-  lap, clamped to walkable like queued spawns, first drop on the corpse) —
-  pure data, zero RNG draws, so the loot stream is untouched; pinned by
-  `TestDropsScatter`, goldens re-recorded (drop positions moved). Client:
-  ground labels lay out as a climbing column instead of overprinting
-  (bottom-most keeps its spot), each laid-out label is itself a click
-  target for its exact item, and bare-ground clicks resolve to the nearest
-  drop instead of first-found — together the fix for "the boss died on the
-  stairs and clicking the pile descends".
-- **2026-07-06 (65)** — Entity separation widened: the de-overlap pass now
-  includes player-owned minions (anything with `Owner != 0`) alongside
-  monsters, so a skeleton army reads as an army instead of a single-file
-  clump; actual players still never push or get pushed. `overlapFraction`
-  800→900 milli — packs stand a shade wider. First direct unit tests for
-  `Separate` (monsters ease apart, minions ease apart, players never move);
-  goldens unmoved (their scenarios never converge below the threshold).
-- **2026-07-06 (64)** — Item presentation. Three fronts: (1) affix/implicit
-  rolls quantize in the engine — `AffixDef.Step`/`ImplicitDef.Step` snap
-  every roll onto a Min + k·Step lattice (whole percents for resists and
-  increased-stats, whole points for flat life/armour, 0.1 steps for the
-  regen/move-speed oddballs), uniform across steps and still exactly one
-  RNG draw so the loot stream never shifts; pinned by
-  `TestRollValuesLandOnStep`, goldens re-recorded (values moved). (2) The
-  client formats mod lines semantically — `modLine`/`MOD_FMT` turn
-  "fire_resistance: 0.17" into "+17% to fire resistance" for every content
-  affix and implicit, with a magnitude-guessing fallback for ids newer than
-  the client. (3) Rarity honesty: normal ground labels drop the gold tint
-  (grey-white now — gold was reading as rare), rare/unique/gem labels go
-  bold, and uniques finally throw the tallest light shaft (they had none).
-  Boots icon redrawn as an actual boot. Verified live: dummy farm, tooltips
-  checked across normal/rare/unique + a synthetic all-affix rare, zero
-  console errors.
-- (sessions 38–63 pruned — git history is the archive)
+- (sessions 38–77 pruned — git history is the archive)

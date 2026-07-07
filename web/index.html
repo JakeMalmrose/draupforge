@@ -81,6 +81,16 @@
 
   <div id="chart-scrim" class="hidden"><div id="chart-dialog"></div></div>
 
+  <div id="delve-scrim" class="hidden">
+    <div id="delve-dialog">
+      <h3>THE DELVE CHART</h3>
+      <p class="dlg-sub" id="delve-sub"></p>
+      <div id="delve-viewport"><svg id="delve-svg"></svg></div>
+      <div id="delve-info">&nbsp;</div>
+      <button id="delve-close" class="ghost">close</button>
+    </div>
+  </div>
+
   <div id="overlay" class="hidden">
     <div id="overlay-text">YOU DIED</div>
     <button onclick="location.reload()">rise again</button>
@@ -155,6 +165,7 @@
     <button data-menu="inventory">inventory <span class="key-hint">Tab / I</span></button>
     <button data-menu="charsheet">character sheet <span class="key-hint">C</span></button>
     <button data-menu="social">party &amp; online <span class="key-hint">F</span></button>
+    <button data-menu="delve">delve chart <span class="key-hint">N</span></button>
     <button data-menu="ladder">the ladder <span class="key-hint">L</span></button>
     <button data-menu="settings">settings <span class="key-hint">O</span></button>
     <button data-menu="exit" id="menu-exit">exit to character select</button>
@@ -163,6 +174,7 @@
       <div class="ctl-row"><span class="ctl-key">Q E R T</span><span>skill gems</span></div>
       <div class="ctl-row"><span class="ctl-key">1 2</span><span>flasks</span></div>
       <div class="ctl-row"><span class="ctl-key">click</span><span>pickup &middot; stairs &middot; portal</span></div>
+      <div class="ctl-row"><span class="ctl-key">N</span><span>delve chart</span></div>
       <div class="ctl-row"><span class="ctl-key">P</span><span>plant portal</span></div>
       <div class="ctl-row"><span class="ctl-key">Enter</span><span>chat</span></div>
       <div class="ctl-row"><span class="ctl-key">G</span><span>ping the map</span></div>
