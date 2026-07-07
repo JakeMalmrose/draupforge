@@ -92,7 +92,7 @@
       <button id="cs-tab-gems" class="cs-tab">Gems</button>
     </div>
     <div id="charsheet-body"></div>
-    <p class="hint">C closes this panel</p>
+    <p class="hint">C or Esc closes this panel</p>
   </div>
 
   <div id="settings" class="hidden">
@@ -102,13 +102,13 @@
     </label>
     <label class="set-row"><input type="checkbox" id="set-dmgnum"> damage numbers</label>
     <label class="set-row"><input type="checkbox" id="set-mute"> mute all sound (M)</label>
-    <p class="hint">O closes this panel</p>
+    <p class="hint">O or Esc closes this panel</p>
   </div>
 
   <div id="ladder" class="hidden">
     <h2>The Ladder</h2>
     <div id="ladder-list"></div>
-    <p class="hint">deepest floor per character &middot; L closes this panel</p>
+    <p class="hint">deepest floor per character &middot; L or Esc closes this panel</p>
   </div>
 
   <div id="recap" class="hidden">
@@ -123,7 +123,7 @@
     <button id="leave-party" class="hidden" onclick="sendLeaveParty()">leave party</button>
     <h2>Players online</h2>
     <div id="online-list"></div>
-    <p class="hint">F closes this panel</p>
+    <p class="hint">F or Esc closes this panel</p>
   </div>
 
   <div id="invite-toast" class="hidden">
@@ -149,7 +149,29 @@
     <button class="ghost" onclick="playGuest()">play as guest</button>
   </div>
 
-  <div id="help">WASD or click to move &middot; click pickup/stairs/portal &middot; <b>Q</b>/<b>E</b>/<b>R</b>/<b>T</b> skill gems &middot; <b>1</b>/<b>2</b> flasks &middot; <b>P</b> plant portal &middot; <b>F</b> friends &middot; <b>L</b> ladder &middot; <b>Enter</b> chat &middot; <b>G</b> ping &middot; <b>I</b> inventory &middot; <b>O</b> settings &middot; <b>M</b> mute</div>
+  <div id="esc-menu" class="hidden">
+    <h2>DRAUPFORGE</h2>
+    <button data-menu="resume">resume</button>
+    <button data-menu="inventory">inventory <span class="key-hint">Tab / I</span></button>
+    <button data-menu="charsheet">character sheet <span class="key-hint">C</span></button>
+    <button data-menu="social">party &amp; online <span class="key-hint">F</span></button>
+    <button data-menu="ladder">the ladder <span class="key-hint">L</span></button>
+    <button data-menu="settings">settings <span class="key-hint">O</span></button>
+    <button data-menu="exit" id="menu-exit">exit to character select</button>
+    <div id="controls-list">
+      <div class="ctl-row"><span class="ctl-key">WASD / click</span><span>move</span></div>
+      <div class="ctl-row"><span class="ctl-key">Q E R T</span><span>skill gems</span></div>
+      <div class="ctl-row"><span class="ctl-key">1 2</span><span>flasks</span></div>
+      <div class="ctl-row"><span class="ctl-key">click</span><span>pickup &middot; stairs &middot; portal</span></div>
+      <div class="ctl-row"><span class="ctl-key">P</span><span>plant portal</span></div>
+      <div class="ctl-row"><span class="ctl-key">Enter</span><span>chat</span></div>
+      <div class="ctl-row"><span class="ctl-key">G</span><span>ping the map</span></div>
+      <div class="ctl-row"><span class="ctl-key">M</span><span>mute</span></div>
+      <div class="ctl-row"><span class="ctl-key">Esc</span><span>close &middot; this menu</span></div>
+    </div>
+  </div>
+
+  <div id="help">press <b>Esc</b> for menu &amp; controls</div>
 
   <script src="net.js"></script>
   <script src="client.js"></script>
