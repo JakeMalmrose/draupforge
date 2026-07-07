@@ -44,6 +44,16 @@ func GemManaScale(level int) fm.Fixed {
 	return fm.One + fm.FromMilli(int64(50*(level-1)))
 }
 
+// GemAuraScale is the gem-level multiplier on an aura's mod values: +5% of
+// the authored value per level past the first — auras grow with drops like
+// everything else, while their reservation stays flat.
+func GemAuraScale(level int) fm.Fixed {
+	if level <= 1 {
+		return fm.One
+	}
+	return fm.One + fm.FromMilli(int64(50*(level-1)))
+}
+
 // ConversionDef moves a fraction of one damage type's pre-multiplier total
 // (base roll + added flat) into another type. Converted portions are scaled
 // by modifiers of both the source and destination types (DESIGN.md §3:
@@ -85,6 +95,10 @@ type Gem struct {
 	Level    int
 	Sockets  int
 	Supports []*SupportDef
+	// AuraOn marks a running aura (SkillAura gems only). Durable like the
+	// gem itself: it transfers with the character and re-applies its mods
+	// at injection.
+	AuraOn bool
 }
 
 // ManaCost is the gem's effective cost: base × level scale × each socketed

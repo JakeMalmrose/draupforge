@@ -11,7 +11,7 @@ package protocol
 // v18 unifies two parallel branches that both claimed v16 (gems on main,
 // identity on the multiplayer branch; parties took v17) — jumping past all
 // of them so no deployed client can match a wrong meaning.
-const Version = 22 // v22: character-sheet frames (v21: item level)
+const Version = 25 // v25: forge shards + 8-kind orb wallet (v24: gem cooldown ticks)
 
 // Command is the wire form of player intent. Kind is one of "move",
 // "use_skill", "stop", the item verbs "pickup", "equip", "unequip",
@@ -70,7 +70,7 @@ type ActorSnap struct {
 	ES      int64  `json:"es,omitempty"`
 	Action  string `json:"action"`
 	// Ail is the active-status bitmask: 1 ignited, 2 chilled, 4 shocked,
-	// 8 buffed, 16 bleeding.
+	// 8 buffed, 16 bleeding, 32 poisoned, 64 cursed.
 	Ail uint8 `json:"ail,omitempty"`
 	// InvSize is the bag capacity (0 = carries nothing). Static per def;
 	// travels in the identity field group on the binary wire.
@@ -85,8 +85,11 @@ type ActorSnap struct {
 	// Flasks: charges per flask slot (order = the def's flask order).
 	Flasks []int64 `json:"flasks,omitempty"`
 	// Orbs: crafting-currency counts, OrbKind order (transmutation,
-	// alchemy, chaos, jeweller).
+	// alchemy, chaos, jeweller, regal, exalt, annulment, scouring).
 	Orbs []int64 `json:"orbs,omitempty"`
+	// Shards: the Forge balance — melted items pay in, orb purchases pay
+	// out. Rides the orb field group on the binary wire.
+	Shards int64 `json:"shards,omitempty"`
 	// Gems: the actor's cut skill gems in bar order. Own binary field
 	// group — it changes on cut/level/socket verbs.
 	Gems []GemSnap `json:"gems,omitempty"`
@@ -122,6 +125,8 @@ const (
 	AilShocked
 	AilBuffed   // any content-defined buff is active
 	AilBleeding // a physical DoT is ticking
+	AilPoisoned // a chaos DoT is ticking
+	AilCursed   // a curse (hex BuffDef) is on this actor
 )
 
 type EquippedSnap struct {
@@ -183,6 +188,12 @@ type GemSnap struct {
 	Sockets  int      `json:"sockets"`
 	Supports []string `json:"supports"`
 	ManaCost int64    `json:"mana_cost"`
+	// On marks a running aura (SkillAura gems only) — the bar renders the
+	// toggle state.
+	On bool `json:"on,omitempty"`
+	// Cd is the remaining cooldown in ticks (0 = ready) — the bar renders
+	// the lockout without re-deriving cooldown math.
+	Cd uint32 `json:"cd,omitempty"`
 }
 
 // SupportSnap is one support gem's static content: what the cutting/socket

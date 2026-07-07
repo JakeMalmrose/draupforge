@@ -23,6 +23,11 @@ type ActionPhase uint8
 const (
 	PhaseWindup ActionPhase = iota
 	PhaseRecovery
+	// PhaseChannel: the held loop of a channelled skill. TicksLeft counts
+	// down to the next repeat; the interval lives in RecoveryTicks (bound
+	// at use time like any recovery). Unlike windup/recovery, a channel is
+	// NOT a commitment — new move/skill commands break it and process.
+	PhaseChannel
 )
 
 // Action is what an actor is currently doing. One action at a time; skill
@@ -57,6 +62,42 @@ type Action struct {
 	// Gem is the level/support context baked at use time; zero for
 	// monsters and gem-less casts.
 	Gem GemCtx
+}
+
+// SkillCooldown is one running cooldown: the skill it gates and the ticks
+// until it clears.
+type SkillCooldown struct {
+	Skill     string
+	TicksLeft uint32
+}
+
+// OnCooldown reports whether the skill is still gated.
+func (a *Actor) OnCooldown(skillID string) bool {
+	for i := range a.Cooldowns {
+		if a.Cooldowns[i].Skill == skillID {
+			return true
+		}
+	}
+	return false
+}
+
+// StartCooldown begins a cooldown for the skill. Callers check OnCooldown
+// first; a duplicate entry would double-gate harmlessly but never happens.
+func (a *Actor) StartCooldown(skillID string, ticks uint32) {
+	if ticks == 0 {
+		return
+	}
+	a.Cooldowns = append(a.Cooldowns, SkillCooldown{Skill: skillID, TicksLeft: ticks})
+}
+
+// CooldownLeft returns the remaining ticks for the skill (0 = ready).
+func (a *Actor) CooldownLeft(skillID string) uint32 {
+	for i := range a.Cooldowns {
+		if a.Cooldowns[i].Skill == skillID {
+			return a.Cooldowns[i].TicksLeft
+		}
+	}
+	return 0
 }
 
 // DoT is an active damage-over-time effect. DoTs are not hits — they skip
@@ -170,6 +211,11 @@ type Actor struct {
 	// ring is plenty. Zone-local combat state like StunTicks.
 	RecentVolleys [4]uint64
 
+	// Cooldowns holds the running skill cooldowns, in start order —
+	// decremented in Upkeep, compacted at zero. Zone-local like StunTicks:
+	// transfers arrive with everything off cooldown.
+	Cooldowns []SkillCooldown
+
 	// Equipment by concrete slot; nil = empty. Equipped items grant their
 	// affixes as sheet modifiers sourced by the item's ID.
 	Equipment [EquipSlotCount]*Item
@@ -204,6 +250,11 @@ type Actor struct {
 	// straight to the killer on drop (no ground entity), durable like
 	// flask charges.
 	Orbs [OrbCount]int32
+
+	// Shards is the Forge's currency: melted items pay in, orb purchases
+	// pay out. Plain integer accumulator (never Fixed), durable like the
+	// orb wallet.
+	Shards int32
 
 	// Gems are the actor's cut skill gems, in cut order — the skill bar.
 	// Durable character state like Passives; players cast only from these,
@@ -425,11 +476,48 @@ const (
 	OrbAlchemy                      // normal -> rare
 	OrbChaos                        // reroll a rare's affixes
 	OrbJeweller                     // add a support socket to a skill gem
+	OrbRegal                        // magic -> rare, keeping its affixes + one more
+	OrbExalt                        // add one affix to a rare with room
+	OrbAnnulment                    // remove one random affix
+	OrbScouring                     // wipe to normal
 
 	OrbCount
 )
 
-var orbNames = [OrbCount]string{"transmutation", "alchemy", "chaos", "jeweller"}
+var orbNames = [OrbCount]string{
+	"transmutation", "alchemy", "chaos", "jeweller",
+	"regal", "exalt", "annulment", "scouring",
+}
+
+// OrbShardPrice is the Forge's sale price per orb, in shards — melted
+// items buy determinism where drops give luck. Open for tuning.
+var OrbShardPrice = [OrbCount]int32{
+	4,  // transmutation
+	25, // alchemy
+	25, // chaos
+	15, // jeweller
+	20, // regal
+	80, // exalt — the chase purchase
+	30, // annulment
+	6,  // scouring
+}
+
+// MeltShards is what the Forge pays for an item, by rarity. Uncut gems pay
+// a flat 5 (see MeltGemShards). Open for tuning.
+func MeltShards(r Rarity) int32 {
+	switch r {
+	case RarityMagic:
+		return 3
+	case RarityRare:
+		return 8
+	case RarityUnique:
+		return 20
+	}
+	return 1
+}
+
+// MeltGemShards is the Forge's flat price for an uncut gem item.
+const MeltGemShards = 5
 
 func (o OrbKind) String() string {
 	if o < OrbCount {
@@ -611,12 +699,13 @@ type Hit struct {
 	Volley uint64
 
 	// Outcomes, populated by the pipeline.
-	Damage  [DamageTypeCount]fm.Fixed
-	Crit    bool
-	Evaded  bool
-	Blocked bool
-	Ignited bool
-	Chilled bool
-	Shocked bool
-	Bled    bool
+	Damage   [DamageTypeCount]fm.Fixed
+	Crit     bool
+	Evaded   bool
+	Blocked  bool
+	Ignited  bool
+	Chilled  bool
+	Shocked  bool
+	Bled     bool
+	Poisoned bool
 }

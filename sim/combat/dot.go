@@ -19,8 +19,10 @@ func TickDoTs(w *core.World) {
 		for _, d := range a.DoTs {
 			dmg := d.PerTick
 			if d.Type != core.Physical {
+				// Negative resistance amplifies DoT ticks too — same rule
+				// as the hit path, and how flammability feeds ignite.
 				res := fm.Min(a.Sheet.Eval(resistStat(d.Type), dotTags.With(d.Type.Tag())), maxResist)
-				if res > 0 {
+				if res != 0 {
 					dmg = fm.Mul(dmg, fm.One-res)
 				}
 			}
@@ -68,6 +70,18 @@ func Upkeep(w *core.World) {
 		// phase, so the command gate this tick sees the decremented value).
 		if a.StunTicks > 0 {
 			a.StunTicks--
+		}
+		// Skill cooldowns burn down here too, compacting at zero — slice
+		// order is start order, deterministic.
+		if len(a.Cooldowns) > 0 {
+			out := a.Cooldowns[:0]
+			for _, cd := range a.Cooldowns {
+				cd.TicksLeft--
+				if cd.TicksLeft > 0 {
+					out = append(out, cd)
+				}
+			}
+			a.Cooldowns = out
 		}
 		// Short-lived minions burn down here; expiry is a quiet despawn
 		// (no death event, no loot, no XP), swept by compaction like a

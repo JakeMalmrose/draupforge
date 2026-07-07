@@ -111,7 +111,8 @@ func (s *Sim) BuildSnapshotFor(viewer core.EntityID, radius fm.Fixed, events []p
 			g := &a.Gems[i]
 			gs := protocol.GemSnap{
 				Skill: g.Skill.ID, Level: g.Level, Sockets: g.Sockets,
-				ManaCost: g.ManaCost().Milli(),
+				ManaCost: g.ManaCost().Milli(), On: g.AuraOn,
+				Cd: a.CooldownLeft(g.Skill.ID),
 			}
 			for _, sup := range g.Supports {
 				if sup == nil {
@@ -154,6 +155,7 @@ func (s *Sim) BuildSnapshotFor(viewer core.EntityID, radius fm.Fixed, events []p
 			Passives:  passives,
 			Flasks:    flasks,
 			Orbs:      orbs,
+			Shards:    int64(a.Shards),
 			Gems:      gems,
 			Level:     a.Level,
 			XP:        a.XP,
@@ -204,6 +206,8 @@ func ailmentBits(a *core.Actor) uint8 {
 			b |= protocol.AilIgnited
 		case core.Physical:
 			b |= protocol.AilBleeding
+		case core.Chaos:
+			b |= protocol.AilPoisoned
 		}
 	}
 	for _, st := range a.Statuses {
@@ -213,7 +217,11 @@ func ailmentBits(a *core.Actor) uint8 {
 		case core.StatusShock:
 			b |= protocol.AilShocked
 		case core.StatusBuff:
-			b |= protocol.AilBuffed
+			if st.Buff != nil && st.Buff.Curse {
+				b |= protocol.AilCursed
+			} else {
+				b |= protocol.AilBuffed
+			}
 		}
 	}
 	return b
@@ -265,6 +273,9 @@ func actionString(a core.Action) string {
 		}
 		if a.Phase == core.PhaseWindup {
 			return "windup:" + a.Skill.ID
+		}
+		if a.Phase == core.PhaseChannel {
+			return "channel:" + a.Skill.ID
 		}
 		return "recovery:" + a.Skill.ID
 	default:
@@ -349,6 +360,15 @@ func DecodeCommand(c protocol.Command) (core.Command, error) {
 			return core.Command{}, fmt.Errorf("protocol: unknown orb %q", c.Orb)
 		}
 		out.Kind = core.CmdApplyOrb
+		out.Orb = orb
+	case "forge_melt":
+		out.Kind = core.CmdForgeMelt
+	case "forge_buy":
+		orb, ok := core.ParseOrbKind(c.Orb)
+		if !ok {
+			return core.Command{}, fmt.Errorf("protocol: unknown orb %q", c.Orb)
+		}
+		out.Kind = core.CmdForgeBuy
 		out.Orb = orb
 	case "cut_skill":
 		out.Kind = core.CmdCutSkill

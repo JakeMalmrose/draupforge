@@ -78,6 +78,11 @@ func CutSkill(w *core.World, a *core.Actor, itemID core.EntityID, choice int, re
 	level := item.Gem.Level
 	a.Inventory = append(a.Inventory[:idx], a.Inventory[idx+1:]...)
 	if replace {
+		// A replaced gem takes its aura down with it — the overwrite would
+		// otherwise strand the mods on every sheet they touch.
+		if old := &a.Gems[gemIdx]; old.AuraOn {
+			core.DeactivateAura(w, a, old.Skill)
+		}
 		a.Gems[gemIdx] = core.Gem{
 			Skill:    sk,
 			Level:    level,
@@ -107,6 +112,12 @@ func LevelGem(w *core.World, a *core.Actor, itemID core.EntityID, gemIdx int) bo
 		return false
 	}
 	g.Level = item.Gem.Level
+	// A running aura's mods were scaled by the old level — re-apply at the
+	// new one (deactivate/activate keeps the minion sheets honest too).
+	if g.AuraOn {
+		core.DeactivateAura(w, a, g.Skill)
+		core.ActivateAura(w, a, g.Skill, g.Level)
+	}
 	a.Inventory = append(a.Inventory[:idx], a.Inventory[idx+1:]...)
 	w.Emit(core.Event{Kind: core.EvGem, Actor: a.ID, Note: "level:" + g.Skill.ID, Amount: fm.FromInt(int64(g.Level))})
 	return true

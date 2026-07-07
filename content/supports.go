@@ -149,5 +149,68 @@ func supportDefs() []*core.SupportDef {
 				{Stat: stats.Damage, Layer: stats.LayerMore, Tags: stats.T(stats.TagPhysical), Value: fm.FromMilli(100)},
 			},
 		},
+		{
+			// The poison enabler: a real chance to stack chaos DoTs, plus
+			// flat chaos that both hits AND feeds the poison's basis.
+			// Ungated — poisoned spells are a build, not a bug.
+			ID: "envenom", Name: "Envenom",
+			Desc:     "40% chance to poison, adds 4 chaos damage",
+			ManaMult: fm.FromMilli(1300),
+			Mods: []core.BuffMod{
+				{Stat: stats.PoisonChance, Layer: stats.LayerFlat, Value: fm.FromMilli(400)},
+				{Stat: stats.Damage, Layer: stats.LayerFlat, Tags: stats.T(stats.TagChaos), Value: fm.FromInt(4)},
+			},
+		},
+		{
+			// The pure-physical payoff: bigger than Ruthless, ungated —
+			// bleed builds and bone arrows both want it.
+			ID: "brutality", Name: "Brutality",
+			Desc:     "30% more physical damage",
+			ManaMult: fm.FromMilli(1500),
+			Mods: []core.BuffMod{
+				{Stat: stats.Damage, Layer: stats.LayerMore, Tags: stats.T(stats.TagPhysical), Value: fm.FromMilli(300)},
+			},
+		},
+		{
+			// One support, three type-tagged More mods — each folds only
+			// into its own element's portion.
+			ID: "elemental_focus", Name: "Elemental Focus",
+			Desc:     "20% more elemental damage",
+			ManaMult: fm.FromMilli(1400),
+			Mods: []core.BuffMod{
+				{Stat: stats.Damage, Layer: stats.LayerMore, Tags: stats.T(stats.TagFire), Value: fm.FromMilli(200)},
+				{Stat: stats.Damage, Layer: stats.LayerMore, Tags: stats.T(stats.TagCold), Value: fm.FromMilli(200)},
+				{Stat: stats.Damage, Layer: stats.LayerMore, Tags: stats.T(stats.TagLightning), Value: fm.FromMilli(200)},
+			},
+		},
+		{
+			// The crit pair: chance to start a crit build, multi to finish
+			// one. Both fold into the crit queries at the pipeline.
+			ID: "critical_strikes", Name: "Increased Critical Strikes",
+			Desc:     "+6% critical strike chance",
+			ManaMult: fm.FromMilli(1150),
+			Mods: []core.BuffMod{
+				{Stat: stats.CritChance, Layer: stats.LayerFlat, Value: fm.FromMilli(60)},
+			},
+		},
+		{
+			ID: "deadly_precision", Name: "Deadly Precision",
+			Desc:     "+40% critical strike multiplier",
+			ManaMult: fm.FromMilli(1300),
+			Mods: []core.BuffMod{
+				{Stat: stats.CritMulti, Layer: stats.LayerFlat, Value: fm.FromMilli(400)},
+			},
+		},
+		{
+			// Envenom's scaling sibling: chance plus a More on the chaos
+			// portion the poison feeds on.
+			ID: "toxic_coating", Name: "Toxic Coating",
+			Desc:     "25% chance to poison, 15% more chaos damage",
+			ManaMult: fm.FromMilli(1250),
+			Mods: []core.BuffMod{
+				{Stat: stats.PoisonChance, Layer: stats.LayerFlat, Value: fm.FromMilli(250)},
+				{Stat: stats.Damage, Layer: stats.LayerMore, Tags: stats.T(stats.TagChaos), Value: fm.FromMilli(150)},
+			},
+		},
 	}
 }

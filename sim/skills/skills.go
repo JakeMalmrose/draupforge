@@ -106,15 +106,43 @@ func stepSkill(w *core.World, a *core.Actor) {
 	switch a.Action.Phase {
 	case core.PhaseWindup:
 		fire(w, a)
+		if a.Action.Skill.ChannelTicks > 0 {
+			// Channelled: hold the action and repeat. RecoveryTicks holds
+			// the use-time-bound interval (there is no recovery tail).
+			a.Action.Phase = core.PhaseChannel
+			a.Action.TicksLeft = a.Action.RecoveryTicks
+			return
+		}
 		if a.Action.RecoveryTicks == 0 {
 			a.Action = core.Action{}
 			return
 		}
 		a.Action.Phase = core.PhaseRecovery
 		a.Action.TicksLeft = a.Action.RecoveryTicks
+	case core.PhaseChannel:
+		// Each repeat feeds on mana; an unpaid repeat ends the channel.
+		cost := ChannelCost(a.Action.Skill, a.Action.Gem)
+		if a.Mana < cost {
+			a.Action = core.Action{}
+			return
+		}
+		a.Mana -= cost
+		fire(w, a)
+		a.Action.TicksLeft = a.Action.RecoveryTicks
 	case core.PhaseRecovery:
 		a.Action = core.Action{}
 	}
+}
+
+// ChannelCost is a channel's per-repeat mana price: the def's ChannelMana
+// under the gem's level scale and each socketed support's multiplier, in
+// socket order — the same composition as Gem.ManaCost.
+func ChannelCost(sk *core.SkillDef, ctx core.GemCtx) fm.Fixed {
+	c := fm.Mul(sk.ChannelMana, core.GemManaScale(ctx.Level))
+	for _, s := range ctx.Supports {
+		c = fm.Mul(c, s.ManaMult)
+	}
+	return c
 }
 
 // BeginStaged arms a staged skill action: binds every stage duration at use
@@ -302,6 +330,71 @@ func fire(w *core.World, a *core.Actor) {
 	case core.SkillBuff:
 		if def := w.Content.Buffs[sk.SelfBuff]; def != nil {
 			w.QueueBuff(core.PendingBuff{Target: a.ID, Buff: def, Source: a.ID})
+		}
+	case core.SkillAura:
+		// Toggle. Gem-only: the gem carries the durable on/off state, so a
+		// monster (no gems) casting an aura skill is a no-op by design.
+		gem := a.GemForSkill(sk.ID)
+		if gem == nil {
+			return
+		}
+		if gem.AuraOn {
+			gem.AuraOn = false
+			core.DeactivateAura(w, a, sk)
+			w.Emit(core.Event{Kind: core.EvAura, Actor: a.ID, Note: sk.ID})
+		} else {
+			gem.AuraOn = true
+			core.ActivateAura(w, a, sk, gem.Level)
+			w.Emit(core.Event{Kind: core.EvAura, Actor: a.ID, Note: sk.ID, Amount: fm.One})
+		}
+	case core.SkillBlink:
+		// Teleport toward the aim: range-clamped, then the furthest point
+		// along the line with clear sight and a walkable landing. Sampled
+		// far-to-near in fixed steps — deterministic, and never through a
+		// wall (the landing must be visible from the start).
+		dest := a.Action.AimPoint
+		delta := dest.Sub(a.Pos)
+		if d := delta.Len(); d > sk.Range && d > 0 {
+			dest = a.Pos.Add(delta.Normalize().Scale(sk.Range))
+		}
+		if w.Grid == nil {
+			a.Pos = dest
+			return
+		}
+		const blinkSamples = 16
+		for i := blinkSamples; i >= 1; i-- {
+			frac := fm.Div(fm.FromInt(int64(i)), fm.FromInt(blinkSamples))
+			p := a.Pos.Add(dest.Sub(a.Pos).Scale(frac))
+			land, ok := w.Grid.NearestWalkable(p)
+			if !ok || space.Dist(land, p) > w.Grid.Tile {
+				continue
+			}
+			if w.Grid.ClearLine(a.Pos, land) {
+				a.Pos = land
+				return
+			}
+		}
+		// Every sample blocked: the blink fizzles in place (cooldown and
+		// mana spent — aim somewhere reachable).
+	case core.SkillCurse:
+		def := w.Content.Buffs[sk.CurseBuff]
+		if def == nil {
+			return
+		}
+		// The hex lands where you aimed, clamped to cast range; everything
+		// hostile inside the area is cursed via the ordinary buff queue.
+		aim := a.Action.AimPoint
+		if d := space.Dist(a.Pos, aim); d > sk.Range && d > 0 {
+			aim = a.Pos.Add(aim.Sub(a.Pos).Normalize().Scale(sk.Range))
+		}
+		for _, tgt := range w.Actors {
+			if tgt.Dead || tgt.Team == a.Team || tgt.Team == core.TeamNone {
+				continue
+			}
+			if space.Dist(aim, tgt.Pos) > sk.AoERadius+tgt.Def.Radius {
+				continue
+			}
+			w.QueueBuff(core.PendingBuff{Target: tgt.ID, Buff: def, Source: a.ID})
 		}
 	case core.SkillSummon:
 		def := w.Content.Actors[sk.SummonDef]

@@ -87,6 +87,20 @@ const (
 	// before the countdown ends. Recovery is just a trailing effect-less
 	// stage. The caster is committed for the whole sequence.
 	SkillStaged
+	// SkillAura toggles the gem's aura at the effect point: while on, the
+	// caster reserves part of max mana (Reserve) and the AuraMods package
+	// sits on the caster's sheet and every owned minion's — no radius, no
+	// duration, no RNG. Gem-only: monsters can't run auras.
+	SkillAura
+	// SkillCurse hexes every hostile within AoERadius of the aim point
+	// (clamped to Range from the caster) with the CurseBuff — a Curse
+	// BuffDef on the ordinary pending-buff queue. One curse per target:
+	// applying a second evicts the first. No hits, no RNG.
+	SkillCurse
+	// SkillBlink teleports the caster toward the aim point: clamped to
+	// Range, stopped by walls (furthest clear, walkable landing along the
+	// line). Usually cooldown-gated — the reposition you can't spam.
+	SkillBlink
 )
 
 // StageEffect is what fires when a stage's countdown ends.
@@ -195,9 +209,37 @@ type SkillDef struct {
 	// phys hit would shift every replay (block's conditional-consumption
 	// discipline).
 	BleedChance fm.Fixed
+	// Base chance for hits carrying physical or chaos damage to poison,
+	// before PoisonChance stats. Same conditional-consumption rule as
+	// bleed. Poison stacks: every application is its own DoT instance.
+	PoisonChance fm.Fixed
+
+	// Aura fields (SkillAura): Reserve is the fraction of max mana held
+	// while the aura runs (a More(-Reserve) mod on Mana, removed at toggle
+	// off); AuraMods is the package granted to the caster and every owned
+	// minion, values scaled by GemAuraScale of the gem's level.
+	Reserve  fm.Fixed
+	AuraMods []BuffMod
+
+	// Channel fields: ChannelTicks > 0 makes the skill channelled — after
+	// the windup fires the first effect, the action holds in PhaseChannel
+	// and repeats the effect every interval (bound at use time, speed-
+	// scaled) as long as ChannelMana is paid per repeat. The channel
+	// breaks on a new move/skill command, a stop, a stun, or an unpaid
+	// repeat. ManaCost is still the up-front cost of starting.
+	ChannelTicks uint32
+	ChannelMana  fm.Fixed
+
+	// CooldownTicks > 0 gates re-use: the command validator refuses the
+	// skill while the caster's cooldown for it runs. Started on cast
+	// acceptance, never speed-scaled, zone-local (transfers arrive clear).
+	CooldownTicks uint32
 
 	// SelfBuff names the BuffDef a SkillBuff skill applies to its caster.
 	SelfBuff string
+	// CurseBuff names the Curse BuffDef a SkillCurse skill lands on every
+	// hostile in its area.
+	CurseBuff string
 
 	// Summon fields (SkillSummon): which def, how many per cast, and the
 	// per-caster cap for that def. SummonTTL > 0 makes the minions
@@ -235,6 +277,10 @@ type BuffDef struct {
 	Name          string
 	DurationTicks uint32
 	Mods          []BuffMod
+	// Curse marks a hex: it lands on enemies, counts against the
+	// one-curse-per-target cap (newest evicts), and renders as a curse,
+	// not a buff. Same machinery otherwise.
+	Curse bool
 }
 
 // ModSource is the sheet source a buff's modifiers are granted under. The
@@ -249,6 +295,21 @@ func (b *BuffDef) ModSource() uint64 {
 		h *= fnvPrime
 	}
 	return 3<<62 | h&^(uint64(3)<<62)
+}
+
+// AuraModSource is the sheet source an aura's modifiers (and its caster's
+// reservation) are granted under: bits 63+59 mark aura-space — bit 62 clear
+// keeps it out of buff- and growth-space, bits 61/60 clear out of monster-
+// mod- and passive-space, and the low-bits FNV of the skill ID survives
+// content reordering and save/restore. content.DB() asserts no two auras
+// collide.
+func (sk *SkillDef) AuraModSource() uint64 {
+	h := uint64(fnvOffset)
+	for i := 0; i < len(sk.ID); i++ {
+		h ^= uint64(sk.ID[i])
+		h *= fnvPrime
+	}
+	return 1<<63 | 1<<59 | h&^(uint64(0x1F)<<59)
 }
 
 type ActorDef struct {

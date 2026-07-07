@@ -48,6 +48,7 @@ const (
 	guardianDef    = "bone_colossus"
 	guardianFloors = 3
 	bossDef        = "barrow_king"
+	bossDef2       = "ashen_warden" // alternates with the King on boss floors
 	bossFloors     = 5
 	apexDef        = "grave_tyrant"
 	apexFloors     = 10
@@ -106,7 +107,14 @@ func (in *Instance) buildFloor(floor int) (*sim.Sim, error) {
 			return nil, fmt.Errorf("server: floor %d apex: %w", floor, err)
 		}
 	} else if floor > 0 && floor%bossFloors == 0 {
-		if _, err := s.SpawnRareLeveled(bossDef, farthestWalkable(s.W.Grid), floor+2); err != nil {
+		// Boss floors alternate set-pieces: apex floors own the even
+		// multiples, so the remaining odd ones split by (floor/5)%4 —
+		// the King at 5, 25, 45…, the Ashen Warden at 15, 35, 55….
+		def := bossDef
+		if (floor/bossFloors)%4 == 3 {
+			def = bossDef2
+		}
+		if _, err := s.SpawnRareLeveled(def, farthestWalkable(s.W.Grid), floor+2); err != nil {
 			return nil, fmt.Errorf("server: floor %d boss: %w", floor, err)
 		}
 	} else if floor > 0 && floor%guardianFloors == 0 {

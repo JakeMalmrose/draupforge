@@ -22,7 +22,7 @@ import (
 // SaveVersion gates restores: a format change bumps it, and old files fail
 // loudly instead of misloading. Saves are durable state — unlike replays,
 // they must never depend on re-execution of the code that wrote them.
-const SaveVersion = 16 // v16: anti-shotgun volleys (v15: minion lifespans)
+const SaveVersion = 19 // v19: forge shards + 8-kind orb wallet (v18: skill cooldowns)
 
 type saveFile struct {
 	Version     int              `json:"version"`
@@ -75,6 +75,7 @@ type gemSave struct {
 	Level    int      `json:"level"`
 	Sockets  int      `json:"sockets"`
 	Supports []string `json:"supports"`
+	AuraOn   bool     `json:"aura_on,omitempty"`
 }
 
 type actionSave struct {
@@ -104,6 +105,11 @@ type dotSave struct {
 	Source    uint64   `json:"source"`
 }
 
+type cdSave struct {
+	Skill     string `json:"skill"`
+	TicksLeft uint32 `json:"ticks_left"`
+}
+
 type statusSave struct {
 	Kind      uint8    `json:"kind"`
 	Buff      string   `json:"buff,omitempty"` // BuffDef ID for StatusBuff entries
@@ -129,6 +135,7 @@ type actorSave struct {
 	Passives  []string     `json:"passives,omitempty"` // PassiveDef IDs
 	Flasks    []int32      `json:"flasks,omitempty"`   // charges per flask slot
 	Orbs      []int32      `json:"orbs,omitempty"`     // wallet, OrbKind order
+	Shards    int32        `json:"shards,omitempty"`   // forge balance
 	Gems      []gemSave    `json:"gems,omitempty"`
 	Base      []fm.Fixed   `json:"base"` // sheet base values, StatID order
 	Mods      []modSave    `json:"mods,omitempty"`
@@ -139,7 +146,8 @@ type actorSave struct {
 	Stun      uint32       `json:"stun,omitempty"`     // stun lockout+immunity ticks
 	Lifespan  uint32       `json:"lifespan,omitempty"` // short-lived minion ticks left
 	Volleys   []uint64     `json:"volleys,omitempty"`  // anti-shotgun memory, newest first
-	Equipment []*itemSave  `json:"equipment"`          // EquipSlotCount entries, null = empty
+	Cooldowns []cdSave     `json:"cooldowns,omitempty"`
+	Equipment []*itemSave  `json:"equipment"` // EquipSlotCount entries, null = empty
 	Inventory []itemSave   `json:"inventory,omitempty"`
 }
 
@@ -250,11 +258,14 @@ func encodeActor(a *Actor) actorSave {
 			as.Volleys = append(as.Volleys, v)
 		}
 	}
+	for _, cd := range a.Cooldowns {
+		as.Cooldowns = append(as.Cooldowns, cdSave{Skill: cd.Skill, TicksLeft: cd.TicksLeft})
+	}
 	as.Action.GemLevel = a.Action.Gem.Level
 	as.Action.GemSupports = supportIDs(a.Action.Gem.Supports)
 	for i := range a.Gems {
 		g := &a.Gems[i]
-		gs := gemSave{Skill: g.Skill.ID, Level: g.Level, Sockets: g.Sockets}
+		gs := gemSave{Skill: g.Skill.ID, Level: g.Level, Sockets: g.Sockets, AuraOn: g.AuraOn}
 		for _, sup := range g.Supports {
 			if sup == nil {
 				gs.Supports = append(gs.Supports, "")
@@ -277,6 +288,7 @@ func encodeActor(a *Actor) actorSave {
 			break
 		}
 	}
+	as.Shards = a.Shards
 	for st := stats.StatID(0); st < stats.StatCount; st++ {
 		as.Base[st] = a.Sheet.Base(st)
 	}
@@ -470,6 +482,9 @@ func decodeActor(db *ContentDB, affixes map[string]*AffixDef, as actorSave) (*Ac
 		}
 		a.RecentVolleys[i] = v
 	}
+	for _, cd := range as.Cooldowns {
+		a.Cooldowns = append(a.Cooldowns, SkillCooldown{Skill: cd.Skill, TicksLeft: cd.TicksLeft})
+	}
 	if as.Action.Skill != "" {
 		sk := db.Skills[as.Action.Skill]
 		if sk == nil {
@@ -494,7 +509,9 @@ func decodeActor(db *ContentDB, affixes map[string]*AffixDef, as actorSave) (*Ac
 		if sk == nil {
 			return nil, fmt.Errorf("core: save references unknown skill %q", gs.Skill)
 		}
-		g := Gem{Skill: sk, Level: gs.Level, Sockets: gs.Sockets}
+		// AuraOn restores as pure state: a running aura's sheet mods are
+		// already in the saved modifier list, like passives and buffs.
+		g := Gem{Skill: sk, Level: gs.Level, Sockets: gs.Sockets, AuraOn: gs.AuraOn}
 		for _, id := range gs.Supports {
 			if id == "" {
 				g.Supports = append(g.Supports, nil)
@@ -530,6 +547,7 @@ func decodeActor(db *ContentDB, affixes map[string]*AffixDef, as actorSave) (*Ac
 		return nil, fmt.Errorf("core: actor %d has %d orb kinds, this build knows %d", as.ID, len(as.Orbs), OrbCount)
 	}
 	copy(a.Orbs[:], as.Orbs)
+	a.Shards = as.Shards
 	for _, ds := range as.DoTs {
 		a.DoTs = append(a.DoTs, DoT{
 			Type: DamageType(ds.Type), PerTick: ds.PerTick, TicksLeft: ds.TicksLeft, Source: EntityID(ds.Source),

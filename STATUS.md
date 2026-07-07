@@ -11,8 +11,9 @@ tests, and session-log entries older than a few sessions (git history is the
 archive). If this file outgrows ~150 lines, it has stopped being a status doc
 and started being a changelog — cut it back.
 
-**Last updated: 2026-07-06** (session 73: bleed — the first Track 1
-mechanic; physical-hit DoT with conditional RNG consumption)
+**Last updated: 2026-07-07** (session 80: the content pass — 5 supports,
+7 uniques, the Ashen Warden. **Track 1 (Buildcraft) is complete**: all 7
+roadmap items live on the `track1-buildcraft` PR, awaiting Jake's call)
 
 ## Where things stand
 
@@ -67,17 +68,20 @@ All foundational machinery from DESIGN.md is real, not stubbed:
 | Stat algebra (flat/inc/more/override + tags) | `sim/stats` | done, tested, memoized |
 | World/Actor/Hit/defs, RNG, state hashing | `sim/core` | done |
 | Damage pipeline: conversion, DoTs, regen; the full mechanics set — leech, block, ES recharge, and stun (a hit ≥15% max life clears the action; `Actor.StunTicks` = 0.3s lock + 0.5s immunity, saved+hashed, gated in the command validator; `ActorDef.StunImmune` on bosses) | `sim/combat`, `sim/sim.go` | done, tested |
-| Statuses: ignite/chill/shock/bleed ailments + content buffs (refresh-not-stack, pending-buff queue); bleed is a physical DoT that rolls only when the attacker has any bleed chance (skill base + sheet + support fold) — old replays stay byte-stable | `sim/combat` | done, tested, verified live |
+| Statuses: ignite/chill/shock/bleed/poison ailments + content buffs (refresh-not-stack, pending-buff queue); bleed (phys DoT, strongest wins) and poison (chaos DoT off the phys+chaos portion, the one ailment that STACKS — every application is its own instance, 2s self-cap) roll only when the attacker has any chance (skill base + sheet + support fold) — old replays stay byte-stable | `sim/combat` | done, tested, verified live |
 | Persistence: `World.Save`/`LoadWorld` (versioned JSON, bit-exact), admin `POST /api/save`, descent run envelope (v2); `-load` under the lobby seeds the first instance (validated at boot) | `sim/core/save.go`, `server/runsave.go`, `server/lobby.go` | done, tested, verified e2e |
 | Actions (windup/recovery) + projectiles; skill feel: splash w/ falloff, wall bounce, heading wiggle, hitscan chains | `sim/skills` | done, tested |
 | Staged skills (DESIGN §15): stage sequences w/ per-stage locked aims, blast/ring effects, telegraphs on the wire (v19); telegraphed blasts skip evasion; the Barrow King (boss_king AI, floors %5, rare, stateless enrage <50%) + boss bar + ground-telegraph rendering | `sim/skills`, `sim/ai`, `content/`, `server/descent.go`, `web/` | done, tested, verified live |
 | Loot: rarity weights, weighted affixes, group caps, per-slot pools, rolled implicits; item level (= dier's level, floor-scaled) gates affix tiers (ILvl-gated greater/grand tiers) — deeper drops roll strictly better; base tiers always fill (DB() asserts ILvl-0 depth); save v13, wire v21, ilvl on the tooltip | `sim/items`, `content/`, `web/` | done, tested, verified live |
 | Uniques: fixed-identity chase items (4 in content) with shape stats nothing else rolls (ExtraProjectiles/ExtraChains — the skill system reads them off the sheet); UniquePermille per table, orange styling + authored mod lines on the wire (v20); orbs refuse them; save v11 | `sim/items`, `sim/stats`, `content/`, `web/` | done, tested, verified live |
-| Currency: orb wallet (transmute/alch/chaos/jeweller) banked straight to the killer; `apply_orb` crafts bag items | `sim/items`, `web/` | done, tested |
+| Currency: 8-orb wallet (transmute/alch/chaos/jeweller + regal/exalt/annulment/scouring) banked straight to the killer; `apply_orb` crafts bag items (regal keeps affixes + adds, exalt adds to a rare with room, annul strips one at random, scour wipes to normal; uniques refuse everything); the Forge: `forge_melt` pays shards by rarity (uncut gems flat 5), `forge_buy` sells orbs at fixed shard prices — travels with you, no hideout gate; shards durable (save v19, wire v25) | `sim/items`, `sim/core`, `web/` | done, tested, verified live |
 | Gems: cast only from cut gems; a fresh character spawns with `StartingUncut` draft-of-3 gems instead of a fixed starter; uncut drops carry a draft of 3 at the dier's level (cap 20); supports fold into the socketed skill's queries only (more/less, added flat, speed, mana, fans, chain, conversion); cast contexts bake at use; save v9 | `sim/core/gems.go`, `sim/items/gems.go`, `content/supports.go`, `web/` | done, tested, verified live |
+| Channelling + cooldowns: `ChannelTicks` skills hold in `PhaseChannel` after the windup's first shot, repeating the effect every use-time-bound interval while `ChannelMana` feeds it; a channel is NOT a commitment — its owner's next move/skill/stop command breaks it (stun too, free); `Actor.Cooldowns` (save v18, conditionally hashed, zone-local — never transfers) gates `CooldownTicks` skills at the command gate; `SkillBlink` teleports range-clamped + wall-honest (far-to-near ClearLine sampling); wire v24 GemSnap.Cd + "channel:" action string; the bar dims and counts down | `sim/skills`, `sim/sim.go`, `sim/core`, `content/`, `web/` | done, tested, verified live |
+| Curses: hex BuffDefs (`Curse` flag) on the ordinary buff machinery — SkillCurse casts hex every hostile within AoERadius of the aim (clamped to Range, no RNG, no hits); one curse per target, newest evicts; negative resistance now amplifies (hit + DoT mitigation gates read `res != 0` — inert for pre-curse content); AilCursed wire bit (64), EvCurse; the bone hexer is the support monster that hexes YOU | `sim/combat/buff.go`, `sim/skills`, `content/`, `web/` | done, tested, verified live |
+| Auras: SkillAura toggle gems — while on, AuraMods sit on the caster's sheet AND every owned minion's (no radius, by design), max mana reserved via More(-Reserve); event-driven application (toggle, DrainSpawns, injection — no per-tick scans); AuraOn is durable gem state (save v17, hashed, transfers; wire v23 carries it for the bar); gem replace/level keep applied mods honest; +5%/gem-level effect | `sim/core/aura.go`, `sim/skills`, `content/`, `web/` | done, tested, verified live |
 | Progression: leveled XP on kill, quadratic curve, cap 50, PerLevel mods, ding heal | `sim/progress` | done, tested |
 | Flasks: charge-gated regen-burst sips (keys 1/2), kills feed charges, durable (save v7) | `sim/`, `content/`, `web/` | done, tested |
-| Passive forks: milestone choices at 5/10, permanent, durable (save v6), client chooser | `sim/core`, `content/`, `web/` | done, tested |
+| Passive forks: a pick-3 milestone every 5 levels to the cap (5–50, 30 passives in themed tiers: procs, defense, tempo, shape (+1 minion/projectile/chain at 30), sustain, elements, gambles, More-capstones at 50), permanent, durable, client chooser; DB() asserts the ladder has no missing rung | `sim/core`, `content/`, `web/` | done, tested |
 | Character extract/inject: durables only, item IDs re-minted, sheet rebuilt | `sim/core/character.go` | done, tested |
 | The descent: hideout start (`Config.StartFloor`, 0 = home; hideout world derived from the instance seed), floor swaps, portal economy, XP death penalty, run-over → new run at home, leveled+thickened packs, stairs guardian every 3rd floor | `server/descent.go` | done, unit + e2e tested, verified live |
 | Monster rarity: magic/rare rolls with mod packages, XP ×3/×6, extra drops, floor-scaled chances, rings + nameplates | `sim/sim.go`, `content/`, `web/` | done, tested |
@@ -95,7 +99,7 @@ All foundational machinery from DESIGN.md is real, not stubbed:
 | Minions: `Actor.Owner` (zone-local, saved+hashed), kill attribution up the chain (`World.CreditFor` — XP/flasks/orbs pay the summoner), `minion_melee` heel AI (mobile leash on the owner), `SkillSummon` w/ cap-despawns-oldest; Summon Skeleton cuttable gem (cap 3, minions at gem level); save v12 | `sim/core`, `sim/ai`, `sim/skills`, `content/`, `web/` | done, tested, verified live |
 | Phase order + command validation | `sim/sim.go` | done — this IS the determinism contract |
 | Wire types: versioned welcome (v18), JSON snapshots, binary delta codec | `protocol/` | done, tested |
-| Content tables | `content/` | 18 skills (8 cuttable, 4 staged), 14 supports, 12 actors (3 bosses), 35 affixes (ILvl-tiered), 9 bases, 5 uniques, 8 drop tables, 4 monster mods, 4 buffs |
+| Content tables | `content/` | 29 skills (14 cuttable incl. 2 auras + 2 curses + channel + blink, 5 staged), 20 supports (incl. crit pair on the new pipeline fold), 14 actors (4 bosses), 36 affixes (ILvl-tiered), 9 bases, 12 uniques, 8 drop tables, 4 monster mods, 8 buffs (4 curses) |
 | Debug client + determinism/golden replay tests | `cmd/headless`, `sim/sim_test.go` | done |
 
 ## Invariants the code currently honors (don't break casually)
@@ -203,7 +207,17 @@ load-bearing (top entry: the action model is one-thing-at-a-time).
   arrows ~16–17u, spark 1.5s bouncing, splash 2u, arc 12u reach / 2 chains);
   hideout is 16×12; bleed 35% of the phys hit as dps for 6s (ghoul claws
   25% chance, bleed_chance affix 5–10%, Rupture support 35% + 10% more
-  phys).
+  phys); poison 30% of phys+chaos as dps for 2s, stacking (putrid slam
+  30%, poison_chance affix 5–10%, Envenom support 40% + 4 flat chaos);
+  auras reserve 35% each (multiplicative), Anger +5 flat fire / Determination
+  50% inc armour, aura effect +5% per gem level; curses 8s (flammability
+  -25% fire res, enfeeble 20% less dealt, weakness +20% taken), player
+  curse AoE 3u / range 10u, hexer hex 2.5u / 9u on a slow 1.5s cycle;
+  incinerate 5 gouts/s at 2 mana each (4 up front), 4–7 fire ~5.6u reach;
+  blink 7u range, 3s cooldown, 8 mana; melt pays 1/3/8/20 by rarity (gems
+  5), orb prices in shards: transmute 4, scour 6, jeweller 15, regal 20,
+  alch/chaos 25, annul 30, exalt 80; new orb drop permilles
+  regal 12 / exalt 4 / annul 10 / scour 25.
 
 ## Feature plan
 
@@ -227,6 +241,128 @@ starting either track. Jake's balance pass over the numbers stays open.
 
 ## Session log
 
+- **2026-07-07 (80)** — The content pass, and **Track 1 is complete**.
+  Crit joins the support fold (rollCrit composes CritChance/CritMulti
+  through GemCtx like the damage queries — one draw always, so streams
+  never shift; behavior-identical for pre-existing content). Five
+  supports → 20: Brutality (30% more phys), Elemental Focus (20% more per
+  element, three type-tagged Mores), Increased Critical Strikes, Deadly
+  Precision (+40% multi), Toxic Coating (poison chance + more chaos).
+  Seven uniques → 12, one celebrating each track mechanic: The Hungering
+  Edge (bleed+leech sword, slower), Pyre Tongue (the incinerate stick,
+  weaker phys), Emberheart (fire vest, cold-cursed), Vilethorn Fists
+  (poison gloves, less life), Crown of the Hexbinder (curse-caster hat),
+  Gravecaller's Girdle (+1 minions belt, slower), Band of the Patient
+  Hunter (crit ring, slower everything). And the set-piece: the Ashen
+  Warden (boss_king AI, stun-immune, 50% fire res) — hexes your fire res
+  from range (hex_of_embers), commits to a telegraphed two-stage pyre
+  slam up close, and channels flame gouts when enraged until his mana
+  pool runs dry; boss floors now alternate King (5, 25…) / Warden
+  (15, 35…) with the floor-15 descent test updated. Goldens byte-stable
+  through all of it. Verified live: the warden hexed a TCP client
+  through his real AI (ail:64, curse events cycling).
+- **2026-07-06 (79)** — The passive ladder reaches the cap: Track 1 item
+  6, pure content on the existing milestone machinery. Eight new rungs
+  (15–50) × 3 forks = 24 passives in themed tiers: procs at 15 (bleed/
+  poison/shock chance), walls at 20, tempo at 25, the SHAPE tier at 30
+  (+1 minion cap / +1 projectile / +1 chain — the stats uniques used to
+  own, now a build-defining level choice), sustain at 35, elements at 40,
+  gambles at 45 (glass cannon takes +10% damage taken; iron will gives
+  -8%), and More-multiplier capstones at 50 (attack/spell/life). DB()
+  now asserts every fifth level to 50 has a fork. The chooser needed
+  nothing — the passive table rides the welcome. Goldens untouched (no
+  RNG shape changed). Pinned by a ladder-walk test: a level-50 character
+  takes all 10 milestones, spent milestones refuse seconds.
+- **2026-07-06 (78)** — The Forge + the crafting ladder's missing half:
+  Track 1 item 5. Four orbs join the wallet (OrbKind 4→8; the wallet
+  array widens, old saves shorter-copy fine): regal (magic→rare KEEPING
+  its affixes + one more — the new `addAffixes` seeds group/kind state
+  from what's rolled), exalt (add to a rare below the 6-affix cap),
+  annulment (remove one at random — a loot draw), scouring (wipe to
+  normal, no RNG); uniques now refuse orbs explicitly. The Forge:
+  `forge_melt` melts a bag item into shards (by rarity; uncut gems flat
+  5), `forge_buy` exchanges shards for orbs at fixed prices — sim
+  commands, deliberately NOT hideout-gated: the Forge travels with you,
+  melting trash mid-run to free bag space is the "no drop is worthless"
+  payoff where the decision happens. `Actor.Shards` is a plain-int
+  durable wallet (save v19, conditional hash, transfers). Wire v25:
+  ActorSnap.Shards rides the orb field group. Client: 8-orb strip with
+  shift-click-to-buy, an armable forge hammer (click bag items to melt —
+  stays armed for batch melting, no confirm modal: arming IS the
+  two-step), EvForge log lines. New orb drop bands appended to the
+  single-draw table — goldens happened to stay byte-stable (no golden
+  kill rolled the new window). Verified live over the wire: melted the
+  starting uncut gem (5 shards), bought a transmutation (1 left),
+  8-slot wallet + both forge events on the snapshot.
+- **2026-07-06 (77)** — Channelling + blink: Track 1 item 4, RISKS #1's
+  named gaps grown on purpose. Channel: `ChannelTicks > 0` skills fire
+  their first effect at the windup's end then hold in the new
+  `PhaseChannel`, repeating every interval — bound at use time in the
+  otherwise-unused RecoveryTicks slot (speeds bind at use, same rule as
+  everything) — while `ChannelMana` (gem/support-scaled, `ChannelCost`)
+  is paid per repeat; starvation ends it. The deliberate semantics: a
+  channel is interruptible BY ITS OWNER — move/use_skill/stop commands
+  break it and process (windup/recovery stay committed) — and stun breaks
+  it for free. Cooldowns: `Actor.Cooldowns` slice (start order), checked
+  and started at the command gate, decremented in Upkeep, save v18 +
+  conditional hash, deliberately zone-local (transfers arrive clear).
+  Blink (`SkillBlink`): teleport toward the aim, range-clamped, then the
+  furthest of 16 line samples with a walkable landing AND ClearLine from
+  the start — never through a wall; all blocked = fizzle in place. Wire
+  v24: GemSnap.Cd (bar dims + whole-second countdown), "channel:" action
+  string. Content: Incinerate (channelled flamethrower — LMP fans it) and
+  Blink, cuttable (pool 12→14, goldens re-recorded). Verified live: a TCP
+  client channelled for 3s (projectiles flowing, mana draining), a move
+  command broke it, blink jumped exactly 7u with cd:63 on the wire.
+- **2026-07-06 (76)** — Curses: Track 1 item 3, on the buff machinery
+  exactly as the roadmap hoped. A curse is a `BuffDef{Curse: true}`:
+  applied whole, refreshed whole, expired by TickStatuses, saved/hashed by
+  ID — zero new persistence. ApplyBuff grew the one-hex-per-target rule
+  (an incoming curse first evicts any OTHER curse + its mods; newest
+  wins). SkillCurse casts hex every hostile within AoERadius of the aim
+  point (clamped to Range), through the pending-buff queue — no hits, no
+  RNG (pinned). The enabling mitigation change: negative resistance now
+  amplifies (`res != 0` gates in pipeline + dot.go) — nothing pre-curse
+  could go negative, so it's byte-inert for old replays; it's what makes
+  flammability pay off against 0-res trash too, hits and ignite ticks
+  both. Content: flammability / enfeeble cuttable curse gems (pool 10→12,
+  goldens re-recorded), the weakness hex, and the bone_hexer — a pure
+  support caster (ranged_kiter, no damage skill at all) that hexes YOU
+  from the back line; added to the arena scatter. Wire: AilCursed bit 64
+  + EvCurse, no version bump. Verified live: the hexer cursed a TCP
+  client (weakness events, ail:64), and the player's flammability hexed
+  it back.
+- **2026-07-06 (75)** — Auras: Track 1 item 2. SkillAura gems toggle at the
+  effect point: on grants the def's AuraMods (scaled +5%/gem level) to the
+  caster's sheet and every owned minion's — no radius by Jake's call, so
+  application stays event-driven (toggle, DrainSpawns inheritance for late
+  summons, character injection) with zero per-tick scans — and reserves
+  Reserve of max mana (More(-Reserve) on Mana, mana clamped). AuraOn lives
+  on the Gem: durable, save v17, hashed, transfers (injection re-applies as
+  part of the sheet rebuild, before the pool clamp). Aura mod source space
+  is bits 63+59 | FNV(skill ID), collision-asserted in DB(). Sharp edges
+  closed: cut-replace over a running aura deactivates it first (mods would
+  leak on every sheet), level_gem re-applies at the new scale. Wire v23:
+  GemSnap.On (binary codec + net.js updated in lockstep); the bar glows on
+  a running aura; EvAura narrates. Content: Anger (+5 flat fire — the
+  skeleton army's campfire) and Determination (50% inc armour), both 35%
+  reserve, cuttable (pool 8→10 → goldens re-recorded). Verified live over
+  a FIFO-driven TCP client: use_skill toggled Anger on (max mana 50000 →
+  32500 exactly, on:true, EvAura) and off (restored, regen climbing).
+- **2026-07-06 (74)** — Poison: the stacking half of Track 1 item 1, and a
+  new workflow. The mechanic: a chaos DoT off the hit's phys+chaos portion
+  (30% as dps, 2s), and THE deliberate design — every application appends
+  its own DoT instance instead of competing (attack speed is now a DoT
+  multiplier; the short duration is the stack cap; chaos res mitigates the
+  ticks via dot.go's existing tail). Same conditional-RNG rule as bleed,
+  rolled after it (append-last keeps older draws in place); goldens again
+  byte-stable, pinned by TestPoisonRNGConsumption. Content: the carrion
+  husk trades zombie_slam for its own putrid_slam (30% poison — the rot
+  monster teaches the rot mechanic), poison_chance suffix appended last,
+  Envenom support (ungated, 40% + 4 flat chaos that feeds the basis).
+  Wire: EvPoison + AilPoisoned (32). Workflow (Jake): Track 1 features now
+  land as separate commits on ONE long-running PR (`track1-buildcraft`),
+  merged when the track is done; no play server during track work.
 - **2026-07-06 (73)** — Bleed: Track 1's first mechanic. A physical DoT on
   the ignite model (strongest wins, no stacking — stacking is poison's
   deliberate design, next), 35% of the phys hit as dps for 6s, riding the

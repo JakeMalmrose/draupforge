@@ -123,9 +123,18 @@ func DB() *core.ContentDB {
 	}
 	// The draft pool for uncut skill gems, in skill-table order (replay-
 	// relevant like the affix table). Both pools must cover a full draft.
+	auraSrc := map[uint64]string{}
 	for _, sk := range skillDefs() {
 		if sk.Cuttable {
 			db.Cuttable = append(db.Cuttable, db.Skills[sk.ID])
+		}
+		// Aura mod sources must be unique — an FNV collision would make two
+		// auras share (and strip) each other's sheet mods.
+		if sk.Kind == core.SkillAura {
+			if other, ok := auraSrc[sk.AuraModSource()]; ok {
+				panic("content: aura mod source collision: " + sk.ID + " vs " + other)
+			}
+			auraSrc[sk.AuraModSource()] = sk.ID
 		}
 	}
 	if len(db.Cuttable) < core.GemDraftSize || len(db.Supports) < core.GemDraftSize {
@@ -188,6 +197,13 @@ func DB() *core.ContentDB {
 			panic(fmt.Sprintf("content: milestone %d has %d fork(s); a choice needs at least 2", m, n))
 		}
 	}
+	// The ladder reaches the cap: every fifth level is a fork. A missing
+	// rung would be a level with nothing to look forward to.
+	for m := 5; m <= 50; m += 5 {
+		if milestoneForks[m] == 0 {
+			panic(fmt.Sprintf("content: milestone ladder is missing level %d", m))
+		}
+	}
 	return db
 }
 
@@ -246,6 +262,80 @@ func uniqueDefs() []*core.UniqueDef {
 			},
 			ModLines: []string{"25% increased move speed", "+30 evasion", "10% less life"},
 		},
+		{
+			ID: "hungering_edge", Name: "The Hungering Edge", Base: "rusty_sword",
+			Desc: "It drinks first. You get what's left.",
+			Mods: []core.BuffMod{
+				{Stat: stats.BleedChance, Layer: stats.LayerFlat, Value: fm.FromMilli(200)},
+				{Stat: stats.LifeLeech, Layer: stats.LayerFlat, Value: fm.FromMilli(30)},
+				{Stat: stats.Damage, Layer: stats.LayerIncreased, Tags: stats.T(stats.TagPhysical), Value: fm.FromMilli(250)},
+				{Stat: stats.AttackSpeed, Layer: stats.LayerIncreased, Value: fm.FromMilli(-100)},
+			},
+			ModLines: []string{"+20% chance to bleed", "3% of damage leeched as life", "25% increased physical damage", "10% reduced attack speed"},
+		},
+		{
+			ID: "pyre_tongue", Name: "Pyre Tongue", Base: "rusty_sword",
+			Desc: "It has one word and never stops saying it.",
+			Mods: []core.BuffMod{
+				{Stat: stats.Damage, Layer: stats.LayerFlat, Tags: stats.T(stats.TagFire), Value: fm.FromInt(5)},
+				{Stat: stats.CastSpeed, Layer: stats.LayerIncreased, Value: fm.FromMilli(150)},
+				{Stat: stats.Damage, Layer: stats.LayerIncreased, Tags: stats.T(stats.TagPhysical), Value: fm.FromMilli(-200)},
+			},
+			ModLines: []string{"adds 5 fire damage", "15% increased cast speed", "20% reduced physical damage"},
+		},
+		{
+			ID: "emberheart", Name: "Emberheart", Base: "leather_vest",
+			Desc: "Some hearts never bank their coals.",
+			Mods: []core.BuffMod{
+				{Stat: stats.Damage, Layer: stats.LayerIncreased, Tags: stats.T(stats.TagFire), Value: fm.FromMilli(400)},
+				{Stat: stats.IgniteChance, Layer: stats.LayerFlat, Value: fm.FromMilli(150)},
+				{Stat: stats.FireRes, Layer: stats.LayerFlat, Value: fm.FromMilli(250)},
+				{Stat: stats.ColdRes, Layer: stats.LayerFlat, Value: fm.FromMilli(-250)},
+			},
+			ModLines: []string{"40% increased fire damage", "+15% chance to ignite", "+25% fire resistance", "-25% cold resistance"},
+		},
+		{
+			ID: "vilethorn_fists", Name: "Vilethorn Fists", Base: "leather_gloves",
+			Desc: "The thorns grow inward too.",
+			Mods: []core.BuffMod{
+				{Stat: stats.PoisonChance, Layer: stats.LayerFlat, Value: fm.FromMilli(250)},
+				{Stat: stats.Damage, Layer: stats.LayerIncreased, Tags: stats.T(stats.TagChaos), Value: fm.FromMilli(200)},
+				{Stat: stats.Life, Layer: stats.LayerFlat, Value: fm.FromInt(-15)},
+			},
+			ModLines: []string{"+25% chance to poison", "20% increased chaos damage", "-15 life"},
+		},
+		{
+			ID: "hexbinder_crown", Name: "Crown of the Hexbinder", Base: "leather_cap",
+			Desc: "Every promise it whispers is about someone else.",
+			Mods: []core.BuffMod{
+				{Stat: stats.Mana, Layer: stats.LayerFlat, Value: fm.FromInt(25)},
+				{Stat: stats.CastSpeed, Layer: stats.LayerIncreased, Value: fm.FromMilli(150)},
+				{Stat: stats.ChaosRes, Layer: stats.LayerFlat, Value: fm.FromMilli(200)},
+				{Stat: stats.Life, Layer: stats.LayerFlat, Value: fm.FromInt(-20)},
+			},
+			ModLines: []string{"+25 mana", "15% increased cast speed", "+20% chaos resistance", "-20 life"},
+		},
+		{
+			ID: "gravecallers_girdle", Name: "Gravecaller's Girdle", Base: "leather_belt",
+			Desc: "The dead answer whoever wears the bell.",
+			Mods: []core.BuffMod{
+				{Stat: stats.ExtraMinions, Layer: stats.LayerFlat, Value: fm.One},
+				{Stat: stats.Life, Layer: stats.LayerFlat, Value: fm.FromInt(30)},
+				{Stat: stats.MoveSpeed, Layer: stats.LayerIncreased, Value: fm.FromMilli(-80)},
+			},
+			ModLines: []string{"+1 to summon capacity", "+30 life", "8% reduced move speed"},
+		},
+		{
+			ID: "patient_hunter", Name: "Band of the Patient Hunter", Base: "iron_ring",
+			Desc: "Wait. Wait. Now.",
+			Mods: []core.BuffMod{
+				{Stat: stats.CritChance, Layer: stats.LayerFlat, Value: fm.FromMilli(80)},
+				{Stat: stats.CritMulti, Layer: stats.LayerFlat, Value: fm.FromMilli(250)},
+				{Stat: stats.AttackSpeed, Layer: stats.LayerIncreased, Value: fm.FromMilli(-80)},
+				{Stat: stats.CastSpeed, Layer: stats.LayerIncreased, Value: fm.FromMilli(-80)},
+			},
+			ModLines: []string{"+8% critical strike chance", "+25% critical strike multiplier", "8% reduced attack and cast speed"},
+		},
 	}
 }
 
@@ -299,6 +389,206 @@ func passiveDefs() []*core.PassiveDef {
 			Mods: []core.BuffMod{
 				{Stat: stats.Damage, Layer: stats.LayerIncreased, Tags: stats.T(stats.TagSpell), Value: fm.FromMilli(150)},
 				{Stat: stats.ManaRegen, Layer: stats.LayerFlat, Value: fm.One},
+			},
+		},
+
+		// 15 — the proc tier: pick the ailment your build feeds.
+		{
+			ID: "lacerator", Name: "Lacerator", Milestone: 15,
+			Desc: "+15% chance to bleed, 10% increased physical damage",
+			Mods: []core.BuffMod{
+				{Stat: stats.BleedChance, Layer: stats.LayerFlat, Value: fm.FromMilli(150)},
+				{Stat: stats.Damage, Layer: stats.LayerIncreased, Tags: stats.T(stats.TagPhysical), Value: fm.FromMilli(100)},
+			},
+		},
+		{
+			ID: "venomist", Name: "Venomist", Milestone: 15,
+			Desc: "+15% chance to poison, 10% increased chaos damage",
+			Mods: []core.BuffMod{
+				{Stat: stats.PoisonChance, Layer: stats.LayerFlat, Value: fm.FromMilli(150)},
+				{Stat: stats.Damage, Layer: stats.LayerIncreased, Tags: stats.T(stats.TagChaos), Value: fm.FromMilli(100)},
+			},
+		},
+		{
+			ID: "stormcaller", Name: "Stormcaller", Milestone: 15,
+			Desc: "+10% chance to shock, 15% increased lightning damage",
+			Mods: []core.BuffMod{
+				{Stat: stats.ShockChance, Layer: stats.LayerFlat, Value: fm.FromMilli(100)},
+				{Stat: stats.Damage, Layer: stats.LayerIncreased, Tags: stats.T(stats.TagLightning), Value: fm.FromMilli(150)},
+			},
+		},
+
+		// 20 — the defense tier: pick your wall.
+		{
+			ID: "bulwark", Name: "Bulwark", Milestone: 20,
+			Desc: "+80 armour, +5% chance to block",
+			Mods: []core.BuffMod{
+				{Stat: stats.Armour, Layer: stats.LayerFlat, Value: fm.FromInt(80)},
+				{Stat: stats.Block, Layer: stats.LayerFlat, Value: fm.FromMilli(50)},
+			},
+		},
+		{
+			ID: "mistwalker", Name: "Mistwalker", Milestone: 20,
+			Desc: "+80 evasion, 4% increased movement speed",
+			Mods: []core.BuffMod{
+				{Stat: stats.Evasion, Layer: stats.LayerFlat, Value: fm.FromInt(80)},
+				{Stat: stats.MoveSpeed, Layer: stats.LayerIncreased, Value: fm.FromMilli(40)},
+			},
+		},
+		{
+			ID: "soul_cage", Name: "Soul Cage", Milestone: 20,
+			Desc: "+30 energy shield, +15 mana",
+			Mods: []core.BuffMod{
+				{Stat: stats.EnergyShield, Layer: stats.LayerFlat, Value: fm.FromInt(30)},
+				{Stat: stats.Mana, Layer: stats.LayerFlat, Value: fm.FromInt(15)},
+			},
+		},
+
+		// 25 — the tempo tier.
+		{
+			ID: "duelists_eye", Name: "Duelist's Eye", Milestone: 25,
+			Desc: "+4% critical strike chance, +100 accuracy",
+			Mods: []core.BuffMod{
+				{Stat: stats.CritChance, Layer: stats.LayerFlat, Value: fm.FromMilli(40)},
+				{Stat: stats.Accuracy, Layer: stats.LayerFlat, Value: fm.FromInt(100)},
+			},
+		},
+		{
+			ID: "battle_rhythm", Name: "Battle Rhythm", Milestone: 25,
+			Desc: "8% increased attack and cast speed",
+			Mods: []core.BuffMod{
+				{Stat: stats.AttackSpeed, Layer: stats.LayerIncreased, Value: fm.FromMilli(80)},
+				{Stat: stats.CastSpeed, Layer: stats.LayerIncreased, Value: fm.FromMilli(80)},
+			},
+		},
+		{
+			ID: "heavy_hands", Name: "Heavy Hands", Milestone: 25,
+			Desc: "20% increased damage",
+			Mods: []core.BuffMod{
+				{Stat: stats.Damage, Layer: stats.LayerIncreased, Value: fm.FromMilli(200)},
+			},
+		},
+
+		// 30 — the shape tier: the choices uniques used to own. One more
+		// minion, projectile, or chain — a build-defining fork.
+		{
+			ID: "summoners_court", Name: "Summoner's Court", Milestone: 30,
+			Desc: "+1 to minion caps",
+			Mods: []core.BuffMod{
+				{Stat: stats.ExtraMinions, Layer: stats.LayerFlat, Value: fm.One},
+			},
+		},
+		{
+			ID: "volley_master", Name: "Volley Master", Milestone: 30,
+			Desc: "+1 projectile",
+			Mods: []core.BuffMod{
+				{Stat: stats.ExtraProjectiles, Layer: stats.LayerFlat, Value: fm.One},
+			},
+		},
+		{
+			ID: "arcforged", Name: "Arcforged", Milestone: 30,
+			Desc: "+1 chain",
+			Mods: []core.BuffMod{
+				{Stat: stats.ExtraChains, Layer: stats.LayerFlat, Value: fm.One},
+			},
+		},
+
+		// 35 — the sustain tier.
+		{
+			ID: "crimson_feast", Name: "Crimson Feast", Milestone: 35,
+			Desc: "2% of damage leeched as life",
+			Mods: []core.BuffMod{
+				{Stat: stats.LifeLeech, Layer: stats.LayerFlat, Value: fm.FromMilli(20)},
+			},
+		},
+		{
+			ID: "font_of_clarity", Name: "Font of Clarity", Milestone: 35,
+			Desc: "+2 mana regen, +1 life regen",
+			Mods: []core.BuffMod{
+				{Stat: stats.ManaRegen, Layer: stats.LayerFlat, Value: fm.FromInt(2)},
+				{Stat: stats.LifeRegen, Layer: stats.LayerFlat, Value: fm.One},
+			},
+		},
+		{
+			ID: "stalwart_heart", Name: "Stalwart Heart", Milestone: 35,
+			Desc: "+40 life, +1 life regen",
+			Mods: []core.BuffMod{
+				{Stat: stats.Life, Layer: stats.LayerFlat, Value: fm.FromInt(40)},
+				{Stat: stats.LifeRegen, Layer: stats.LayerFlat, Value: fm.One},
+			},
+		},
+
+		// 40 — the elements tier.
+		{
+			ID: "pyromaniac", Name: "Pyromaniac", Milestone: 40,
+			Desc: "25% increased fire damage, +10% chance to ignite",
+			Mods: []core.BuffMod{
+				{Stat: stats.Damage, Layer: stats.LayerIncreased, Tags: stats.T(stats.TagFire), Value: fm.FromMilli(250)},
+				{Stat: stats.IgniteChance, Layer: stats.LayerFlat, Value: fm.FromMilli(100)},
+			},
+		},
+		{
+			ID: "winterborn", Name: "Winterborn", Milestone: 40,
+			Desc: "25% increased cold damage, adds 3 cold damage",
+			Mods: []core.BuffMod{
+				{Stat: stats.Damage, Layer: stats.LayerIncreased, Tags: stats.T(stats.TagCold), Value: fm.FromMilli(250)},
+				{Stat: stats.Damage, Layer: stats.LayerFlat, Tags: stats.T(stats.TagCold), Value: fm.FromInt(3)},
+			},
+		},
+		{
+			ID: "tempest", Name: "Tempest", Milestone: 40,
+			Desc: "25% increased lightning damage, +10% chance to shock",
+			Mods: []core.BuffMod{
+				{Stat: stats.Damage, Layer: stats.LayerIncreased, Tags: stats.T(stats.TagLightning), Value: fm.FromMilli(250)},
+				{Stat: stats.ShockChance, Layer: stats.LayerFlat, Value: fm.FromMilli(100)},
+			},
+		},
+
+		// 45 — the gamble tier: greed, or the wall.
+		{
+			ID: "executioners_edge", Name: "Executioner's Edge", Milestone: 45,
+			Desc: "+30% critical strike multiplier",
+			Mods: []core.BuffMod{
+				{Stat: stats.CritMulti, Layer: stats.LayerFlat, Value: fm.FromMilli(300)},
+			},
+		},
+		{
+			ID: "glass_cannon", Name: "Glass Cannon", Milestone: 45,
+			Desc: "25% increased damage, 10% increased damage taken",
+			Mods: []core.BuffMod{
+				{Stat: stats.Damage, Layer: stats.LayerIncreased, Value: fm.FromMilli(250)},
+				{Stat: stats.DamageTaken, Layer: stats.LayerIncreased, Value: fm.FromMilli(100)},
+			},
+		},
+		{
+			ID: "iron_will", Name: "Iron Will", Milestone: 45,
+			Desc: "8% reduced damage taken",
+			Mods: []core.BuffMod{
+				{Stat: stats.DamageTaken, Layer: stats.LayerIncreased, Value: fm.FromMilli(-80)},
+			},
+		},
+
+		// 50 — the capstones: a more multiplier at the top of the hill.
+		{
+			ID: "avatar_of_war", Name: "Avatar of War", Milestone: 50,
+			Desc: "10% more attack damage",
+			Mods: []core.BuffMod{
+				{Stat: stats.Damage, Layer: stats.LayerMore, Tags: stats.T(stats.TagAttack), Value: fm.FromMilli(100)},
+			},
+		},
+		{
+			ID: "archmage", Name: "Archmage", Milestone: 50,
+			Desc: "10% more spell damage",
+			Mods: []core.BuffMod{
+				{Stat: stats.Damage, Layer: stats.LayerMore, Tags: stats.T(stats.TagSpell), Value: fm.FromMilli(100)},
+			},
+		},
+		{
+			ID: "undying", Name: "Undying", Milestone: 50,
+			Desc: "+80 life, +2 life regen",
+			Mods: []core.BuffMod{
+				{Stat: stats.Life, Layer: stats.LayerFlat, Value: fm.FromInt(80)},
+				{Stat: stats.LifeRegen, Layer: stats.LayerFlat, Value: fm.FromInt(2)},
 			},
 		},
 	}
@@ -381,6 +671,54 @@ func buffDefs() []*core.BuffDef {
 			DurationTicks: 5 * core.TicksPerSecond / 2, // 2.5s
 			Mods: []core.BuffMod{
 				{Stat: stats.DamageTaken, Layer: stats.LayerOverride, Value: 0},
+			},
+		},
+		{
+			// Curses: hex packages for SkillCurse skills. One per target —
+			// the newest evicts the rest.
+			//
+			// Flammability strips fire resistance — below zero it AMPLIFIES
+			// (the mitigation gates read negative res as a real multiplier),
+			// so it pays off against everything, not just resistant packs.
+			ID:            "flammability",
+			Name:          "Flammability",
+			DurationTicks: 8 * core.TicksPerSecond,
+			Curse:         true,
+			Mods: []core.BuffMod{
+				{Stat: stats.FireRes, Layer: stats.LayerFlat, Value: fm.FromMilli(-250)},
+			},
+		},
+		{
+			// Enfeeble blunts the cursed: everything they deal is a fifth
+			// weaker — the defensive hex for packs you have to stand in.
+			ID:            "enfeeble",
+			Name:          "Enfeeble",
+			DurationTicks: 8 * core.TicksPerSecond,
+			Curse:         true,
+			Mods: []core.BuffMod{
+				{Stat: stats.Damage, Layer: stats.LayerMore, Value: fm.FromMilli(-200)},
+			},
+		},
+		{
+			// Weakness is the monsters' hex on YOU: a fifth more damage
+			// taken while it holds. The bone hexer casts it.
+			ID:            "weakness",
+			Name:          "Weakness",
+			DurationTicks: 8 * core.TicksPerSecond,
+			Curse:         true,
+			Mods: []core.BuffMod{
+				{Stat: stats.DamageTaken, Layer: stats.LayerIncreased, Value: fm.FromMilli(200)},
+			},
+		},
+		{
+			// The Ashen Warden's setup hex: your fire resistance stripped
+			// before his flame arrives. Cleansing it is leaving the fight.
+			ID:            "hex_of_embers",
+			Name:          "Hex of Embers",
+			DurationTicks: 6 * core.TicksPerSecond,
+			Curse:         true,
+			Mods: []core.BuffMod{
+				{Stat: stats.FireRes, Layer: stats.LayerFlat, Value: fm.FromMilli(-200)},
 			},
 		},
 	}
@@ -762,7 +1100,202 @@ func skillDefs() []*core.SkillDef {
 	spiritBite.BaseMin[core.Fire] = fm.FromInt(4)
 	spiritBite.BaseMax[core.Fire] = fm.FromInt(7)
 
-	return []*core.SkillDef{fireball, slam, frostNova, spark, boneArrow, adrenaline, claws, arcBolt, arc, colossusSlam, boneVolley, barrowSlam, graveVolley, graveStorm, summonSkeleton, sweep, tyrantQuake, raiseThralls, summonMarksman, summonSpirit, spiritBite}
+	// Auras: toggled reservation gems. No radius — an aura covers the
+	// caster and every minion they own, wherever those stand.
+	anger := &core.SkillDef{
+		ID:       "anger",
+		Name:     "Anger",
+		Cuttable: true,
+		Kind:     core.SkillAura,
+		Tags:     stats.T(stats.TagSpell, stats.TagFire),
+		// The toggle is a short cast; the price is the reservation.
+		WindupTicks:   9,
+		RecoveryTicks: 6,
+		SpeedStat:     stats.CastSpeed,
+		Reserve:       fm.FromMilli(350), // 35% of max mana while it burns
+		AuraMods: []core.BuffMod{
+			// Flat fire on every hit — the classic offense aura, and a
+			// skeleton army's favorite campfire.
+			{Stat: stats.Damage, Layer: stats.LayerFlat, Tags: stats.T(stats.TagFire), Value: fm.FromInt(5)},
+		},
+	}
+
+	determination := &core.SkillDef{
+		ID:            "determination",
+		Name:          "Determination",
+		Cuttable:      true,
+		Kind:          core.SkillAura,
+		Tags:          stats.T(stats.TagSpell),
+		WindupTicks:   9,
+		RecoveryTicks: 6,
+		SpeedStat:     stats.CastSpeed,
+		Reserve:       fm.FromMilli(350),
+		AuraMods: []core.BuffMod{
+			// The defensive counterpart: half again your armour.
+			{Stat: stats.Armour, Layer: stats.LayerIncreased, Value: fm.FromMilli(500)},
+		},
+	}
+
+	// Player curses: aimed hexes on the pending-buff queue. No hits, no
+	// RNG — the payoff is the package on everything in the circle.
+	flammability := &core.SkillDef{
+		ID:            "flammability",
+		Name:          "Flammability",
+		Cuttable:      true,
+		Kind:          core.SkillCurse,
+		Tags:          stats.T(stats.TagSpell),
+		ManaCost:      fm.FromInt(12),
+		WindupTicks:   12, // 0.4s
+		RecoveryTicks: 9,
+		SpeedStat:     stats.CastSpeed,
+		Range:         fm.FromInt(10),
+		AoERadius:     fm.FromInt(3),
+		CurseBuff:     "flammability",
+	}
+
+	enfeeble := &core.SkillDef{
+		ID:            "enfeeble",
+		Name:          "Enfeeble",
+		Cuttable:      true,
+		Kind:          core.SkillCurse,
+		Tags:          stats.T(stats.TagSpell),
+		ManaCost:      fm.FromInt(12),
+		WindupTicks:   12,
+		RecoveryTicks: 9,
+		SpeedStat:     stats.CastSpeed,
+		Range:         fm.FromInt(10),
+		AoERadius:     fm.FromInt(3),
+		CurseBuff:     "enfeeble",
+	}
+
+	// The bone hexer's cast: a slow, readable hex lobbed from the back
+	// line. Weakness on you while its pack does the hitting.
+	hexWeakness := &core.SkillDef{
+		ID:            "hex_weakness",
+		Name:          "Hex of Weakness",
+		Kind:          core.SkillCurse,
+		Tags:          stats.T(stats.TagSpell),
+		WindupTicks:   21, // 0.7s — time to see it coming
+		RecoveryTicks: 24, // and a slow cycle between hexes
+		SpeedStat:     stats.CastSpeed,
+		Range:         fm.FromInt(9),
+		AoERadius:     fm.FromMilli(2500),
+		CurseBuff:     "weakness",
+	}
+
+	// Incinerate: the channel that ships the channelling machinery. Short
+	// gouts of flame while held — each repeat is a full projectile cast
+	// (supports fold in: LMP makes it a fan), fed by mana per repeat.
+	incinerate := &core.SkillDef{
+		ID:            "incinerate",
+		Name:          "Incinerate",
+		Cuttable:      true,
+		Kind:          core.SkillProjectile,
+		Tags:          stats.T(stats.TagSpell, stats.TagProjectile, stats.TagFire),
+		Effectiveness: fm.One,
+		ManaCost:      fm.FromInt(4), // the spark; the burn is per repeat
+		ChannelTicks:  6,             // 5 gouts a second at base speed
+		ChannelMana:   fm.FromInt(2),
+		WindupTicks:   9,
+		SpeedStat:     stats.CastSpeed,
+		ProjSpeed:     fm.FromInt(14),
+		ProjTTL:       12, // ~5.6u — a flamethrower, not a fireball
+		ProjRadius:    fm.FromMilli(400),
+		ExplodeRadius: fm.FromMilli(1200),
+		IgniteChance:  fm.FromMilli(150),
+	}
+	incinerate.BaseMin[core.Fire] = fm.FromInt(4)
+	incinerate.BaseMax[core.Fire] = fm.FromInt(7)
+
+	// Blink: the reposition you can't spam. Teleports toward the aim,
+	// range-clamped and wall-honest, on a real cooldown — the first
+	// cooldown in the game.
+	blink := &core.SkillDef{
+		ID:            "blink",
+		Name:          "Blink",
+		Cuttable:      true,
+		Kind:          core.SkillBlink,
+		Tags:          stats.T(stats.TagSpell),
+		ManaCost:      fm.FromInt(8),
+		CooldownTicks: 90, // 3s
+		WindupTicks:   3,  // a blink, not a cast
+		RecoveryTicks: 3,
+		SpeedStat:     stats.CastSpeed,
+		Range:         fm.FromInt(7),
+	}
+
+	// The Ashen Warden's kit: hex your fire res away, then burn you — the
+	// boss that teaches curses and channelling (item 7's set-piece).
+	wardenSlam := &core.SkillDef{
+		ID:            "warden_pyre_slam",
+		Name:          "Pyre Slam",
+		Kind:          core.SkillStaged,
+		Tags:          stats.T(stats.TagAttack, stats.TagMelee, stats.TagFire),
+		Effectiveness: fm.One,
+		SpeedStat:     stats.AttackSpeed,
+		Range:         fm.FromInt(5),
+		Stages: []core.SkillStage{
+			{Ticks: 24, Effect: core.StageBlast, Aim: core.StageAimTarget, Radius: fm.FromMilli(2400)},
+			{Ticks: 18, Effect: core.StageBlast, Aim: core.StageAimTarget, Radius: fm.FromMilli(3400), DamageScale: fm.FromMilli(1400)},
+			{Ticks: 24}, // recovery: the punish window
+		},
+	}
+	wardenSlam.BaseMin[core.Physical] = fm.FromInt(8)
+	wardenSlam.BaseMax[core.Physical] = fm.FromInt(12)
+	wardenSlam.BaseMin[core.Fire] = fm.FromInt(8)
+	wardenSlam.BaseMax[core.Fire] = fm.FromInt(12)
+
+	wardenHex := &core.SkillDef{
+		ID:            "warden_hex",
+		Name:          "Warden's Hex",
+		Kind:          core.SkillCurse,
+		Tags:          stats.T(stats.TagSpell),
+		WindupTicks:   18,
+		RecoveryTicks: 18,
+		SpeedStat:     stats.CastSpeed,
+		Range:         fm.FromInt(11),
+		AoERadius:     fm.FromMilli(2500),
+		CurseBuff:     "hex_of_embers",
+	}
+
+	wardenGout := &core.SkillDef{
+		ID:            "warden_flame_gout",
+		Name:          "Flame Gout",
+		Kind:          core.SkillProjectile,
+		Tags:          stats.T(stats.TagSpell, stats.TagProjectile, stats.TagFire),
+		Effectiveness: fm.One,
+		ManaCost:      fm.FromInt(5),
+		ChannelTicks:  5,
+		ChannelMana:   fm.FromInt(5), // a finite mana pool ends the burst
+		WindupTicks:   15,
+		SpeedStat:     stats.CastSpeed,
+		ProjSpeed:     fm.FromInt(16),
+		ProjTTL:       18, // ~9.6u — the enrage beam crosses half the room
+		ProjRadius:    fm.FromMilli(450),
+		ExplodeRadius: fm.FromMilli(1300),
+		IgniteChance:  fm.FromMilli(200),
+	}
+	wardenGout.BaseMin[core.Fire] = fm.FromInt(6)
+	wardenGout.BaseMax[core.Fire] = fm.FromInt(10)
+
+	// The carrion husk's own slam: zombie_slam's arc with rot on it — the
+	// monster that teaches poison (stacking chaos DoT).
+	putridSlam := &core.SkillDef{
+		ID:            "putrid_slam",
+		Name:          "Putrid Slam",
+		Kind:          core.SkillMelee,
+		Tags:          stats.T(stats.TagAttack, stats.TagMelee, stats.TagPhysical),
+		Effectiveness: fm.One,
+		WindupTicks:   18, // 0.6s telegraph, like the zombie's
+		RecoveryTicks: 12,
+		SpeedStat:     stats.AttackSpeed,
+		Range:         fm.FromMilli(1800),
+		PoisonChance:  fm.FromMilli(300),
+	}
+	putridSlam.BaseMin[core.Physical] = fm.FromInt(8)
+	putridSlam.BaseMax[core.Physical] = fm.FromInt(12)
+
+	return []*core.SkillDef{fireball, slam, frostNova, spark, boneArrow, adrenaline, claws, arcBolt, arc, colossusSlam, boneVolley, barrowSlam, graveVolley, graveStorm, summonSkeleton, sweep, tyrantQuake, raiseThralls, summonMarksman, summonSpirit, spiritBite, putridSlam, anger, determination, flammability, enfeeble, hexWeakness, incinerate, blink, wardenSlam, wardenHex, wardenGout}
 }
 
 func baseStats(pairs map[stats.StatID]fm.Fixed) [stats.StatCount]fm.Fixed {
@@ -857,6 +1390,63 @@ func actorDefs() []*core.ActorDef {
 		XPValue:        30, // squishier but trickier than the zombie
 		PerLevel: []core.BuffMod{
 			{Stat: stats.Life, Layer: stats.LayerFlat, Value: fm.FromInt(5)},
+			{Stat: stats.Damage, Layer: stats.LayerIncreased, Value: fm.FromMilli(40)},
+		},
+	}
+
+	// The support caster: it never hurts you itself — it hexes you with
+	// Weakness from the back line while its pack does the hitting. Kill
+	// it first, or everything else hits a fifth harder.
+	hexer := &core.ActorDef{
+		ID:     "bone_hexer",
+		Name:   "Bone Hexer",
+		Team:   core.TeamMonsters,
+		Radius: fm.FromMilli(500),
+		BaseStats: baseStats(map[stats.StatID]fm.Fixed{
+			stats.Life:      fm.FromInt(30),
+			stats.MoveSpeed: fm.FromInt(4),
+			stats.Accuracy:  fm.FromInt(80),
+		}),
+		Skills:         []string{"hex_weakness"},
+		AI:             "ranged_kiter",
+		AggroRadius:    fm.FromInt(16),
+		LeashRadius:    fm.FromInt(22),
+		PreferredRange: fm.FromInt(7), // its hex reaches 9u — closer than the archer dares
+		LootTable:      "archer_drops",
+		Level:          1,
+		XPValue:        35, // fragile, but the pack around it earns its keep
+		PerLevel: []core.BuffMod{
+			{Stat: stats.Life, Layer: stats.LayerFlat, Value: fm.FromInt(5)},
+		},
+	}
+
+	// The second set-piece boss (even boss floors): hexes your fire res
+	// from range, commits to a telegraphed pyre slam up close, and below
+	// half life channels gouts of flame until his mana runs dry — the
+	// boss that teaches curses and channelling by using them on you.
+	warden := &core.ActorDef{
+		ID:     "ashen_warden",
+		Name:   "The Ashen Warden",
+		Team:   core.TeamMonsters,
+		Radius: fm.FromMilli(1200),
+		BaseStats: baseStats(map[stats.StatID]fm.Fixed{
+			stats.Life:      fm.FromInt(500),
+			stats.Mana:      fm.FromInt(60),
+			stats.ManaRegen: fm.FromInt(3),
+			stats.MoveSpeed: fm.FromMilli(2600),
+			stats.Accuracy:  fm.FromInt(140),
+			stats.FireRes:   fm.FromMilli(500), // wreathed in his own element
+		}),
+		Skills:      []string{"warden_pyre_slam", "warden_hex", "warden_flame_gout"},
+		AI:          "boss_king",
+		StunImmune:  true,
+		AggroRadius: fm.FromInt(20),
+		LeashRadius: fm.FromInt(16),
+		LootTable:   "king_drops",
+		Level:       1,
+		XPValue:     900,
+		PerLevel: []core.BuffMod{
+			{Stat: stats.Life, Layer: stats.LayerFlat, Value: fm.FromInt(40)},
 			{Stat: stats.Damage, Layer: stats.LayerIncreased, Value: fm.FromMilli(40)},
 		},
 	}
@@ -1002,7 +1592,7 @@ func actorDefs() []*core.ActorDef {
 			stats.Accuracy:   fm.FromInt(80),
 			stats.CritChance: fm.FromMilli(50),
 		}),
-		Skills:          []string{"zombie_slam"},
+		Skills:          []string{"putrid_slam"},
 		AI:              "melee_chaser",
 		AggroRadius:     fm.FromInt(14),
 		LeashRadius:     fm.FromInt(18),
@@ -1144,7 +1734,7 @@ func actorDefs() []*core.ActorDef {
 		},
 	}
 
-	return []*core.ActorDef{player, zombie, archer, dummy, ghoul, mage, colossus, barrowKing, husk, skeleton, tyrant, thrall, marksman, spirit}
+	return []*core.ActorDef{player, zombie, archer, dummy, ghoul, mage, colossus, barrowKing, husk, skeleton, tyrant, thrall, marksman, spirit, hexer, warden}
 }
 
 // affixDefs is the global affix pool. Slice order feeds the weighted roll —
@@ -1415,6 +2005,14 @@ func affixDefs() []*core.AffixDef {
 			// alongside ignite/shock chance. Appended last (ordered table).
 			ID: "bleed_chance", Group: "bleed_chance", Kind: core.Suffix,
 			Stat: stats.BleedChance, Layer: stats.LayerFlat,
+			Min: fm.FromMilli(50), Max: fm.FromMilli(100), Step: fm.FromMilli(10), Weight: 40, // 5–10%
+			Families: procs,
+		},
+		{
+			// Chance to poison: phys/chaos hits stack a chaos DoT — attack
+			// speed becomes a DoT multiplier. Appended last (ordered table).
+			ID: "poison_chance", Group: "poison_chance", Kind: core.Suffix,
+			Stat: stats.PoisonChance, Layer: stats.LayerFlat,
 			Min: fm.FromMilli(50), Max: fm.FromMilli(100), Step: fm.FromMilli(10), Weight: 40, // 5–10%
 			Families: procs,
 		},

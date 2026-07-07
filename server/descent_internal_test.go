@@ -446,12 +446,17 @@ func TestBossFloorsSpawnTheKing(t *testing.T) {
 	if d := space.Dist(king.Pos, farthestWalkable(s5.W.Grid)); d > fm.FromInt(2) {
 		t.Errorf("boss %v from the stairs, want parked on them", d)
 	}
+	// Boss floors alternate set-pieces: floor 15 belongs to the Ashen
+	// Warden ((15/5)%4 == 3), still outranking the guardian schedule.
 	s15, err := in.buildFloor(15)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if find(s15, bossDef) == nil {
-		t.Error("floor 15 has no boss")
+	if find(s15, bossDef2) == nil {
+		t.Error("floor 15 has no Ashen Warden")
+	}
+	if find(s15, bossDef) != nil {
+		t.Error("floor 15 spawned the King; the Warden owns it now")
 	}
 	if find(s15, guardianDef) != nil {
 		t.Error("floor 15 spawned a guardian alongside the boss")

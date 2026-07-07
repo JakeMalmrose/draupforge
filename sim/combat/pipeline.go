@@ -10,15 +10,19 @@ import (
 )
 
 const (
-	maxResist      = fm.Fixed(750) // 75% resistance cap
-	maxArmourRed   = fm.Fixed(900) // 90% physical reduction cap
-	minHitChance   = fm.Fixed(50)  // attacks always have ≥5% to hit
-	igniteFrac     = fm.Fixed(500) // ignite dps = 50% of the fire hit
-	igniteTicks    = 4 * core.TicksPerSecond
+	maxResist    = fm.Fixed(750) // 75% resistance cap
+	maxArmourRed = fm.Fixed(900) // 90% physical reduction cap
+	minHitChance = fm.Fixed(50)  // attacks always have ≥5% to hit
+	igniteFrac   = fm.Fixed(500) // ignite dps = 50% of the fire hit
+	igniteTicks  = 4 * core.TicksPerSecond
 	// bleed dps = 35% of the phys hit — a slower burn with a longer tail
 	// than ignite.
 	bleedFrac  = fm.Fixed(350)
 	bleedTicks = 6 * core.TicksPerSecond
+	// poison dps = 30% of the hit's phys+chaos portion, short-lived —
+	// weak alone, but instances stack (the only ailment that does).
+	poisonFrac     = fm.Fixed(300)
+	poisonTicks    = 2 * core.TicksPerSecond
 	maxBlockChance = fm.Fixed(750) // 75% block cap — never a certainty
 )
 
@@ -114,14 +118,15 @@ func resolve(w *core.World, h *core.Hit) {
 		}
 	}
 
-	// Stage: post-hit effects, fixed order (ignite → chill → shock → bleed;
-	// the order is part of the RNG-consumption contract — bleed appended
-	// last so the older ailments' draws keep their positions).
+	// Stage: post-hit effects, fixed order (ignite → chill → shock →
+	// bleed → poison; the order is part of the RNG-consumption contract —
+	// newer ailments append so the older ones' draws keep their positions).
 	if !def.Dead {
 		rollIgnite(w, att, def, h, tags)
 		applyChill(w, att, def, h)
 		rollShock(w, att, def, h, tags)
 		rollBleed(w, att, def, h, tags)
+		rollPoison(w, att, def, h, tags)
 	}
 }
 
@@ -227,11 +232,18 @@ func damageParts(att *core.Actor, h *core.Hit, tags stats.TagSet, typeTags ...st
 }
 
 func rollCrit(w *core.World, att *core.Actor, h *core.Hit, tags stats.TagSet) {
-	if !w.RNGCombat.Chance(att.Sheet.Eval(stats.CritChance, tags)) {
+	// Support mods fold into the crit queries like the damage ones —
+	// composed the way Eval would (base + flat, then inc × more). The roll
+	// itself always consumes exactly one draw, so crit supports never
+	// shift the stream.
+	pc := h.Gem.FoldSupportMods(att.Sheet.Layers(stats.CritChance, tags), stats.CritChance, tags)
+	chance := fm.Mul(att.Sheet.Base(stats.CritChance)+pc.Flat, pc.Multiplier())
+	if !w.RNGCombat.Chance(chance) {
 		return
 	}
 	h.Crit = true
-	mult := att.Sheet.Eval(stats.CritMulti, tags)
+	pm := h.Gem.FoldSupportMods(att.Sheet.Layers(stats.CritMulti, tags), stats.CritMulti, tags)
+	mult := fm.Mul(att.Sheet.Base(stats.CritMulti)+pm.Flat, pm.Multiplier())
 	for dt := range h.Damage {
 		h.Damage[dt] = fm.Mul(h.Damage[dt], mult)
 	}
@@ -267,8 +279,10 @@ func mitigate(att, def *core.Actor, h *core.Hit, tags stats.TagSet) fm.Fixed {
 				d = fm.Mul(d, fm.One-red)
 			}
 		} else {
+			// Negative resistance (curses like flammability push below
+			// zero) amplifies: (1 - res) with res < 0 is a real multiplier.
 			res := fm.Min(def.Sheet.Eval(resistStat(dt), tags), maxResist)
-			if res > 0 {
+			if res != 0 {
 				d = fm.Mul(d, fm.One-res)
 			}
 		}
@@ -342,6 +356,36 @@ func rollBleed(w *core.World, att, def *core.Actor, h *core.Hit, tags stats.TagS
 		Type: core.Physical, PerTick: perTick, TicksLeft: bleedTicks, Source: att.ID,
 	})
 	w.Emit(core.Event{Kind: core.EvBleed, Actor: att.ID, Other: def.ID, Amount: perTick})
+}
+
+// rollPoison: hits carrying physical or chaos damage can poison — a chaos
+// DoT (chaos resistance mitigates its ticks). Poison is the one ailment
+// that STACKS: every application appends its own instance instead of
+// competing with the last, so attack speed is a DoT multiplier. The short
+// duration is the stack cap. Conditional RNG consumption, same rule and
+// pinning discipline as bleed.
+func rollPoison(w *core.World, att, def *core.Actor, h *core.Hit, tags stats.TagSet) {
+	basis := h.Damage[core.Physical] + h.Damage[core.Chaos]
+	if basis <= 0 {
+		return
+	}
+	p := h.Gem.FoldSupportMods(att.Sheet.Layers(stats.PoisonChance, tags), stats.PoisonChance, tags)
+	chance := h.Skill.PoisonChance + fm.Mul(att.Sheet.Base(stats.PoisonChance)+p.Flat, p.Multiplier())
+	if chance <= 0 {
+		return
+	}
+	if !w.RNGCombat.Chance(chance) {
+		return
+	}
+	perTick := fm.Div(fm.Mul(basis, poisonFrac), fm.FromInt(core.TicksPerSecond))
+	if perTick <= 0 {
+		return
+	}
+	h.Poisoned = true
+	def.DoTs = append(def.DoTs, core.DoT{
+		Type: core.Chaos, PerTick: perTick, TicksLeft: poisonTicks, Source: att.ID,
+	})
+	w.Emit(core.Event{Kind: core.EvPoison, Actor: att.ID, Other: def.ID, Amount: perTick})
 }
 
 func rollIgnite(w *core.World, att, def *core.Actor, h *core.Hit, tags stats.TagSet) {

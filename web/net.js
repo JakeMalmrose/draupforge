@@ -181,6 +181,7 @@ function decodeViewFrame(buf, baseFor) {
     if (mask & ACTOR_ORBS) {
       a.orbs = [];
       for (let m = r.uv(); m > 0; m--) a.orbs.push(r.sv());
+      a.shards = r.sv();
     }
     if (mask & ACTOR_GEMS) {
       a.gems = [];
@@ -188,6 +189,8 @@ function decodeViewFrame(buf, baseFor) {
         const g = { skill: r.str(), level: r.uv(), sockets: r.uv(), supports: [] };
         for (let k = r.uv(); k > 0; k--) g.supports.push(r.str());
         g.mana_cost = r.sv();
+        g.on = r.u8() === 1;
+        g.cd = r.uv();
         a.gems.push(g);
       }
     }

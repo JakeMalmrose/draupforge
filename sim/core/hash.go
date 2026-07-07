@@ -98,6 +98,12 @@ func (w *World) Hash() uint64 {
 				s.u64(v)
 			}
 		}
+		// Cooldowns: conditional like the volley ring — actors that never
+		// cast a gated skill keep their old hash stream.
+		for i := range a.Cooldowns {
+			s.str(a.Cooldowns[i].Skill)
+			s.u64(uint64(a.Cooldowns[i].TicksLeft))
+		}
 		s.u64(uint64(a.Level))
 		s.i64(a.XP)
 		// Rarity hashes only when rolled — normal actors keep the
@@ -134,6 +140,10 @@ func (w *World) Hash() uint64 {
 				break
 			}
 		}
+		// Shards: conditional like the wallet.
+		if a.Shards != 0 {
+			s.i64(int64(a.Shards))
+		}
 		// Cut gems: conditional like passives — monsters (gem-less) keep
 		// their old hash stream.
 		if len(a.Gems) > 0 {
@@ -143,6 +153,11 @@ func (w *World) Hash() uint64 {
 				s.str(g.Skill.ID)
 				s.u64(uint64(g.Level))
 				s.u64(uint64(g.Sockets))
+				if g.AuraOn {
+					s.u64(1)
+				} else {
+					s.u64(0)
+				}
 				for _, sup := range g.Supports {
 					if sup == nil {
 						s.u64(0)

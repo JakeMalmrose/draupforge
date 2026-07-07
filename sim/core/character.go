@@ -49,6 +49,7 @@ type CharGem struct {
 	Level    int      `json:"level"`
 	Sockets  int      `json:"sockets"`
 	Supports []string `json:"supports"`
+	AuraOn   bool     `json:"aura_on,omitempty"`
 }
 
 // Character is the portable player state that survives zone transfers.
@@ -75,6 +76,8 @@ type Character struct {
 	FlaskCharges []int32 `json:"flask_charges,omitempty"`
 	// Orbs carries the crafting wallet, OrbKind order.
 	Orbs []int32 `json:"orbs,omitempty"`
+	// Shards carries the Forge balance, durable like the wallet.
+	Shards int32 `json:"shards,omitempty"`
 }
 
 // ExtractCharacter reduces an actor to its character state — the reverse of
@@ -102,7 +105,7 @@ func ExtractCharacter(a *Actor) Character {
 	}
 	for i := range a.Gems {
 		g := &a.Gems[i]
-		cg := CharGem{Skill: g.Skill.ID, Level: g.Level, Sockets: g.Sockets}
+		cg := CharGem{Skill: g.Skill.ID, Level: g.Level, Sockets: g.Sockets, AuraOn: g.AuraOn}
 		for _, sup := range g.Supports {
 			if sup == nil {
 				cg.Supports = append(cg.Supports, "")
@@ -119,6 +122,7 @@ func ExtractCharacter(a *Actor) Character {
 			break
 		}
 	}
+	ch.Shards = a.Shards
 	return ch
 }
 
@@ -214,7 +218,7 @@ func InjectCharacter(w *World, ch Character, pos space.Vec2) (*Actor, error) {
 			if sk == nil {
 				return nil, fmt.Errorf("core: character references unknown skill %q", cg.Skill)
 			}
-			g := Gem{Skill: sk, Level: cg.Level, Sockets: cg.Sockets}
+			g := Gem{Skill: sk, Level: cg.Level, Sockets: cg.Sockets, AuraOn: cg.AuraOn}
 			for _, id := range cg.Supports {
 				if id == "" {
 					g.Supports = append(g.Supports, nil)
@@ -253,6 +257,12 @@ func InjectCharacter(w *World, ch Character, pos space.Vec2) (*Actor, error) {
 	if len(ch.Orbs) <= int(OrbCount) {
 		copy(a.Orbs[:], ch.Orbs)
 	}
+	a.Shards = ch.Shards
+
+	// Running auras re-apply as part of the sheet rebuild (their AuraOn
+	// flag is the durable record) — before the pool clamp, so reserved
+	// mana counts against the arriving maximum.
+	ActivateCharacterAuras(w, a)
 
 	// Pools: carry, clamped to the rebuilt maxima. Life <= 0 means a
 	// death-respawn — arrive refilled rather than dead.

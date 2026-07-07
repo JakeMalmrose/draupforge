@@ -267,3 +267,92 @@ func TestBleedChanceFromSupportFold(t *testing.T) {
 		t.Fatalf("support-granted bleed chance did not bleed: DoTs = %+v", def.DoTs)
 	}
 }
+
+func TestPoisonStacksInstances(t *testing.T) {
+	w := testWorld()
+	att := w.SpawnActor(actorDef(100, nil), space.V(0, 0))
+	def := w.SpawnActor(actorDef(10000, nil), space.V(fm.One, 0))
+	sk := spellDef(10, 10, core.Physical)
+	sk.PoisonChance = fm.One
+
+	queueAndResolve(w, att, def, sk)
+	queueAndResolve(w, att, def, sk)
+
+	if len(def.DoTs) != 2 {
+		t.Fatalf("poison instances = %d, want 2 — poison stacks, it never merges", len(def.DoTs))
+	}
+	for i, d := range def.DoTs {
+		if d.Type != core.Chaos {
+			t.Errorf("instance %d type = %v, want chaos", i, d.Type)
+		}
+		if d.TicksLeft != 2*core.TicksPerSecond {
+			t.Errorf("instance %d duration = %d ticks, want %d", i, d.TicksLeft, 2*core.TicksPerSecond)
+		}
+	}
+}
+
+func TestPoisonScalesPhysPlusChaos(t *testing.T) {
+	w := testWorld()
+	att := w.SpawnActor(actorDef(100, nil), space.V(0, 0))
+	def := w.SpawnActor(actorDef(10000, nil), space.V(fm.One, 0))
+	sk := spellDef(10, 10, core.Physical)
+	sk.BaseMin[core.Chaos] = fm.FromInt(10)
+	sk.BaseMax[core.Chaos] = fm.FromInt(10)
+	sk.PoisonChance = fm.One
+
+	queueAndResolve(w, att, def, sk)
+
+	if len(def.DoTs) != 1 {
+		t.Fatalf("no poison from certain-chance hit")
+	}
+	// poison dps = 30% of the 20 phys+chaos total; per-tick over the tick rate.
+	want := fm.Div(fm.Mul(fm.FromInt(20), fm.Fixed(300)), fm.FromInt(core.TicksPerSecond))
+	if got := def.DoTs[0].PerTick; got != want {
+		t.Errorf("poison per tick = %d, want %d (phys+chaos basis)", got, want)
+	}
+}
+
+// TestPoisonRNGConsumption pins poison's conditional-consumption contract,
+// same shape as bleed's: no chance anywhere → no draw (physical equals the
+// chaos-hit baseline), chance present → exactly one ailment roll (equals a
+// fire hit's ignite draw).
+func TestPoisonRNGConsumption(t *testing.T) {
+	state := func(dt core.DamageType, poisonChance fm.Fixed) [4]uint64 {
+		w := testWorld()
+		att := w.SpawnActor(actorDef(100, nil), space.V(0, 0))
+		def := w.SpawnActor(actorDef(1000, nil), space.V(fm.One, 0))
+		sk := spellDef(10, 10, dt)
+		sk.PoisonChance = poisonChance
+		queueAndResolve(w, att, def, sk)
+		return w.RNGCombat.State()
+	}
+	if state(core.Physical, 0) != state(core.Chaos, 0) {
+		t.Error("chanceless physical hit consumed combat RNG; physical and chaos must draw identically")
+	}
+	if state(core.Physical, fm.Half) != state(core.Fire, 0) {
+		t.Error("physical hit with poison chance must draw exactly one ailment roll, like fire's ignite")
+	}
+}
+
+// TestPoisonChanceFromSupportFold pins the support path (Envenom's shape):
+// a cast context carrying a flat PoisonChance support mod poisons without
+// any sheet stat or skill base chance.
+func TestPoisonChanceFromSupportFold(t *testing.T) {
+	w := testWorld()
+	att := w.SpawnActor(actorDef(100, nil), space.V(0, 0))
+	def := w.SpawnActor(actorDef(1000, nil), space.V(fm.One, 0))
+	sk := spellDef(10, 10, core.Physical)
+	sup := &core.SupportDef{ID: "test_envenom", Mods: []core.BuffMod{
+		{Stat: stats.PoisonChance, Layer: stats.LayerFlat, Value: fm.One},
+	}}
+
+	w.QueueHit(core.Hit{
+		Attacker: att.ID, Defender: def.ID, Skill: sk,
+		Tags: sk.Tags.With(stats.TagHit),
+		Gem:  core.GemCtx{Supports: []*core.SupportDef{sup}},
+	})
+	combat.ResolveHits(w)
+	if len(def.DoTs) != 1 || def.DoTs[0].Type != core.Chaos {
+		t.Fatalf("support-granted poison chance did not poison: DoTs = %+v", def.DoTs)
+	}
+}

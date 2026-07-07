@@ -47,6 +47,14 @@ const (
 	// CmdAddSocket spends a jeweller orb to add a support socket to the
 	// gem at GemIndex (capped at MaxGemSockets).
 	CmdAddSocket
+	// CmdForgeMelt melts the inventory item named by TargetID into shards
+	// (MeltShards by rarity; uncut gems pay MeltGemShards). The Forge
+	// travels with you — no hideout gate; melting trash mid-run is the
+	// point.
+	CmdForgeMelt
+	// CmdForgeBuy exchanges shards for one orb of the kind in Orb, at
+	// OrbShardPrice.
+	CmdForgeBuy
 )
 
 // Command is the only way anything outside the sim affects it. The sim
@@ -118,6 +126,18 @@ const (
 	// EvBleed fires when a hit tears a bleed (Actor = attacker,
 	// Other = defender, Amount = damage per tick).
 	EvBleed
+	// EvPoison fires when a hit poisons (Actor = attacker,
+	// Other = defender, Amount = the new instance's damage per tick).
+	EvPoison
+	// EvAura fires when an aura toggles (Actor = caster, Note = skill ID,
+	// Amount = One when it turned on, 0 when it turned off).
+	EvAura
+	// EvCurse fires when a curse lands or refreshes (Actor = caster,
+	// Other = the hexed, Note = the curse BuffDef ID).
+	EvCurse
+	// EvForge narrates the Forge: Note = "melt:<base|gem>" or
+	// "buy:<orb>", Amount = the actor's shard total afterward.
+	EvForge
 )
 
 func (k EventKind) String() string {
@@ -160,6 +180,14 @@ func (k EventKind) String() string {
 		return "stun"
 	case EvBleed:
 		return "bleed"
+	case EvPoison:
+		return "poison"
+	case EvAura:
+		return "aura"
+	case EvCurse:
+		return "curse"
+	case EvForge:
+		return "forge"
 	default:
 		return "unequip"
 	}
@@ -371,6 +399,9 @@ func (w *World) DrainSpawns() {
 		a := w.SpawnActor(ps.Def, pos)
 		a.Owner = ps.Owner
 		a.LifespanTicks = ps.Lifespan
+		// Auras before the level-up pool refill, so a life-granting aura
+		// counts toward the newborn's full pools.
+		w.ApplyOwnerAuras(a)
 		if ps.Level > 0 {
 			a.SetLevel(ps.Level)
 			a.Life, a.Mana, a.ES = a.MaxLife(), a.MaxMana(), a.MaxES()
