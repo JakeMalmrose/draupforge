@@ -52,6 +52,8 @@ const (
 	// it. It lives in the enum because the affix machinery mods a sheet.
 	LightRadius
 
+	BleedChance // fraction, added to skill base chance (physical hits)
+
 	StatCount
 )
 

@@ -189,6 +189,12 @@ type SkillDef struct {
 	// stats. Chill has no chance: every cold-damage hit chills, magnitude
 	// scaled by hit size.
 	ShockChance fm.Fixed
+	// Base chance for physical-damage hits to bleed, before BleedChance
+	// stats. Unlike ignite/shock, the roll happens only when the total
+	// chance is positive — physical damage is everywhere, and a draw per
+	// phys hit would shift every replay (block's conditional-consumption
+	// discipline).
+	BleedChance fm.Fixed
 
 	// SelfBuff names the BuffDef a SkillBuff skill applies to its caster.
 	SelfBuff string

@@ -136,5 +136,18 @@ func supportDefs() []*core.SupportDef {
 			},
 			ExtraProjectiles: 1,
 		},
+		{
+			// The bleed enabler: attacks gain a real chance to tear a
+			// physical DoT, plus a nudge to the phys portion that feeds it.
+			// Attack-gated — spells don't bleed.
+			ID: "rupture", Name: "Rupture",
+			Desc:     "35% chance to bleed, 10% more physical damage",
+			Requires: stats.T(stats.TagAttack),
+			ManaMult: fm.FromMilli(1200),
+			Mods: []core.BuffMod{
+				{Stat: stats.BleedChance, Layer: stats.LayerFlat, Value: fm.FromMilli(350)},
+				{Stat: stats.Damage, Layer: stats.LayerMore, Tags: stats.T(stats.TagPhysical), Value: fm.FromMilli(100)},
+			},
+		},
 	}
 }

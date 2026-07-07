@@ -161,3 +161,109 @@ func TestAilmentRNGConsumption(t *testing.T) {
 		t.Error("lightning and fire hits drew different RNG; shock must mirror ignite's single roll")
 	}
 }
+
+func TestBleedAppliesPhysicalDoT(t *testing.T) {
+	w := testWorld()
+	att := w.SpawnActor(actorDef(100, nil), space.V(0, 0))
+	def := w.SpawnActor(actorDef(1000, nil), space.V(fm.One, 0))
+	sk := spellDef(10, 10, core.Physical)
+	sk.BleedChance = fm.One
+
+	queueAndResolve(w, att, def, sk)
+
+	if len(def.DoTs) != 1 || def.DoTs[0].Type != core.Physical {
+		t.Fatalf("DoTs after certain bleed = %+v, want one physical", def.DoTs)
+	}
+	// bleed dps = 35% of the 10 phys hit; per-tick is that over the tick rate.
+	wantPerTick := fm.Div(fm.Mul(fm.FromInt(10), fm.Fixed(350)), fm.FromInt(core.TicksPerSecond))
+	if d := def.DoTs[0]; d.PerTick != wantPerTick {
+		t.Errorf("bleed per tick = %d, want %d", d.PerTick, wantPerTick)
+	}
+	if d := def.DoTs[0]; d.TicksLeft != 6*core.TicksPerSecond {
+		t.Errorf("bleed duration = %d ticks, want %d", d.TicksLeft, 6*core.TicksPerSecond)
+	}
+}
+
+func TestStrongerBleedReplacesWeakerOnly(t *testing.T) {
+	w := testWorld()
+	att := w.SpawnActor(actorDef(100, nil), space.V(0, 0))
+	def := w.SpawnActor(actorDef(10000, nil), space.V(fm.One, 0))
+	big := spellDef(20, 20, core.Physical)
+	big.BleedChance = fm.One
+	small := spellDef(5, 5, core.Physical)
+	small.BleedChance = fm.One
+
+	queueAndResolve(w, att, def, big)
+	if len(def.DoTs) != 1 {
+		t.Fatalf("no bleed from certain-chance hit")
+	}
+	strong := def.DoTs[0].PerTick
+	queueAndResolve(w, att, def, small)
+	if len(def.DoTs) != 1 {
+		t.Fatalf("bleeds stacked: %d DoTs, want 1 (strongest wins)", len(def.DoTs))
+	}
+	if def.DoTs[0].PerTick != strong {
+		t.Errorf("weaker bleed changed the strong one: %d, want %d", def.DoTs[0].PerTick, strong)
+	}
+}
+
+// TestBleedRNGConsumption pins bleed's conditional-consumption contract:
+// with no bleed chance anywhere a physical hit draws exactly what a chaos
+// hit draws (damage + crit) — every existing replay stays byte-stable —
+// and once any chance is present, the single roll mirrors ignite's, so a
+// physical hit with bleed chance draws what a fire hit draws.
+func TestBleedRNGConsumption(t *testing.T) {
+	state := func(dt core.DamageType, bleedChance fm.Fixed) [4]uint64 {
+		w := testWorld()
+		att := w.SpawnActor(actorDef(100, nil), space.V(0, 0))
+		def := w.SpawnActor(actorDef(1000, nil), space.V(fm.One, 0))
+		sk := spellDef(10, 10, dt)
+		sk.BleedChance = bleedChance
+		queueAndResolve(w, att, def, sk)
+		return w.RNGCombat.State()
+	}
+	if state(core.Physical, 0) != state(core.Chaos, 0) {
+		t.Error("chanceless physical hit consumed combat RNG; physical and chaos must draw identically")
+	}
+	if state(core.Physical, fm.Half) != state(core.Fire, 0) {
+		t.Error("physical hit with bleed chance must draw exactly one ailment roll, like fire's ignite")
+	}
+}
+
+// TestBleedChanceFromSheet pins the gear path: a flat BleedChance modifier
+// on the attacker's sheet (what the bleed_chance affix grants) bleeds
+// without any skill base chance.
+func TestBleedChanceFromSheet(t *testing.T) {
+	w := testWorld()
+	att := w.SpawnActor(actorDef(100, nil), space.V(0, 0))
+	def := w.SpawnActor(actorDef(1000, nil), space.V(fm.One, 0))
+	att.Sheet.Add(stats.Modifier{Stat: stats.BleedChance, Layer: stats.LayerFlat, Value: fm.One, Source: 42})
+
+	queueAndResolve(w, att, def, spellDef(10, 10, core.Physical))
+	if len(def.DoTs) != 1 || def.DoTs[0].Type != core.Physical {
+		t.Fatalf("sheet bleed chance did not bleed: DoTs = %+v", def.DoTs)
+	}
+}
+
+// TestBleedChanceFromSupportFold pins the support path: a cast context
+// carrying a flat BleedChance support mod (Rupture's shape) bleeds without
+// any sheet stat — rollBleed folds the chance query like damage queries.
+func TestBleedChanceFromSupportFold(t *testing.T) {
+	w := testWorld()
+	att := w.SpawnActor(actorDef(100, nil), space.V(0, 0))
+	def := w.SpawnActor(actorDef(1000, nil), space.V(fm.One, 0))
+	sk := spellDef(10, 10, core.Physical)
+	sup := &core.SupportDef{ID: "test_rupture", Mods: []core.BuffMod{
+		{Stat: stats.BleedChance, Layer: stats.LayerFlat, Value: fm.One},
+	}}
+
+	w.QueueHit(core.Hit{
+		Attacker: att.ID, Defender: def.ID, Skill: sk,
+		Tags: sk.Tags.With(stats.TagHit),
+		Gem:  core.GemCtx{Supports: []*core.SupportDef{sup}},
+	})
+	combat.ResolveHits(w)
+	if len(def.DoTs) != 1 || def.DoTs[0].Type != core.Physical {
+		t.Fatalf("support-granted bleed chance did not bleed: DoTs = %+v", def.DoTs)
+	}
+}

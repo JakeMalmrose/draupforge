@@ -11,8 +11,8 @@ tests, and session-log entries older than a few sessions (git history is the
 archive). If this file outgrows ~150 lines, it has stopped being a status doc
 and started being a changelog — cut it back.
 
-**Last updated: 2026-07-06** (session 72: ROADMAP v2 — two concurrent
-tracks, Buildcraft and The Living Descent, with a seam contract)
+**Last updated: 2026-07-06** (session 73: bleed — the first Track 1
+mechanic; physical-hit DoT with conditional RNG consumption)
 
 ## Where things stand
 
@@ -67,7 +67,7 @@ All foundational machinery from DESIGN.md is real, not stubbed:
 | Stat algebra (flat/inc/more/override + tags) | `sim/stats` | done, tested, memoized |
 | World/Actor/Hit/defs, RNG, state hashing | `sim/core` | done |
 | Damage pipeline: conversion, DoTs, regen; the full mechanics set — leech, block, ES recharge, and stun (a hit ≥15% max life clears the action; `Actor.StunTicks` = 0.3s lock + 0.5s immunity, saved+hashed, gated in the command validator; `ActorDef.StunImmune` on bosses) | `sim/combat`, `sim/sim.go` | done, tested |
-| Statuses: ignite/chill/shock ailments + content buffs (refresh-not-stack, pending-buff queue) | `sim/combat` | done, tested |
+| Statuses: ignite/chill/shock/bleed ailments + content buffs (refresh-not-stack, pending-buff queue); bleed is a physical DoT that rolls only when the attacker has any bleed chance (skill base + sheet + support fold) — old replays stay byte-stable | `sim/combat` | done, tested, verified live |
 | Persistence: `World.Save`/`LoadWorld` (versioned JSON, bit-exact), admin `POST /api/save`, descent run envelope (v2); `-load` under the lobby seeds the first instance (validated at boot) | `sim/core/save.go`, `server/runsave.go`, `server/lobby.go` | done, tested, verified e2e |
 | Actions (windup/recovery) + projectiles; skill feel: splash w/ falloff, wall bounce, heading wiggle, hitscan chains | `sim/skills` | done, tested |
 | Staged skills (DESIGN §15): stage sequences w/ per-stage locked aims, blast/ring effects, telegraphs on the wire (v19); telegraphed blasts skip evasion; the Barrow King (boss_king AI, floors %5, rare, stateless enrage <50%) + boss bar + ground-telegraph rendering | `sim/skills`, `sim/ai`, `content/`, `server/descent.go`, `web/` | done, tested, verified live |
@@ -95,7 +95,7 @@ All foundational machinery from DESIGN.md is real, not stubbed:
 | Minions: `Actor.Owner` (zone-local, saved+hashed), kill attribution up the chain (`World.CreditFor` — XP/flasks/orbs pay the summoner), `minion_melee` heel AI (mobile leash on the owner), `SkillSummon` w/ cap-despawns-oldest; Summon Skeleton cuttable gem (cap 3, minions at gem level); save v12 | `sim/core`, `sim/ai`, `sim/skills`, `content/`, `web/` | done, tested, verified live |
 | Phase order + command validation | `sim/sim.go` | done — this IS the determinism contract |
 | Wire types: versioned welcome (v18), JSON snapshots, binary delta codec | `protocol/` | done, tested |
-| Content tables | `content/` | 18 skills (8 cuttable, 4 staged), 13 supports, 12 actors (3 bosses), 34 affixes (ILvl-tiered), 9 bases, 5 uniques, 8 drop tables, 4 monster mods, 4 buffs |
+| Content tables | `content/` | 18 skills (8 cuttable, 4 staged), 14 supports, 12 actors (3 bosses), 35 affixes (ILvl-tiered), 9 bases, 5 uniques, 8 drop tables, 4 monster mods, 4 buffs |
 | Debug client + determinism/golden replay tests | `cmd/headless`, `sim/sim_test.go` | done |
 
 ## Invariants the code currently honors (don't break casually)
@@ -201,7 +201,9 @@ load-bearing (top entry: the action model is one-thing-at-a-time).
   40‰, gem +10% dmg and +5% mana per level, support numbers in
   `content/supports.go`; projectile ranges TTL-derived (fireball ~14u,
   arrows ~16–17u, spark 1.5s bouncing, splash 2u, arc 12u reach / 2 chains);
-  hideout is 16×12.
+  hideout is 16×12; bleed 35% of the phys hit as dps for 6s (ghoul claws
+  25% chance, bleed_chance affix 5–10%, Rupture support 35% + 10% more
+  phys).
 
 ## Feature plan
 
@@ -225,6 +227,24 @@ starting either track. Jake's balance pass over the numbers stays open.
 
 ## Session log
 
+- **2026-07-06 (73)** — Bleed: Track 1's first mechanic. A physical DoT on
+  the ignite model (strongest wins, no stacking — stacking is poison's
+  deliberate design, next), 35% of the phys hit as dps for 6s, riding the
+  existing Physical path in `dot.go` (armour and resists ignore it). The
+  RNG discipline is block's, not ignite's: the roll consumes a draw only
+  when the attacker has any bleed chance at all (skill base + sheet base +
+  flat mods + support fold, composed like Eval) — physical damage is on
+  nearly every hit, and an unconditional draw would have shifted every
+  replay. Both goldens stayed byte-stable; pinned by
+  TestBleedRNGConsumption (chanceless phys ≡ chaos, chanced phys ≡ fire).
+  Content: ghoul claws 25% base chance (the monster that teaches it),
+  bleed_chance suffix appended last (5–10%, proc slots), Rupture support
+  (attack-gated, 35% + 10% more phys). Wire: EvBleed event + AilBleeding
+  bit (16) in the existing Ail byte — no codec change, no version bump.
+  Client: red ail ring, "is bleeding" log line, tooltip formatter.
+  Verified live on a branch server: a spawned ghoul bled a TCP client to
+  death (bleed events + ail:16 on the wire); a zombie control landed 7
+  hits with zero bleed. No save shape change (DoTs already save/hash).
 - **2026-07-06 (72)** — ROADMAP v2, docs only. The shipped roadmap (every
   phase ✅) is rewritten as two concurrently-developable tracks sliced
   along the codebase's natural seam: Track 1 "Buildcraft" owns sim

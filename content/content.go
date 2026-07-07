@@ -487,6 +487,7 @@ func skillDefs() []*core.SkillDef {
 		RecoveryTicks: 6,
 		SpeedStat:     stats.AttackSpeed,
 		Range:         fm.FromMilli(1500),
+		BleedChance:   fm.FromMilli(250), // torn flesh — the monster that teaches bleed
 	}
 	claws.BaseMin[core.Physical] = fm.FromInt(3)
 	claws.BaseMax[core.Physical] = fm.FromInt(6)
@@ -1407,6 +1408,15 @@ func affixDefs() []*core.AffixDef {
 			Stat: stats.LightRadius, Layer: stats.LayerFlat,
 			Min: fm.FromMilli(500), Max: fm.FromMilli(1500), Step: fm.FromMilli(500), Weight: 40, // +0.5–1.5u
 			Families: []core.SlotFamily{core.FamilyHelmet, core.FamilyAmulet, core.FamilyRing},
+		},
+		{
+			// Chance to bleed: physical hits tear a physical DoT that armour
+			// and resists ignore — the melee attacker's proc suffix,
+			// alongside ignite/shock chance. Appended last (ordered table).
+			ID: "bleed_chance", Group: "bleed_chance", Kind: core.Suffix,
+			Stat: stats.BleedChance, Layer: stats.LayerFlat,
+			Min: fm.FromMilli(50), Max: fm.FromMilli(100), Step: fm.FromMilli(10), Weight: 40, // 5–10%
+			Families: procs,
 		},
 	}
 }
