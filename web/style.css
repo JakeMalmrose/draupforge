@@ -269,6 +269,47 @@ body {
   font-size: 12px; color: #55504a;
 }
 
+/* The escape menu: every panel's front door, plus the controls reference.
+   Center slot, above the other panels — Esc toggles it when nothing else
+   is open, and its buttons route to the same toggles the keys hit. */
+#esc-menu {
+  position: fixed;
+  left: 50%; top: 50%; transform: translate(-50%, -50%);
+  width: 300px; max-height: 80vh;
+  overflow-y: auto;
+  background: rgba(16, 16, 22, 0.97);
+  border: 1px solid #3a3a45;
+  border-radius: 4px;
+  padding: 16px;
+  z-index: 8;
+  display: flex; flex-direction: column; gap: 6px;
+}
+#esc-menu h2 {
+  font-size: 15px; color: #cfc9bf; letter-spacing: 5px;
+  text-align: center; margin: 0 0 8px;
+}
+#esc-menu button {
+  font: inherit; font-size: 13px;
+  display: flex; justify-content: space-between; align-items: center;
+  background: #1a1a22; color: #cfc9bf;
+  border: 1px solid #3a3a45; border-radius: 3px;
+  padding: 7px 12px; cursor: pointer;
+  text-align: left;
+}
+#esc-menu button:hover { border-color: #6a6455; }
+#esc-menu .key-hint { font-size: 11px; color: #8d8678; letter-spacing: 1px; }
+#menu-exit { justify-content: center; margin-top: 4px; color: #8d8678; }
+#menu-exit:hover { border-color: #a32626; color: #c96a4a; }
+#controls-list {
+  margin-top: 10px; padding-top: 10px;
+  border-top: 1px solid #22222c;
+}
+.ctl-row {
+  display: flex; justify-content: space-between;
+  font-size: 11px; color: #8d8678; padding: 2px 0;
+}
+.ctl-row .ctl-key { color: #b8a44a; letter-spacing: 1px; }
+
 .hidden { display: none !important; }
 
 /* Passive chooser: the milestone-choice card, bottom center above the HUD. */
@@ -342,7 +383,7 @@ body {
 .flask.drained { opacity: 0.45; filter: grayscale(0.6); }
 
 /* Currency strip in the panel; an armed orb highlights bag cells. */
-#orb-strip { display: flex; gap: 6px; margin-bottom: 4px; }
+#orb-strip { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 4px; }
 .orb {
   display: inline-flex; align-items: center; gap: 5px;
   padding: 4px 8px;
@@ -555,7 +596,7 @@ body {
    "new character" flow). */
 #join {
   position: fixed; inset: 0;
-  background: rgba(10, 0, 0, 0.88);
+  background: rgba(8, 3, 5, 0.97); /* near-opaque: the HUD shouldn't bleed through */
   display: flex; flex-direction: column;
   align-items: center; justify-content: center;
   gap: 14px;
@@ -604,7 +645,9 @@ body {
 #char-new { width: 274px; }
 #join-modes { display: flex; gap: 18px; font-size: 12px; color: #8d8678; width: 274px; justify-content: center; }
 #join-modes label { cursor: pointer; display: flex; align-items: center; gap: 5px; }
-#join-modes input { accent-color: #a32626; }
+/* the #join input rule above is sized for the name field — undo it here
+   or each checkbox becomes an invisible 240px-wide box */
+#join-modes input { accent-color: #a32626; width: auto; padding: 0; }
 .char-badge {
   font-size: 9px; letter-spacing: 0.1em; padding: 1px 5px;
   border-radius: 3px; border: 1px solid #a3262699; color: #c96a6a;

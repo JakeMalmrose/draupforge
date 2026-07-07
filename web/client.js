@@ -2147,6 +2147,52 @@ window.addEventListener("keyup", (e) => {
 });
 window.addEventListener("blur", () => wasdHeld.clear());
 
+// ---------------------------------------------------------- panel slots
+//
+// Every togglable pane lives in a screen slot (right dock, center, left
+// dock); opening a pane closes whatever else holds its slot, so panels
+// never stack on top of each other. Esc walks it all back: modal dialogs
+// first, then any open panes, then the escape menu.
+
+const PANE_SLOTS = {
+  panel: "right", charsheet: "right",
+  ladder: "center", settings: "center", "esc-menu": "center",
+  social: "left",
+};
+
+function paneOpen(name) {
+  return !document.getElementById(name).classList.contains("hidden");
+}
+function anyPaneOpen() {
+  return Object.keys(PANE_SLOTS).some(paneOpen);
+}
+function closePane(name) {
+  document.getElementById(name).classList.add("hidden");
+  if (name === "charsheet") clearInterval(sheetTimer);
+}
+function closeAllPanes() {
+  for (const n of Object.keys(PANE_SLOTS)) closePane(n);
+}
+// togglePane flips one pane, evicting its slot-mate; true = now open.
+function togglePane(name) {
+  if (paneOpen(name)) {
+    closePane(name);
+    return false;
+  }
+  for (const [n, slot] of Object.entries(PANE_SLOTS)) {
+    if (n !== name && slot === PANE_SLOTS[name]) closePane(n);
+  }
+  document.getElementById(name).classList.remove("hidden");
+  return true;
+}
+
+function toggleInventory() {
+  if (togglePane("panel")) renderPanel(me(), true);
+}
+function toggleSocial() {
+  if (togglePane("social")) renderSocial();
+}
+
 window.addEventListener("keydown", (e) => {
   if (joinOpen()) return; // typing a name is not gameplay input
   if (chatBarOpen()) return; // typing a message is not gameplay input
@@ -2163,8 +2209,24 @@ window.addEventListener("keydown", (e) => {
     return;
   }
   if (key === "escape") {
-    if (cutState) closeCutDialog();
-    if (chartOpen()) closeChart();
+    if (cutState) {
+      closeCutDialog();
+      return;
+    }
+    if (chartOpen()) {
+      closeChart();
+      return;
+    }
+    if (anyPaneOpen()) {
+      closeAllPanes();
+      return;
+    }
+    togglePane("esc-menu");
+    return;
+  }
+  if (key === "tab") {
+    e.preventDefault(); // keep focus off the browser chrome
+    toggleInventory();
     return;
   }
   if (key in WASD_DIRS) {
@@ -2201,18 +2263,50 @@ window.addEventListener("keydown", (e) => {
       send({ kind: "plant_portal" });
       break;
     case "i":
-      panel.classList.toggle("hidden");
-      if (!panel.classList.contains("hidden")) renderPanel(me(), true);
+      toggleInventory();
       break;
     case "f":
-      document.getElementById("social").classList.toggle("hidden");
-      renderSocial();
+      toggleSocial();
       break;
     case "c":
       toggleCharSheet();
       break;
   }
 });
+
+// The escape menu's buttons route to the same toggles the keys hit; the
+// center-slot ones evict the menu on their own, the rest close it first.
+for (const btn of document.querySelectorAll("#esc-menu [data-menu]")) {
+  btn.onclick = () => {
+    switch (btn.dataset.menu) {
+      case "resume":
+        closePane("esc-menu");
+        break;
+      case "inventory":
+        closePane("esc-menu");
+        toggleInventory();
+        break;
+      case "charsheet":
+        closePane("esc-menu");
+        toggleCharSheet();
+        break;
+      case "social":
+        closePane("esc-menu");
+        toggleSocial();
+        break;
+      case "ladder":
+        toggleLadder();
+        break;
+      case "settings":
+        toggleSettings();
+        break;
+      case "exit":
+        try { sessionStorage.removeItem("draupforge_char"); } catch {}
+        location.reload();
+        break;
+    }
+  };
+}
 
 // --------------------------------------------------- character sheet (C)
 //
@@ -2226,9 +2320,8 @@ let sheetTimer = 0;
 const charsheetEl = document.getElementById("charsheet");
 
 function toggleCharSheet() {
-  const open = !charsheetEl.classList.toggle("hidden");
   clearInterval(sheetTimer);
-  if (open) {
+  if (togglePane("charsheet")) {
     send({ kind: "sheet" });
     sheetTimer = setInterval(() => send({ kind: "sheet" }), 800);
     renderCharSheet();
@@ -3467,19 +3560,15 @@ function updateRunHUD() {
 // The O panel: volume, damage numbers, mute. Everything durable in
 // localStorage; volume feeds the sfx master and the ambient drone live.
 
-const settingsEl = document.getElementById("settings");
 const setVolumeEl = document.getElementById("set-volume");
 const setDmgEl = document.getElementById("set-dmgnum");
 const setMuteEl = document.getElementById("set-mute");
 
 function toggleSettings() {
-  if (settingsEl.classList.contains("hidden")) {
+  if (togglePane("settings")) {
     setVolumeEl.value = String(Math.round(settings.volume * 100));
     setDmgEl.checked = settings.dmgNumbers;
     setMuteEl.checked = audioMuted;
-    settingsEl.classList.remove("hidden");
-  } else {
-    settingsEl.classList.add("hidden");
   }
 }
 
@@ -3640,17 +3729,11 @@ function drawTrophies() {
 // death, just before the eject, and stays up until dismissed: what hit
 // you, for how much, on which floor, under which mods.
 
-const ladderEl = document.getElementById("ladder");
 const ladderListEl = document.getElementById("ladder-list");
 let ladderMode = "all"; // "all" | "hc" | "ssf" — each mode gets its board
 
 async function toggleLadder() {
-  if (!ladderEl.classList.contains("hidden")) {
-    ladderEl.classList.add("hidden");
-    return;
-  }
-  ladderEl.classList.remove("hidden");
-  await renderLadder();
+  if (togglePane("ladder")) await renderLadder();
 }
 
 async function renderLadder() {

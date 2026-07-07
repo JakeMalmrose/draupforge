@@ -11,11 +11,10 @@ tests, and session-log entries older than a few sessions (git history is the
 archive). If this file outgrows ~150 lines, it has stopped being a status doc
 and started being a changelog — cut it back.
 
-**Last updated: 2026-07-07** (**both ROADMAP v2 tracks are complete**:
-Track 1 "Buildcraft" merged to main via PR #62; Track 2 "The Living
-Descent" — account roster & shared stash, biomes, floor mods + the
-descent chart, depth checkpoints, ladder + death recap, hardcore/SSF,
-feats + trophies, chat, shell polish — rebased over it on PR #63)
+**Last updated: 2026-07-07** (session 81: UI shell pass on `ui-polish` —
+the escape menu, panel slots, Tab inventory, the help-line/HUD overlap
+fix. Both ROADMAP v2 tracks are complete and merged: Track 1 via PR #62,
+Track 2 via PR #63.)
 
 ## Where things stand
 
@@ -254,6 +253,21 @@ chat bucket join the list.
 
 ## Session log
 
+- **2026-07-07 (81)** — UI shell pass (`ui-polish`): the escape menu —
+  Esc opens a centered menu of every panel (inventory, character sheet,
+  party, ladder, settings, exit-to-character-select) plus the full
+  controls reference; the Esc cascade closes dialogs first, then any
+  open panels, then toggles the menu. Panel slots (right: inventory /
+  character sheet, center: ladder / settings / menu, left: social):
+  opening a pane evicts its slot-mate, so panels never stack on each
+  other (the sheet used to render inside the inventory frame). Tab
+  joins I as the inventory toggle. The ever-growing bottom help line —
+  by now underlining the entire HUD — shrank to "press Esc for menu &
+  controls". Join screen: the `#join input` width rule was inflating
+  the hardcore/SSF checkboxes into invisible 240px boxes (now inline),
+  backdrop near-opaque so the HUD doesn't bleed through. The 8-orb
+  currency strip wraps instead of clipping at the panel edge. Pure
+  web/ presentation — no wire, no sim, suite untouched.
 - **2026-07-07 (80)** — The content pass, and **Track 1 is complete**.
   Crit joins the support fold (rollCrit composes CritChance/CritMulti
   through GemCtx like the damage queries — one draw always, so streams
@@ -551,58 +565,4 @@ chat bucket join the list.
   Boots icon redrawn as an actual boot. Verified live: dummy farm, tooltips
   checked across normal/rare/unique + a synthetic all-affix rare, zero
   console errors.
-- **2026-07-03 (63)** — Audio juice: the three mechanic events that had
-  visuals but no sound (block, stun, spawn) get SFX in `sfxForEvent`, and
-  getting stunned yourself now rattles the screen at 1.5× the hit-shake —
-  the loss of control should feel like a jolt. Pure client, no wire or sim
-  changes. Verified live in Chrome with an sfx spy: mages stunning the
-  player (sound + shake), a fireball stunning a carrion husk, the husk's
-  death-burst ghouls tripping the spawn sting; zero console errors.
-- **2026-07-03 (62)** — Support-gem pass: three new supports, each opening
-  a build direction, all on the existing GemCtx fold (zero engine risk).
-  Ruthless (40% more melee damage, melee-gated) is the payoff Sweep and the
-  melee attacks wanted; Immolate (adds 8 fire + 25% more fire) is the fire/
-  ignite specialist, type-tagged so it only lifts the fire portion;
-  Cannonade (+1 projectile, 15% MORE damage, steep mana) is the aggressive
-  fan that doesn't pay LMP/GMP's damage penalty. Appended to the support
-  table so draft indices don't shift — goldens untouched. Pinned: the fold
-  math (Immolate exceeds a plain ×1.25 from its flat add, Cannonade is
-  exactly ×1.15 and fires two projectiles) and the melee gate (Ruthless
-  refused on a projectile skill, accepted on a melee one).
-- **2026-07-03 (61)** — Stun: the capstone combat mechanic, and the
-  deliberate action-model interrupt RISKS #1 anticipated. A hit dealing
-  ≥15% of the target's max life clears its current action and locks it out
-  for 0.3s, followed by a 0.5s re-stun immunity tail — both folded into one
-  `Actor.StunTicks` countdown (Stunned = ticks past the immunity window),
-  decremented in Upkeep so the command validator drops a stunned actor's
-  commands the same tick. Deterministic threshold, no RNG. `ActorDef.
-  StunImmune` on all three bosses keeps a lucky crit from cancelling a
-  telegraphed set-piece — their huge life pools would resist most stuns
-  anyway, but the flag makes it certain. Save v14 (StunTicks + last
-  session's Recharge), conditionally hashed; goldens re-recorded (stun
-  now lands on dungeon monsters). Client: circling stun-stars over the
-  reeling target + a log line. Verified in the real sim: fireballs stun
-  zombies, the Grave Tyrant shrugs them off.
-- **2026-07-03 (60)** — Energy shield recharge — the defensive trio (leech,
-  block, recharge) is complete, and ES gear finally does more than sit
-  there. ES refills in combat Upkeep at 20% of max per second, but only
-  after 2 seconds without taking damage: any hit or DoT tick calls MarkHit
-  and resets the delay. New zone-local actor state `RechargeDelay` (saved,
-  conditionally hashed, never transferred — a fresh zone starts clear).
-  No RNG, but the new hashed field shifted the goldens (re-recorded). ES
-  already flows to the client as a pool, so it renders the climb for free.
-  Pinned: the delay holds ES, then it recharges to max, and a hit resets
-  it; verified in the real Step() loop with an ES chest equipped.
-- **2026-07-03 (59)** — Block: the counterplay layer, and the shield's new
-  reason to exist. A `Block` sheet stat — a defender's chance to negate an
-  entire hit — rolled in the pipeline right after evasion, before any
-  damage (`EvBlock`, 75% cap so it's never a certainty). Conditional
-  consumption like the ailments (only defenders with Block > 0 draw),
-  pinned by `TestBlockRNGConsumption` — old replays stay byte-stable.
-  Content: the wooden shield's implicit is now 15–25% block (was flat
-  armour — block IS the shield now), and a new offhand block suffix stacks
-  5–12% more (ILvl 6). Client: a steel-blue parry-arc spark on the blocker
-  and a "blocked" log line. Goldens re-recorded (the shield implicit
-  changed). Verified with a probe: a 25%-block shield turned ~31% of real
-  zombie swings through the full sim.
-- (sessions 38–58 pruned — git history is the archive)
+- (sessions 38–63 pruned — git history is the archive)
