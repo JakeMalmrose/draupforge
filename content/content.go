@@ -123,9 +123,18 @@ func DB() *core.ContentDB {
 	}
 	// The draft pool for uncut skill gems, in skill-table order (replay-
 	// relevant like the affix table). Both pools must cover a full draft.
+	auraSrc := map[uint64]string{}
 	for _, sk := range skillDefs() {
 		if sk.Cuttable {
 			db.Cuttable = append(db.Cuttable, db.Skills[sk.ID])
+		}
+		// Aura mod sources must be unique — an FNV collision would make two
+		// auras share (and strip) each other's sheet mods.
+		if sk.Kind == core.SkillAura {
+			if other, ok := auraSrc[sk.AuraModSource()]; ok {
+				panic("content: aura mod source collision: " + sk.ID + " vs " + other)
+			}
+			auraSrc[sk.AuraModSource()] = sk.ID
 		}
 	}
 	if len(db.Cuttable) < core.GemDraftSize || len(db.Supports) < core.GemDraftSize {
@@ -762,6 +771,42 @@ func skillDefs() []*core.SkillDef {
 	spiritBite.BaseMin[core.Fire] = fm.FromInt(4)
 	spiritBite.BaseMax[core.Fire] = fm.FromInt(7)
 
+	// Auras: toggled reservation gems. No radius — an aura covers the
+	// caster and every minion they own, wherever those stand.
+	anger := &core.SkillDef{
+		ID:       "anger",
+		Name:     "Anger",
+		Cuttable: true,
+		Kind:     core.SkillAura,
+		Tags:     stats.T(stats.TagSpell, stats.TagFire),
+		// The toggle is a short cast; the price is the reservation.
+		WindupTicks:   9,
+		RecoveryTicks: 6,
+		SpeedStat:     stats.CastSpeed,
+		Reserve:       fm.FromMilli(350), // 35% of max mana while it burns
+		AuraMods: []core.BuffMod{
+			// Flat fire on every hit — the classic offense aura, and a
+			// skeleton army's favorite campfire.
+			{Stat: stats.Damage, Layer: stats.LayerFlat, Tags: stats.T(stats.TagFire), Value: fm.FromInt(5)},
+		},
+	}
+
+	determination := &core.SkillDef{
+		ID:            "determination",
+		Name:          "Determination",
+		Cuttable:      true,
+		Kind:          core.SkillAura,
+		Tags:          stats.T(stats.TagSpell),
+		WindupTicks:   9,
+		RecoveryTicks: 6,
+		SpeedStat:     stats.CastSpeed,
+		Reserve:       fm.FromMilli(350),
+		AuraMods: []core.BuffMod{
+			// The defensive counterpart: half again your armour.
+			{Stat: stats.Armour, Layer: stats.LayerIncreased, Value: fm.FromMilli(500)},
+		},
+	}
+
 	// The carrion husk's own slam: zombie_slam's arc with rot on it — the
 	// monster that teaches poison (stacking chaos DoT).
 	putridSlam := &core.SkillDef{
@@ -779,7 +824,7 @@ func skillDefs() []*core.SkillDef {
 	putridSlam.BaseMin[core.Physical] = fm.FromInt(8)
 	putridSlam.BaseMax[core.Physical] = fm.FromInt(12)
 
-	return []*core.SkillDef{fireball, slam, frostNova, spark, boneArrow, adrenaline, claws, arcBolt, arc, colossusSlam, boneVolley, barrowSlam, graveVolley, graveStorm, summonSkeleton, sweep, tyrantQuake, raiseThralls, summonMarksman, summonSpirit, spiritBite, putridSlam}
+	return []*core.SkillDef{fireball, slam, frostNova, spark, boneArrow, adrenaline, claws, arcBolt, arc, colossusSlam, boneVolley, barrowSlam, graveVolley, graveStorm, summonSkeleton, sweep, tyrantQuake, raiseThralls, summonMarksman, summonSpirit, spiritBite, putridSlam, anger, determination}
 }
 
 func baseStats(pairs map[stats.StatID]fm.Fixed) [stats.StatCount]fm.Fixed {

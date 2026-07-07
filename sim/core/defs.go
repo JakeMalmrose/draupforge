@@ -87,6 +87,11 @@ const (
 	// before the countdown ends. Recovery is just a trailing effect-less
 	// stage. The caster is committed for the whole sequence.
 	SkillStaged
+	// SkillAura toggles the gem's aura at the effect point: while on, the
+	// caster reserves part of max mana (Reserve) and the AuraMods package
+	// sits on the caster's sheet and every owned minion's — no radius, no
+	// duration, no RNG. Gem-only: monsters can't run auras.
+	SkillAura
 )
 
 // StageEffect is what fires when a stage's countdown ends.
@@ -200,6 +205,13 @@ type SkillDef struct {
 	// bleed. Poison stacks: every application is its own DoT instance.
 	PoisonChance fm.Fixed
 
+	// Aura fields (SkillAura): Reserve is the fraction of max mana held
+	// while the aura runs (a More(-Reserve) mod on Mana, removed at toggle
+	// off); AuraMods is the package granted to the caster and every owned
+	// minion, values scaled by GemAuraScale of the gem's level.
+	Reserve  fm.Fixed
+	AuraMods []BuffMod
+
 	// SelfBuff names the BuffDef a SkillBuff skill applies to its caster.
 	SelfBuff string
 
@@ -253,6 +265,21 @@ func (b *BuffDef) ModSource() uint64 {
 		h *= fnvPrime
 	}
 	return 3<<62 | h&^(uint64(3)<<62)
+}
+
+// AuraModSource is the sheet source an aura's modifiers (and its caster's
+// reservation) are granted under: bits 63+59 mark aura-space — bit 62 clear
+// keeps it out of buff- and growth-space, bits 61/60 clear out of monster-
+// mod- and passive-space, and the low-bits FNV of the skill ID survives
+// content reordering and save/restore. content.DB() asserts no two auras
+// collide.
+func (sk *SkillDef) AuraModSource() uint64 {
+	h := uint64(fnvOffset)
+	for i := 0; i < len(sk.ID); i++ {
+		h ^= uint64(sk.ID[i])
+		h *= fnvPrime
+	}
+	return 1<<63 | 1<<59 | h&^(uint64(0x1F)<<59)
 }
 
 type ActorDef struct {

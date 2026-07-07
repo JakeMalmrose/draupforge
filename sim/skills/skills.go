@@ -303,6 +303,22 @@ func fire(w *core.World, a *core.Actor) {
 		if def := w.Content.Buffs[sk.SelfBuff]; def != nil {
 			w.QueueBuff(core.PendingBuff{Target: a.ID, Buff: def, Source: a.ID})
 		}
+	case core.SkillAura:
+		// Toggle. Gem-only: the gem carries the durable on/off state, so a
+		// monster (no gems) casting an aura skill is a no-op by design.
+		gem := a.GemForSkill(sk.ID)
+		if gem == nil {
+			return
+		}
+		if gem.AuraOn {
+			gem.AuraOn = false
+			core.DeactivateAura(w, a, sk)
+			w.Emit(core.Event{Kind: core.EvAura, Actor: a.ID, Note: sk.ID})
+		} else {
+			gem.AuraOn = true
+			core.ActivateAura(w, a, sk, gem.Level)
+			w.Emit(core.Event{Kind: core.EvAura, Actor: a.ID, Note: sk.ID, Amount: fm.One})
+		}
 	case core.SkillSummon:
 		def := w.Content.Actors[sk.SummonDef]
 		if def == nil {

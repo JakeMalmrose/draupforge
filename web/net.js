@@ -188,6 +188,7 @@ function decodeViewFrame(buf, baseFor) {
         const g = { skill: r.str(), level: r.uv(), sockets: r.uv(), supports: [] };
         for (let k = r.uv(); k > 0; k--) g.supports.push(r.str());
         g.mana_cost = r.sv();
+        g.on = r.u8() === 1;
         a.gems.push(g);
       }
     }

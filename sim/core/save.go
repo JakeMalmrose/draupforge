@@ -22,7 +22,7 @@ import (
 // SaveVersion gates restores: a format change bumps it, and old files fail
 // loudly instead of misloading. Saves are durable state — unlike replays,
 // they must never depend on re-execution of the code that wrote them.
-const SaveVersion = 16 // v16: anti-shotgun volleys (v15: minion lifespans)
+const SaveVersion = 17 // v17: aura toggle state on gems (v16: anti-shotgun volleys)
 
 type saveFile struct {
 	Version     int              `json:"version"`
@@ -75,6 +75,7 @@ type gemSave struct {
 	Level    int      `json:"level"`
 	Sockets  int      `json:"sockets"`
 	Supports []string `json:"supports"`
+	AuraOn   bool     `json:"aura_on,omitempty"`
 }
 
 type actionSave struct {
@@ -254,7 +255,7 @@ func encodeActor(a *Actor) actorSave {
 	as.Action.GemSupports = supportIDs(a.Action.Gem.Supports)
 	for i := range a.Gems {
 		g := &a.Gems[i]
-		gs := gemSave{Skill: g.Skill.ID, Level: g.Level, Sockets: g.Sockets}
+		gs := gemSave{Skill: g.Skill.ID, Level: g.Level, Sockets: g.Sockets, AuraOn: g.AuraOn}
 		for _, sup := range g.Supports {
 			if sup == nil {
 				gs.Supports = append(gs.Supports, "")
@@ -494,7 +495,9 @@ func decodeActor(db *ContentDB, affixes map[string]*AffixDef, as actorSave) (*Ac
 		if sk == nil {
 			return nil, fmt.Errorf("core: save references unknown skill %q", gs.Skill)
 		}
-		g := Gem{Skill: sk, Level: gs.Level, Sockets: gs.Sockets}
+		// AuraOn restores as pure state: a running aura's sheet mods are
+		// already in the saved modifier list, like passives and buffs.
+		g := Gem{Skill: sk, Level: gs.Level, Sockets: gs.Sockets, AuraOn: gs.AuraOn}
 		for _, id := range gs.Supports {
 			if id == "" {
 				g.Supports = append(g.Supports, nil)

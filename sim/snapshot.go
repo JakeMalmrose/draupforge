@@ -111,7 +111,7 @@ func (s *Sim) BuildSnapshotFor(viewer core.EntityID, radius fm.Fixed, events []p
 			g := &a.Gems[i]
 			gs := protocol.GemSnap{
 				Skill: g.Skill.ID, Level: g.Level, Sockets: g.Sockets,
-				ManaCost: g.ManaCost().Milli(),
+				ManaCost: g.ManaCost().Milli(), On: g.AuraOn,
 			}
 			for _, sup := range g.Supports {
 				if sup == nil {

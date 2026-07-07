@@ -143,6 +143,11 @@ func (w *World) Hash() uint64 {
 				s.str(g.Skill.ID)
 				s.u64(uint64(g.Level))
 				s.u64(uint64(g.Sockets))
+				if g.AuraOn {
+					s.u64(1)
+				} else {
+					s.u64(0)
+				}
 				for _, sup := range g.Supports {
 					if sup == nil {
 						s.u64(0)

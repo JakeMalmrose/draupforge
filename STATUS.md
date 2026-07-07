@@ -11,8 +11,8 @@ tests, and session-log entries older than a few sessions (git history is the
 archive). If this file outgrows ~150 lines, it has stopped being a status doc
 and started being a changelog — cut it back.
 
-**Last updated: 2026-07-06** (session 74: poison — the stacking ailment;
-Track 1 item 1 complete. Track work now accumulates on the
+**Last updated: 2026-07-06** (session 75: auras — toggled reservation gems
+covering self + minions; Track 1 item 2. Track work accumulates on the
 `track1-buildcraft` PR: separate commits, merged when the track is done)
 
 ## Where things stand
@@ -76,6 +76,7 @@ All foundational machinery from DESIGN.md is real, not stubbed:
 | Uniques: fixed-identity chase items (4 in content) with shape stats nothing else rolls (ExtraProjectiles/ExtraChains — the skill system reads them off the sheet); UniquePermille per table, orange styling + authored mod lines on the wire (v20); orbs refuse them; save v11 | `sim/items`, `sim/stats`, `content/`, `web/` | done, tested, verified live |
 | Currency: orb wallet (transmute/alch/chaos/jeweller) banked straight to the killer; `apply_orb` crafts bag items | `sim/items`, `web/` | done, tested |
 | Gems: cast only from cut gems; a fresh character spawns with `StartingUncut` draft-of-3 gems instead of a fixed starter; uncut drops carry a draft of 3 at the dier's level (cap 20); supports fold into the socketed skill's queries only (more/less, added flat, speed, mana, fans, chain, conversion); cast contexts bake at use; save v9 | `sim/core/gems.go`, `sim/items/gems.go`, `content/supports.go`, `web/` | done, tested, verified live |
+| Auras: SkillAura toggle gems — while on, AuraMods sit on the caster's sheet AND every owned minion's (no radius, by design), max mana reserved via More(-Reserve); event-driven application (toggle, DrainSpawns, injection — no per-tick scans); AuraOn is durable gem state (save v17, hashed, transfers; wire v23 carries it for the bar); gem replace/level keep applied mods honest; +5%/gem-level effect | `sim/core/aura.go`, `sim/skills`, `content/`, `web/` | done, tested, verified live |
 | Progression: leveled XP on kill, quadratic curve, cap 50, PerLevel mods, ding heal | `sim/progress` | done, tested |
 | Flasks: charge-gated regen-burst sips (keys 1/2), kills feed charges, durable (save v7) | `sim/`, `content/`, `web/` | done, tested |
 | Passive forks: milestone choices at 5/10, permanent, durable (save v6), client chooser | `sim/core`, `content/`, `web/` | done, tested |
@@ -96,7 +97,7 @@ All foundational machinery from DESIGN.md is real, not stubbed:
 | Minions: `Actor.Owner` (zone-local, saved+hashed), kill attribution up the chain (`World.CreditFor` — XP/flasks/orbs pay the summoner), `minion_melee` heel AI (mobile leash on the owner), `SkillSummon` w/ cap-despawns-oldest; Summon Skeleton cuttable gem (cap 3, minions at gem level); save v12 | `sim/core`, `sim/ai`, `sim/skills`, `content/`, `web/` | done, tested, verified live |
 | Phase order + command validation | `sim/sim.go` | done — this IS the determinism contract |
 | Wire types: versioned welcome (v18), JSON snapshots, binary delta codec | `protocol/` | done, tested |
-| Content tables | `content/` | 19 skills (8 cuttable, 4 staged), 15 supports, 12 actors (3 bosses), 36 affixes (ILvl-tiered), 9 bases, 5 uniques, 8 drop tables, 4 monster mods, 4 buffs |
+| Content tables | `content/` | 21 skills (10 cuttable incl. 2 auras, 4 staged), 15 supports, 12 actors (3 bosses), 36 affixes (ILvl-tiered), 9 bases, 5 uniques, 8 drop tables, 4 monster mods, 4 buffs |
 | Debug client + determinism/golden replay tests | `cmd/headless`, `sim/sim_test.go` | done |
 
 ## Invariants the code currently honors (don't break casually)
@@ -205,7 +206,9 @@ load-bearing (top entry: the action model is one-thing-at-a-time).
   hideout is 16×12; bleed 35% of the phys hit as dps for 6s (ghoul claws
   25% chance, bleed_chance affix 5–10%, Rupture support 35% + 10% more
   phys); poison 30% of phys+chaos as dps for 2s, stacking (putrid slam
-  30%, poison_chance affix 5–10%, Envenom support 40% + 4 flat chaos).
+  30%, poison_chance affix 5–10%, Envenom support 40% + 4 flat chaos);
+  auras reserve 35% each (multiplicative), Anger +5 flat fire / Determination
+  50% inc armour, aura effect +5% per gem level.
 
 ## Feature plan
 
@@ -229,6 +232,23 @@ starting either track. Jake's balance pass over the numbers stays open.
 
 ## Session log
 
+- **2026-07-06 (75)** — Auras: Track 1 item 2. SkillAura gems toggle at the
+  effect point: on grants the def's AuraMods (scaled +5%/gem level) to the
+  caster's sheet and every owned minion's — no radius by Jake's call, so
+  application stays event-driven (toggle, DrainSpawns inheritance for late
+  summons, character injection) with zero per-tick scans — and reserves
+  Reserve of max mana (More(-Reserve) on Mana, mana clamped). AuraOn lives
+  on the Gem: durable, save v17, hashed, transfers (injection re-applies as
+  part of the sheet rebuild, before the pool clamp). Aura mod source space
+  is bits 63+59 | FNV(skill ID), collision-asserted in DB(). Sharp edges
+  closed: cut-replace over a running aura deactivates it first (mods would
+  leak on every sheet), level_gem re-applies at the new scale. Wire v23:
+  GemSnap.On (binary codec + net.js updated in lockstep); the bar glows on
+  a running aura; EvAura narrates. Content: Anger (+5 flat fire — the
+  skeleton army's campfire) and Determination (50% inc armour), both 35%
+  reserve, cuttable (pool 8→10 → goldens re-recorded). Verified live over
+  a FIFO-driven TCP client: use_skill toggled Anger on (max mana 50000 →
+  32500 exactly, on:true, EvAura) and off (restored, regen climbing).
 - **2026-07-06 (74)** — Poison: the stacking half of Track 1 item 1, and a
   new workflow. The mechanic: a chaos DoT off the hit's phys+chaos portion
   (30% as dps, 2s), and THE deliberate design — every application appends

@@ -121,6 +121,9 @@ const (
 	// EvPoison fires when a hit poisons (Actor = attacker,
 	// Other = defender, Amount = the new instance's damage per tick).
 	EvPoison
+	// EvAura fires when an aura toggles (Actor = caster, Note = skill ID,
+	// Amount = One when it turned on, 0 when it turned off).
+	EvAura
 )
 
 func (k EventKind) String() string {
@@ -165,6 +168,8 @@ func (k EventKind) String() string {
 		return "bleed"
 	case EvPoison:
 		return "poison"
+	case EvAura:
+		return "aura"
 	default:
 		return "unequip"
 	}
@@ -376,6 +381,9 @@ func (w *World) DrainSpawns() {
 		a := w.SpawnActor(ps.Def, pos)
 		a.Owner = ps.Owner
 		a.LifespanTicks = ps.Lifespan
+		// Auras before the level-up pool refill, so a life-granting aura
+		// counts toward the newborn's full pools.
+		w.ApplyOwnerAuras(a)
 		if ps.Level > 0 {
 			a.SetLevel(ps.Level)
 			a.Life, a.Mana, a.ES = a.MaxLife(), a.MaxMana(), a.MaxES()

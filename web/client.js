@@ -1884,6 +1884,10 @@ const SKILL_META = {
     desc: "Loose a flaming skull that hunts for eight seconds, then gutters out. Keep up to five." },
   sweep: { color: "#c98a4a", aimed: false, kind: "Attack",
     desc: "Spin your weapon in a full circle — everything in reach takes the hit." },
+  anger: { color: "#e05c3a", aimed: false, kind: "Aura",
+    desc: "While it burns, you and your minions add fire to every hit. Reserves a third of your mana — cast again to snuff it." },
+  determination: { color: "#8ea2b8", aimed: false, kind: "Aura",
+    desc: "While it holds, you and your minions gain half again your armour. Reserves a third of your mana — cast again to drop it." },
 };
 
 // gemIconSVG is the one gem glyph, colored per skill: draft cards, the gem
@@ -1923,14 +1927,14 @@ function supportInfo(id) {
 // (cut, level, socket, support — anything that renames or re-costs a slot).
 function renderSkillBar(self) {
   const gems = (self && self.gems) || [];
-  const key = JSON.stringify(gems.map((g) => [g.skill, g.level, g.mana_cost]));
+  const key = JSON.stringify(gems.map((g) => [g.skill, g.level, g.mana_cost, g.on]));
   if (key === skillBarKey) return;
   skillBarKey = key;
   skillBarEl.replaceChildren();
   gems.slice(0, GEM_KEYS.length).forEach((g, i) => {
     const meta = SKILL_META[g.skill] || { color: "#cfc9bf", aimed: true };
     const btn = document.createElement("button");
-    btn.className = "skill-slot";
+    btn.className = g.on ? "skill-slot aura-on" : "skill-slot";
     btn.id = `slot-${i}`;
     btn.title = `${skillName(g.skill)} — level ${g.level}, ${fmtMana(g.mana_cost)} mana`;
     btn.innerHTML =
@@ -3006,6 +3010,9 @@ function logEvent(ev) {
       break;
     case "poison":
       text = `${nameOf(ev.other)} is poisoned`;
+      break;
+    case "aura":
+      text = `${nameOf(ev.actor)} ${ev.amount > 0 ? "awakens" : "rests"} ${skillName(ev.note)}`;
       break;
     case "chill":
       text = `${nameOf(ev.other)} is chilled (${Math.round(ev.amount / 10)}% slow)`;

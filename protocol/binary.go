@@ -246,6 +246,11 @@ func encodeActors(w *bwriter, base, view []ActorSnap) {
 					w.str(sup)
 				}
 				w.sv(g.ManaCost)
+				if g.On {
+					w.u8(1)
+				} else {
+					w.u8(0)
+				}
 			}
 		}
 		if c.mask&actorTelegraph != 0 {
@@ -412,6 +417,7 @@ func decodeActors(r *breader, base []ActorSnap) []ActorSnap {
 					g.Supports = append(g.Supports, r.str())
 				}
 				g.ManaCost = r.sv()
+				g.On = r.u8() == 1
 				a.Gems = append(a.Gems, g)
 			}
 		}
