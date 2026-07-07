@@ -17,7 +17,7 @@ import (
 // for it, mirroring what HandleWS does.
 func namedClient(t *testing.T, in *Instance, name string) *client {
 	t.Helper()
-	tok, err := in.ids.Claim(name)
+	tok, err := in.ids.Claim(name, false, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -144,14 +144,14 @@ func TestWelcomeCarriesNameAndRoster(t *testing.T) {
 func TestClaimValidation(t *testing.T) {
 	st, _ := NewIdentityStore("")
 	for _, bad := range []string{"", "x", "no  double", "seventeen-chars-x", "läärve", "semi;colon", "-lead"} {
-		if _, err := st.Claim(bad); err == nil {
+		if _, err := st.Claim(bad, false, false); err == nil {
 			t.Errorf("Claim(%q) succeeded, want rejection", bad)
 		}
 	}
-	if _, err := st.Claim("Jake M-2"); err != nil {
+	if _, err := st.Claim("Jake M-2", false, false); err != nil {
 		t.Errorf("Claim(Jake M-2): %v", err)
 	}
-	if _, err := st.Claim("jake m-2"); err != errNameTaken {
+	if _, err := st.Claim("jake m-2", false, false); err != errNameTaken {
 		t.Errorf("case-insensitive dupe: err = %v, want errNameTaken", err)
 	}
 }
@@ -165,7 +165,7 @@ func TestDeleteResistsResurrection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	tok, err := st.Claim("Ghost")
+	tok, err := st.Claim("Ghost", false, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -190,7 +190,7 @@ func TestDeleteResistsResurrection(t *testing.T) {
 		t.Fatal("a late bank resurrected the deleted identity")
 	}
 
-	tok2, err := st.Claim("Ghost")
+	tok2, err := st.Claim("Ghost", false, false)
 	if err != nil {
 		t.Fatalf("re-claim of a deleted name failed: %v", err)
 	}

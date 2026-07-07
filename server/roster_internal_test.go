@@ -20,29 +20,29 @@ func TestRosterAddSelectBank(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	tok, err := st.Claim("First")
+	tok, err := st.Claim("First", false, false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := st.AddChar(tok, "Second"); err != nil {
+	if err := st.AddChar(tok, "Second", false, false); err != nil {
 		t.Fatalf("AddChar: %v", err)
 	}
 
 	// Names are unique across the account and across accounts, any case.
-	if err := st.AddChar(tok, "first"); err != errNameTaken {
+	if err := st.AddChar(tok, "first", false, false); err != errNameTaken {
 		t.Errorf("own-roster dupe: err = %v, want errNameTaken", err)
 	}
-	other, err := st.Claim("Rival")
+	other, err := st.Claim("Rival", false, false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := st.AddChar(other, "SECOND"); err != errNameTaken {
+	if err := st.AddChar(other, "SECOND", false, false); err != errNameTaken {
 		t.Errorf("cross-account dupe: err = %v, want errNameTaken", err)
 	}
-	if _, err := st.Claim("second"); err != errNameTaken {
+	if _, err := st.Claim("second", false, false); err != errNameTaken {
 		t.Errorf("claim of a roster name: err = %v, want errNameTaken", err)
 	}
-	if err := st.AddChar("no-such-token", "Nobody"); err != errNoIdentity {
+	if err := st.AddChar("no-such-token", "Nobody", false, false); err != errNoIdentity {
 		t.Errorf("AddChar on unknown token: err = %v, want errNoIdentity", err)
 	}
 
@@ -90,16 +90,16 @@ func TestRosterAddSelectBank(t *testing.T) {
 
 func TestRosterCap(t *testing.T) {
 	st, _ := NewIdentityStore("")
-	tok, err := st.Claim("Cap 0")
+	tok, err := st.Claim("Cap 0", false, false)
 	if err != nil {
 		t.Fatal(err)
 	}
 	for i := 1; i < RosterCap; i++ {
-		if err := st.AddChar(tok, "Cap "+string(rune('A'+i))); err != nil {
+		if err := st.AddChar(tok, "Cap "+string(rune(0x41+i)), false, false); err != nil {
 			t.Fatalf("AddChar #%d: %v", i, err)
 		}
 	}
-	if err := st.AddChar(tok, "One Too Many"); err != errRosterFull {
+	if err := st.AddChar(tok, "One Too Many", false, false); err != errRosterFull {
 		t.Fatalf("over-cap AddChar: err = %v, want errRosterFull", err)
 	}
 }
@@ -109,11 +109,11 @@ func TestRosterCap(t *testing.T) {
 // the last deletion takes the account (and stash) with it.
 func TestDeleteCharKeepsAccount(t *testing.T) {
 	st, _ := NewIdentityStore("")
-	tok, err := st.Claim("Keeper")
+	tok, err := st.Claim("Keeper", false, false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := st.AddChar(tok, "Doomed"); err != nil {
+	if err := st.AddChar(tok, "Doomed", false, false); err != nil {
 		t.Fatal(err)
 	}
 	if !st.StashAdd(tok, core.CharItem{Base: "short_sword"}) {
@@ -131,7 +131,7 @@ func TestDeleteCharKeepsAccount(t *testing.T) {
 		t.Fatalf("stash after delete = %d items, want 1 — the stash is the account's", len(items))
 	}
 	// The freed name is claimable by anyone.
-	if _, err := st.Claim("Doomed"); err != nil {
+	if _, err := st.Claim("Doomed", false, false); err != nil {
 		t.Fatalf("re-claim of freed name: %v", err)
 	}
 
@@ -150,11 +150,11 @@ func TestDeleteCharKeepsAccount(t *testing.T) {
 // different slot — the session 71 resurrection bug, roster edition.
 func TestDeleteActiveCharBanksNowhere(t *testing.T) {
 	st, _ := NewIdentityStore("")
-	tok, err := st.Claim("Alive")
+	tok, err := st.Claim("Alive", false, false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := st.AddChar(tok, "Victim"); err != nil {
+	if err := st.AddChar(tok, "Victim", false, false); err != nil {
 		t.Fatal(err)
 	}
 	if name, _, ok, _ := st.Connect(tok, "Victim"); !ok || name != "Victim" {

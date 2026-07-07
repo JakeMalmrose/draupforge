@@ -149,6 +149,7 @@ func (in *Instance) HandleWS(w http.ResponseWriter, r *http.Request) {
 			return
 		case ok:
 			c.name, c.token = name, tok
+			c.hardcore, c.ssf = in.ids.ActiveFlags(tok)
 			if char != nil {
 				c.lastChar, c.hasChar = *char, true
 			}

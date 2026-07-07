@@ -120,9 +120,14 @@
     <div id="join-new">
       <input id="join-name" maxlength="16" placeholder="choose a name" autocomplete="off"
              onkeydown="if (event.key === 'Enter') claimName()">
+      <div id="join-modes">
+        <label title="one death ends the character — forever"><input type="checkbox" id="join-hc"> hardcore</label>
+        <label title="no shared stash, no parties"><input type="checkbox" id="join-ssf"> solo self-found</label>
+      </div>
       <div id="join-error"></div>
       <button onclick="claimName()">descend</button>
     </div>
+    <div id="memorial-list" class="hidden"></div>
     <button class="ghost" onclick="playGuest()">play as guest</button>
   </div>
 

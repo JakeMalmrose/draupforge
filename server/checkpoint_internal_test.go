@@ -13,7 +13,7 @@ import (
 
 func TestCheckpointStore(t *testing.T) {
 	st, _ := NewIdentityStore("")
-	tok, err := st.Claim("Delver")
+	tok, err := st.Claim("Delver", false, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -35,7 +35,7 @@ func TestCheckpointStore(t *testing.T) {
 // records the checkpoint for every named client present.
 func TestGuardianDeathMarksCheckpoint(t *testing.T) {
 	in, c, _ := descentInstance(t, 3)
-	tok, err := in.ids.Claim("Slayer")
+	tok, err := in.ids.Claim("Slayer", false, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -64,7 +64,7 @@ func TestGuardianDeathMarksCheckpoint(t *testing.T) {
 // hides checkpoints a fresh alt hasn't grown into.
 func TestDeepStartFlow(t *testing.T) {
 	in, c, tr := descentInstanceAt(t, 3, 0) // hideout start
-	tok, err := in.ids.Claim("Deepstarter")
+	tok, err := in.ids.Claim("Deepstarter", false, false)
 	if err != nil {
 		t.Fatal(err)
 	}

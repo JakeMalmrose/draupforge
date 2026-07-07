@@ -280,6 +280,17 @@ type client struct {
 	// death recap's evidence (ladder.go). Cleared on every world swap.
 	recentHits []protocol.RecapHit
 
+	// hardcore/ssf mirror the in-play character's permanent mode flags,
+	// set once at connect (before the client is shared) and read-only
+	// after: one death ends a hardcore character; SSF sees no stash and
+	// no parties.
+	hardcore bool
+	ssf      bool
+	// doom, when positive, counts ticks until the server closes this
+	// client's socket — the grace that lets a hardcore death's recap and
+	// farewell frames flush before the kick.
+	doom int
+
 	// lastChar is the freshest character extraction for this client's
 	// actor, taken after every step — death compacts the actor away before
 	// the host can see it, so eject/respawn works from this copy (at most
@@ -821,6 +832,17 @@ func (in *Instance) tick() {
 		// re-welcome everyone (descent.go).
 		in.runTick(fresh, descends, portals, plants, routes)
 
+		// Doomed clients (hardcore falls) close once their fuse burns —
+		// the delay lets the recap and farewell frames flush first.
+		for _, c := range in.clients {
+			if c.doom > 0 {
+				c.doom--
+				if c.doom == 0 {
+					c.tr.Close()
+				}
+			}
+		}
+
 		// Character sheets last, off the settled world: read-only, so no
 		// surgery flag — the replay never notices a sheet request.
 		for _, c := range sheets {
@@ -994,8 +1016,11 @@ func (in *Instance) welcomeFrame(c *client) []byte {
 		msg.Run = in.runSnap()
 	}
 	msg.Name = c.name
+	msg.Hardcore, msg.SSF = c.hardcore, c.ssf
 	msg.Roster = in.roster()
-	msg.Stash = in.stashSnap(c) // nil for guests — no identity, no bank
+	if !c.ssf {
+		msg.Stash = in.stashSnap(c) // nil for guests — no identity, no bank
+	}
 	frame, _ := json.Marshal(msg)
 	return frame
 }

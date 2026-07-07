@@ -602,6 +602,22 @@ body {
 }
 .char-delete:hover { color: #a32626 !important; }
 #char-new { width: 274px; }
+#join-modes { display: flex; gap: 18px; font-size: 12px; color: #8d8678; }
+#join-modes label { cursor: pointer; display: flex; align-items: center; gap: 5px; }
+#join-modes input { accent-color: #a32626; }
+.char-badge {
+  font-size: 9px; letter-spacing: 0.1em; padding: 1px 5px;
+  border-radius: 3px; border: 1px solid #a3262699; color: #c96a6a;
+  margin-left: 6px; vertical-align: 2px;
+}
+.char-badge.ssf { border-color: #6a8f6a99; color: #8fbf8f; }
+.char-best { font-size: 11px; color: #c9b76a; margin-left: 8px; }
+#memorial-list { max-height: 20vh; overflow-y: auto; text-align: center; }
+#memorial-list h4 {
+  margin: 6px 0 4px; font-size: 11px; color: #8d8678;
+  letter-spacing: 0.18em; text-transform: uppercase; font-weight: normal;
+}
+.memorial-row { font-size: 12px; color: #6a6455; font-style: italic; padding: 1px 0; }
 
 /* The ladder (L): best floor per character, build attached. */
 #ladder {
@@ -623,6 +639,13 @@ body {
 .ladder-row .lr-build { font-size: 11px; color: #8d8678; margin-top: 2px; line-height: 1.4; }
 .ladder-row .lr-build .lr-unique { color: #d4813b; }
 #ladder .empty { color: #55504a; font-style: italic; font-size: 12px; }
+.ladder-modes { display: flex; gap: 8px; margin-bottom: 8px; }
+.ladder-modes button {
+  font: inherit; font-size: 11px;
+  background: none; border: 1px solid #3a3a45; border-radius: 3px;
+  color: #8d8678; padding: 2px 10px; cursor: pointer;
+}
+.ladder-modes button.active { border-color: #c9b76a88; color: #c9b76a; }
 
 /* The death recap: what killed you, and under what. */
 #recap {

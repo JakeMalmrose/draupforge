@@ -68,12 +68,15 @@ func buildSnapOf(db *core.ContentDB, ch *core.Character) *BuildSnap {
 	return b
 }
 
-// LadderEntry is one row of /api/ladder.
+// LadderEntry is one row of /api/ladder. The mode flags let the client
+// split the board — hardcore and SSF each get their own view.
 type LadderEntry struct {
-	Name  string     `json:"name"`
-	Level int        `json:"level"`
-	Best  int        `json:"best"`
-	Build *BuildSnap `json:"build,omitempty"`
+	Name     string     `json:"name"`
+	Level    int        `json:"level"`
+	Best     int        `json:"best"`
+	Hardcore bool       `json:"hardcore,omitempty"`
+	SSF      bool       `json:"ssf,omitempty"`
+	Build    *BuildSnap `json:"build,omitempty"`
 }
 
 const ladderCap = 100
@@ -118,7 +121,10 @@ func (st *IdentityStore) Ladder() []LadderEntry {
 			if cs.Char != nil {
 				lvl = cs.Char.Level
 			}
-			out = append(out, LadderEntry{Name: cs.Name, Level: lvl, Best: cs.Best, Build: cs.BestBuild})
+			out = append(out, LadderEntry{
+				Name: cs.Name, Level: lvl, Best: cs.Best,
+				Hardcore: cs.Hardcore, SSF: cs.SSF, Build: cs.BestBuild,
+			})
 		}
 	}
 	sort.Slice(out, func(i, j int) bool {

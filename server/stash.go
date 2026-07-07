@@ -41,6 +41,9 @@ func (in *Instance) processStash(wants []stashWant) {
 		if c.token == "" {
 			continue // guests have no identity to bank into
 		}
+		if c.ssf {
+			continue // solo-self-found: the shared stash doesn't exist for you
+		}
 		a := in.sim.W.ActorByID(c.actor)
 		if a == nil || a.Dead {
 			continue

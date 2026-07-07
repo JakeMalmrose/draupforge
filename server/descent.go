@@ -396,6 +396,23 @@ func (in *Instance) handleDeaths(dead []*client) {
 		if !c.send(frame, false) {
 			c.tr.Close()
 		}
+		// A hardcore death is the character's last: memorial row on the
+		// account, slot and name gone (store first, so the dying session's
+		// flushes land nowhere), a farewell frame, and a short doom fuse so
+		// both frames flush before the socket closes. The client lands on
+		// the character select — one row shorter.
+		if c.hardcore && c.token != "" {
+			if fallen, ok := in.ids.FellInBattle(c.token, c.lastChar.Level, in.floor); ok {
+				bye, _ := json.Marshal(protocol.ServerMsg{
+					Type:  "error",
+					Error: fmt.Sprintf("%s has fallen on floor %d. Hardcore is forever.", fallen, in.floor),
+				})
+				c.send(bye, false)
+				c.doom = 10 // ~1/3s: enough for the writer to drain
+				in.syntheticEvent("memorial", int64(in.floor)*1000, fallen)
+			}
+			continue
+		}
 		pen := progress.XPToNext(c.lastChar.Level) / deathXPPenaltyDiv
 		if pen > c.lastChar.XP {
 			pen = c.lastChar.XP

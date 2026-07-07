@@ -17,9 +17,9 @@ func TestRecordBestAndLadder(t *testing.T) {
 	st, _ := NewIdentityStore("")
 	db := content.DB()
 
-	tokA, _ := st.Claim("Deep One")
-	st.AddChar(tokA, "Shallow Alt")
-	tokB, _ := st.Claim("Rival Guy")
+	tokA, _ := st.Claim("Deep One", false, false)
+	st.AddChar(tokA, "Shallow Alt", false, false)
+	tokB, _ := st.Claim("Rival Guy", false, false)
 
 	ch := &core.Character{Def: "player", Level: 12,
 		Gems: []core.CharGem{{Skill: "fireball", Level: 7, Supports: []string{"immolate", ""}}}}

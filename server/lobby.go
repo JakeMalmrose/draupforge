@@ -261,6 +261,7 @@ func (lb *Lobby) HandleWS(w http.ResponseWriter, r *http.Request) {
 			return
 		case ok:
 			c.name, c.token = name, tok
+			c.hardcore, c.ssf = lb.ids.ActiveFlags(tok)
 			if char != nil {
 				c.lastChar, c.hasChar = *char, true
 			}
@@ -346,6 +347,9 @@ func (lb *Lobby) processSocial(in *Instance, wants []socialWant) {
 		if c.token == "" {
 			continue // guests have no social surface; claim a name first
 		}
+		if c.ssf && (w.invite != "" || w.accept) {
+			continue // solo-self-found: no parties, in or out
+		}
 		switch {
 		case w.invite != "":
 			lb.inviteLocked(c, w.invite)
@@ -371,6 +375,9 @@ func (lb *Lobby) inviteLocked(from *client, name string) {
 	if to == nil {
 		lb.pushSocialLocked(from) // they just went offline; refresh the list
 		return
+	}
+	if to.ssf {
+		return // solo-self-found players can't be drawn into parties
 	}
 	if sameInstance(from, to) {
 		return // already partied up

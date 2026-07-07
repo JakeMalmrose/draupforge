@@ -337,8 +337,11 @@ type ServerMsg struct {
 	// Name is the receiving client's own identity name ("" = guest);
 	// welcome only. Roster maps live actor IDs to identity names — on every
 	// welcome, and re-broadcast as "roster" when membership changes.
-	Name   string            `json:"name,omitempty"`
-	Roster map[uint64]string `json:"roster,omitempty"`
+	// Hardcore/SSF are the receiving character's permanent mode flags.
+	Name     string            `json:"name,omitempty"`
+	Hardcore bool              `json:"hardcore,omitempty"`
+	SSF      bool              `json:"ssf,omitempty"`
+	Roster   map[uint64]string `json:"roster,omitempty"`
 	// Error rides a terminal "error" frame: the connection is refused (a
 	// duplicate session, say) and closes after this message.
 	Error string `json:"error,omitempty"`

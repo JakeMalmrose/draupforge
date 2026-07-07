@@ -18,7 +18,7 @@ import (
 func stashFixture(t *testing.T) (*Instance, *client, *fakeTransport, core.EntityID) {
 	t.Helper()
 	in, c, tr := descentInstanceAt(t, 3, 0)
-	tok, err := in.ids.Claim("Banker")
+	tok, err := in.ids.Claim("Banker", false, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -132,7 +132,7 @@ func TestStashSurvivesStoreReload(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	tok, err := st.Claim("Keeper")
+	tok, err := st.Claim("Keeper", false, false)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -66,6 +66,20 @@ type CharSlot struct {
 	// BestBuild the build that reached it — the ladder's row (ladder.go).
 	Best      int        `json:"best,omitempty"`
 	BestBuild *BuildSnap `json:"best_build,omitempty"`
+	// Hardcore and SSF are voluntary, permanent constraints picked at
+	// creation: one death ends a hardcore character (a memorial survives
+	// it); solo-self-found characters see no shared stash and no parties.
+	Hardcore bool `json:"hardcore,omitempty"`
+	SSF      bool `json:"ssf,omitempty"`
+}
+
+// Memorial is a fallen hardcore character's row — the account's history,
+// shown on the character-select screen. Nothing resets; the fallen stay.
+type Memorial struct {
+	Name  string    `json:"name"`
+	Level int       `json:"level"`
+	Floor int       `json:"floor"`
+	When  time.Time `json:"when"`
 }
 
 // Identity is one account: a roster of named characters plus the shared
@@ -81,6 +95,9 @@ type Identity struct {
 	// level at the hideout portal. Strictly additive, like all account
 	// progression (v2's non-seasonal rule).
 	Checkpoints []int `json:"checkpoints,omitempty"`
+	// Memorials are the account's fallen hardcore characters. An account
+	// with memorials survives an empty roster — the history is the point.
+	Memorials []Memorial `json:"memorials,omitempty"`
 
 	online bool
 	// active is the lowercased name of the slot in play while online.
@@ -217,9 +234,9 @@ func validName(name string) bool {
 	return nameRe.MatchString(name) && !strings.Contains(name, "  ")
 }
 
-// Claim mints a fresh account whose first character is name, returning the
-// account's new token.
-func (st *IdentityStore) Claim(name string) (string, error) {
+// Claim mints a fresh account whose first character is name (with its
+// permanent mode flags), returning the account's new token.
+func (st *IdentityStore) Claim(name string, hardcore, ssf bool) (string, error) {
 	name = strings.TrimSpace(name)
 	if !validName(name) {
 		return "", errNameInvalid
@@ -236,7 +253,7 @@ func (st *IdentityStore) Claim(name string) (string, error) {
 	tok := hex.EncodeToString(buf)
 	now := time.Now().UTC()
 	st.byToken[tok] = &Identity{
-		Chars:   []*CharSlot{{Name: name, Created: now}},
+		Chars:   []*CharSlot{{Name: name, Created: now, Hardcore: hardcore, SSF: ssf}},
 		Created: now,
 	}
 	st.byName[strings.ToLower(name)] = tok
@@ -246,8 +263,9 @@ func (st *IdentityStore) Claim(name string) (string, error) {
 }
 
 // AddChar appends a fresh character named name to token's roster — the alt
-// loop's front door. Name uniqueness is global, same as Claim.
-func (st *IdentityStore) AddChar(token, name string) error {
+// loop's front door. Name uniqueness is global, same as Claim; the mode
+// flags are permanent.
+func (st *IdentityStore) AddChar(token, name string, hardcore, ssf bool) error {
 	name = strings.TrimSpace(name)
 	if !validName(name) {
 		return errNameInvalid
@@ -264,17 +282,90 @@ func (st *IdentityStore) AddChar(token, name string) error {
 	if len(id.Chars) >= RosterCap {
 		return errRosterFull
 	}
-	id.Chars = append(id.Chars, &CharSlot{Name: name, Created: time.Now().UTC()})
+	id.Chars = append(id.Chars, &CharSlot{Name: name, Created: time.Now().UTC(), Hardcore: hardcore, SSF: ssf})
 	st.byName[strings.ToLower(name)] = token
 	st.dirty = true
 	st.saveLocked()
 	return nil
 }
 
+// Exists reports whether a token names a live account — even one whose
+// roster is empty (hardcore falls leave the account, stash, checkpoints,
+// and memorials standing).
+func (st *IdentityStore) Exists(token string) bool {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	return st.byToken[token] != nil
+}
+
+// ActiveFlags reports the in-play character's mode flags (false, false
+// when offline or unknown — guests have no modes).
+func (st *IdentityStore) ActiveFlags(token string) (hardcore, ssf bool) {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	id := st.byToken[token]
+	if id == nil || !id.online {
+		return false, false
+	}
+	if cs := id.slot(id.active); cs != nil {
+		return cs.Hardcore, cs.SSF
+	}
+	return false, false
+}
+
+// FellInBattle ends the in-play hardcore character: a memorial row joins
+// the account, the slot and its name reservation go, and — unlike a manual
+// delete — an emptied roster keeps the account alive: the memorials, the
+// stash, and the checkpoints are the history the next character inherits.
+// Persisted immediately; the caller kicks the session, whose late
+// Bank/Disconnect land nowhere.
+func (st *IdentityStore) FellInBattle(token string, level, floor int) (fallen string, ok bool) {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	id := st.byToken[token]
+	if id == nil || !id.online {
+		return "", false
+	}
+	cs := id.slot(id.active)
+	if cs == nil {
+		return "", false
+	}
+	id.Memorials = append(id.Memorials, Memorial{
+		Name: cs.Name, Level: level, Floor: floor, When: time.Now().UTC(),
+	})
+	for i := range id.Chars {
+		if id.Chars[i] == cs {
+			id.Chars = append(id.Chars[:i], id.Chars[i+1:]...)
+			break
+		}
+	}
+	delete(st.byName, strings.ToLower(cs.Name))
+	id.active = ""
+	st.dirty = true
+	st.saveLocked()
+	return cs.Name, true
+}
+
+// Memorials copies a token's fallen-hardcore history.
+func (st *IdentityStore) Memorials(token string) []Memorial {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	id := st.byToken[token]
+	if id == nil || len(id.Memorials) == 0 {
+		return nil
+	}
+	out := make([]Memorial, len(id.Memorials))
+	copy(out, id.Memorials)
+	return out
+}
+
 // CharInfo is one roster entry's join-screen summary.
 type CharInfo struct {
-	Name  string `json:"name"`
-	Level int    `json:"level"`
+	Name     string `json:"name"`
+	Level    int    `json:"level"`
+	Best     int    `json:"best,omitempty"`
+	Hardcore bool   `json:"hardcore,omitempty"`
+	SSF      bool   `json:"ssf,omitempty"`
 }
 
 // Roster summarizes token's characters in roster order, plus the default
@@ -291,7 +382,10 @@ func (st *IdentityStore) Roster(token string) (chars []CharInfo, last string) {
 		if cs.Char != nil {
 			lvl = cs.Char.Level
 		}
-		chars = append(chars, CharInfo{Name: cs.Name, Level: lvl})
+		chars = append(chars, CharInfo{
+			Name: cs.Name, Level: lvl, Best: cs.Best,
+			Hardcore: cs.Hardcore, SSF: cs.SSF,
+		})
 	}
 	if def := id.defaultSlot(); def != nil {
 		last = def.Name
@@ -610,7 +704,9 @@ func (st *IdentityStore) handleClaim(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	var body struct {
-		Name string `json:"name"`
+		Name     string `json:"name"`
+		Hardcore bool   `json:"hardcore"`
+		SSF      bool   `json:"ssf"`
 	}
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1024)).Decode(&body); err != nil {
 		w.WriteHeader(http.StatusBadRequest)
@@ -620,8 +716,10 @@ func (st *IdentityStore) handleClaim(w http.ResponseWriter, r *http.Request) {
 	name := strings.TrimSpace(body.Name)
 	// Re-claiming a character you already own is a no-op login (a reload
 	// mid-claim, say). Throttled after this path — reloads don't burn
-	// budget — but before the store grows a permanent entry.
-	if tok := cookieToken(r); tok != "" && st.Name(tok) != "" {
+	// budget — but before the store grows a permanent entry. The account
+	// gate is existence, not roster size: a memorial-only account still
+	// grows new characters instead of forking.
+	if tok := cookieToken(r); tok != "" && st.Exists(tok) {
 		if st.HasChar(tok, name) {
 			json.NewEncoder(w).Encode(map[string]string{"name": name})
 			return
@@ -631,7 +729,7 @@ func (st *IdentityStore) handleClaim(w http.ResponseWriter, r *http.Request) {
 			json.NewEncoder(w).Encode(map[string]string{"error": "too many name claims; wait a minute"})
 			return
 		}
-		if err := st.AddChar(tok, name); err != nil {
+		if err := st.AddChar(tok, name, body.Hardcore, body.SSF); err != nil {
 			code := http.StatusBadRequest
 			if err == errNameTaken {
 				code = http.StatusConflict
@@ -648,7 +746,7 @@ func (st *IdentityStore) handleClaim(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]string{"error": "too many name claims; wait a minute"})
 		return
 	}
-	tok, err := st.Claim(name)
+	tok, err := st.Claim(name, body.Hardcore, body.SSF)
 	if err != nil {
 		code := http.StatusBadRequest
 		if err == errNameTaken {
@@ -711,17 +809,22 @@ func (st *IdentityStore) handleForget(kick func(token string)) http.HandlerFunc 
 	}
 }
 
-// handleWhoami is GET /api/whoami: the account's roster —
-// {"name":"<default>","chars":[{"name","level"},...]} for a valid token,
+// handleWhoami is GET /api/whoami: the account's roster and its fallen —
+// {"name":"<default>","chars":[...],"memorials":[...]} for a valid token,
 // {} otherwise (including after a server-side wipe — the client then shows
 // the join screen and the stale cookie gets replaced by the next claim).
+// A memorial-only account (every hardcore character fallen) still answers:
+// its history is what the join screen shows over the fresh-name form.
 func (st *IdentityStore) handleWhoami(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	if tok := cookieToken(r); tok != "" {
-		if chars, last := st.Roster(tok); len(chars) > 0 {
-			json.NewEncoder(w).Encode(map[string]any{"name": last, "chars": chars})
-			return
+	if tok := cookieToken(r); tok != "" && st.Exists(tok) {
+		chars, last := st.Roster(tok)
+		out := map[string]any{"name": last, "chars": chars}
+		if mem := st.Memorials(tok); len(mem) > 0 {
+			out["memorials"] = mem
 		}
+		json.NewEncoder(w).Encode(out)
+		return
 	}
 	w.Write([]byte("{}\n"))
 }

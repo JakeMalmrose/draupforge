@@ -20,6 +20,8 @@ let myId = 0;
 let gen = 0;                // welcome generation; acks echo it
 let myName = "";            // our character's name ("" = guest)
 let myChar = "";            // roster pick sent at connect ("" = server default)
+let myHardcore = false;     // permanent mode flags, from the welcome
+let mySSF = false;
 let roster = new Map();     // actor id → identity name, server-maintained
 let guestMode = false;      // the join screen chose "play as guest"
 let fatalError = false;     // server refused us; keep that overlay on close
@@ -157,6 +159,8 @@ function applyRoster(obj) {
 function resetWorld(msg) {
   myId = msg.actor;
   myName = msg.name || "";
+  myHardcore = !!msg.hardcore;
+  mySSF = !!msg.ssf;
   // Remember which character this browser session is playing, so a reload
   // reconnects straight in (and lands the grace-window reconnect) instead
   // of detouring through character select.
@@ -2854,7 +2858,7 @@ const stashEl = document.getElementById("stash");
 const stashCountEl = document.getElementById("stash-count");
 
 function stashAvailable() {
-  return stash && myName && runState && runState.floor === 0;
+  return stash && myName && !mySSF && runState && runState.floor === 0;
 }
 
 function renderStash() {
@@ -3235,6 +3239,9 @@ function logEvent(ev) {
     case "checkpoint":
       text = `CHECKPOINT — floor ${Math.round(ev.amount / 1000)} deep-starts unlocked for your account`;
       break;
+    case "memorial":
+      text = `${ev.note} has fallen on floor ${Math.round(ev.amount / 1000)} — hardcore is forever`;
+      break;
     case "death_eject":
       text = `death! ejected to the portal — ${Math.round(ev.amount / 1000)} portal uses left`;
       break;
@@ -3371,18 +3378,38 @@ function updateRunHUD() {
 
 const ladderEl = document.getElementById("ladder");
 const ladderListEl = document.getElementById("ladder-list");
+let ladderMode = "all"; // "all" | "hc" | "ssf" — each mode gets its board
 
 async function toggleLadder() {
   if (!ladderEl.classList.contains("hidden")) {
     ladderEl.classList.add("hidden");
     return;
   }
-  ladderListEl.replaceChildren();
   ladderEl.classList.remove("hidden");
+  await renderLadder();
+}
+
+async function renderLadder() {
+  ladderListEl.replaceChildren();
   let rows = [];
   try {
     rows = (await (await fetch("/api/ladder")).json()).ladder || [];
   } catch {}
+  if (ladderMode === "hc") rows = rows.filter((r) => r.hardcore);
+  if (ladderMode === "ssf") rows = rows.filter((r) => r.ssf);
+  const modeRow = document.createElement("div");
+  modeRow.className = "ladder-modes";
+  for (const [id, label] of [["all", "all"], ["hc", "hardcore"], ["ssf", "solo self-found"]]) {
+    const b = document.createElement("button");
+    b.textContent = label;
+    b.className = ladderMode === id ? "active" : "";
+    b.onclick = () => {
+      ladderMode = id;
+      renderLadder();
+    };
+    modeRow.appendChild(b);
+  }
+  ladderListEl.appendChild(modeRow);
   if (!rows.length) {
     const e = document.createElement("div");
     e.className = "empty";
@@ -3395,7 +3422,10 @@ async function toggleLadder() {
     row.className = "ladder-row";
     const head = document.createElement("div");
     head.className = "lr-head";
-    head.textContent = `${i + 1}. ${r.name} · Lv ${r.level}`;
+    let tags = "";
+    if (r.hardcore) tags += " [HC]";
+    if (r.ssf) tags += " [SSF]";
+    head.textContent = `${i + 1}. ${r.name}${tags} · Lv ${r.level}`;
     const floor = document.createElement("span");
     floor.className = "lr-floor";
     floor.textContent = `floor ${r.best}`;
@@ -3567,7 +3597,11 @@ function renderSocial() {
   const leaveBtn = document.getElementById("leave-party");
   partyEl.textContent = "";
   onlineEl.textContent = "";
-  if (!social) {
+  if (mySSF) {
+    partyEl.textContent = "solo self-found — you walk alone";
+    onlineEl.textContent = (social && (social.online || []).join(", ")) || "…";
+    leaveBtn.classList.add("hidden");
+  } else if (!social) {
     partyEl.textContent = myName ? "just you" : "guests can't party — claim a name";
     onlineEl.textContent = "…";
     leaveBtn.classList.add("hidden");
@@ -3650,7 +3684,11 @@ async function claimName() {
     const r = await fetch("/api/claim", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name }),
+      body: JSON.stringify({
+        name,
+        hardcore: document.getElementById("join-hc").checked,
+        ssf: document.getElementById("join-ssf").checked,
+      }),
     });
     const body = await r.json();
     if (!r.ok) {
@@ -3686,6 +3724,25 @@ function renderCharSelect(chars) {
     const name = document.createElement("div");
     name.className = "char-name";
     name.textContent = ch.name;
+    if (ch.hardcore) {
+      const b = document.createElement("span");
+      b.className = "char-badge";
+      b.textContent = "HC";
+      name.appendChild(b);
+    }
+    if (ch.ssf) {
+      const b = document.createElement("span");
+      b.className = "char-badge ssf";
+      b.textContent = "SSF";
+      name.appendChild(b);
+    }
+    if (ch.best) {
+      const b = document.createElement("span");
+      b.className = "char-best";
+      b.textContent = `▼${ch.best}`;
+      b.title = `best floor ${ch.best}`;
+      name.appendChild(b);
+    }
     const lvl = document.createElement("div");
     lvl.className = "char-level";
     lvl.textContent = `Lv ${ch.level}`;
@@ -3742,6 +3799,28 @@ async function showJoinScreen() {
     joinNewEl.classList.remove("hidden");
     document.getElementById("join-name").focus();
   }
+  renderMemorials(who.memorials || []);
+}
+
+// renderMemorials lists the account's fallen hardcore characters under the
+// join surfaces — the history nothing resets.
+function renderMemorials(mem) {
+  const el = document.getElementById("memorial-list");
+  el.replaceChildren();
+  if (!mem.length) {
+    el.classList.add("hidden");
+    return;
+  }
+  const h = document.createElement("h4");
+  h.textContent = "the fallen";
+  el.appendChild(h);
+  for (const m of mem.slice().reverse().slice(0, 8)) {
+    const row = document.createElement("div");
+    row.className = "memorial-row";
+    row.textContent = `${m.name} — level ${m.level}, floor ${m.floor}`;
+    el.appendChild(row);
+  }
+  el.classList.remove("hidden");
 }
 
 // boot: the character this browser session was already playing goes
