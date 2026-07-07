@@ -275,6 +275,10 @@ type client struct {
 	// wantSheet buffers a "sheet" verb: the client's C panel wants the
 	// computed character sheet after this tick.
 	wantSheet bool
+	// chatMsgs buffers "chat" verbs (lines and pings) for the tick; the
+	// bucket meters them so a spammer drops instead of flooding the party.
+	chatMsgs   []protocol.ChatSnap
+	chatBucket *tokenBucket
 
 	// recentHits are the last few hits taken, tick-goroutine-only — the
 	// death recap's evidence (ladder.go). Cleared on every world swap.
@@ -655,9 +659,9 @@ func readLoop(ctx context.Context, c *client) {
 			continue
 		case "descend", "route", "plant_portal", "enter_portal",
 			"invite", "accept_invite", "decline_invite", "leave_party",
-			"stash_put", "stash_take", "sheet":
-			// Run, social, stash, and sheet verbs are host-layer, like ack —
-			// the sim never sees them.
+			"stash_put", "stash_take", "sheet", "chat":
+			// Run, social, stash, sheet, and chat verbs are host-layer,
+			// like ack — the sim never sees them.
 			c.mu.Lock()
 			switch wc.Kind {
 			case "descend":
@@ -682,6 +686,17 @@ func readLoop(ctx context.Context, c *client) {
 				c.stashOps = append(c.stashOps, stashOp{take: true, idx: wc.Choice})
 			case "sheet":
 				c.wantSheet = true
+			case "chat":
+				if c.chatBucket == nil {
+					c.chatBucket = newChatBucket()
+				}
+				if c.chatBucket.allow(time.Now()) {
+					m := protocol.ChatSnap{Text: wc.Text}
+					if wc.Text == "" && (wc.X != 0 || wc.Y != 0) {
+						m.Ping = &protocol.Vec{X: wc.X, Y: wc.Y}
+					}
+					c.chatMsgs = append(c.chatMsgs, m)
+				}
 			}
 			c.mu.Unlock()
 			continue
@@ -722,6 +737,7 @@ func (in *Instance) tick() {
 	var social []socialWant
 	var stashes []stashWant
 	var routes []routeWant
+	var chats []chatWant
 	for _, c := range in.clients {
 		c.mu.Lock()
 		if c.wantDescend {
@@ -750,6 +766,10 @@ func (in *Instance) tick() {
 		if len(c.stashOps) > 0 {
 			stashes = append(stashes, stashWant{c: c, ops: c.stashOps})
 			c.stashOps = nil
+		}
+		if len(c.chatMsgs) > 0 {
+			chats = append(chats, chatWant{c: c, msgs: c.chatMsgs})
+			c.chatMsgs = nil
 		}
 		if c.wantSheet {
 			c.wantSheet = false
@@ -822,6 +842,10 @@ func (in *Instance) tick() {
 		if len(in.recentEvents) > adminEventCap {
 			in.recentEvents = in.recentEvents[len(in.recentEvents)-adminEventCap:]
 		}
+
+		// Chat relays before run logic — a floor swap re-welcomes everyone
+		// and a line sent on the death tick should still land.
+		in.processChat(chats)
 
 		// Stash verbs before run logic: runTick refreshes each client's
 		// banked character copy, and a just-stashed item must not linger in

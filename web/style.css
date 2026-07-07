@@ -649,6 +649,24 @@ body {
 .feat-row { font-size: 11px; color: #55504a; padding: 1px 0; }
 .feat-row.earned { color: #c9b76a; }
 
+/* Chat: the party line. Enter opens, Enter sends, Esc closes. */
+#chat-bar {
+  position: fixed;
+  left: 16px; bottom: 14px;
+  width: 340px; z-index: 6;
+}
+#chat-input {
+  width: 100%; box-sizing: border-box;
+  font: inherit; font-size: 13px;
+  background: rgba(16, 16, 22, 0.95); color: #cfc9bf;
+  border: 1px solid #4ad1c855; border-radius: 3px;
+  padding: 6px 10px; outline: none;
+}
+#log .ev-chat { color: #7fd4ff; }
+#log .ev-feat { color: #c9b76a; }
+#log .ev-checkpoint { color: #c9b76a; }
+#log .ev-memorial { color: #a32626; }
+
 /* The death recap: what killed you, and under what. */
 #recap {
   position: fixed;

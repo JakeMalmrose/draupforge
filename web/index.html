@@ -69,6 +69,11 @@
 
   <div id="log"></div>
 
+  <div id="chat-bar" class="hidden">
+    <input id="chat-input" maxlength="200" autocomplete="off"
+           placeholder="say something… (Enter sends, Esc closes)">
+  </div>
+
   <div id="passive-chooser" class="hidden"></div>
 
   <div id="gem-scrim" class="hidden"><div id="gem-dialog"></div></div>
@@ -133,7 +138,7 @@
     <button class="ghost" onclick="playGuest()">play as guest</button>
   </div>
 
-  <div id="help">WASD or click to move &middot; click pickup/stairs/portal &middot; <b>Q</b>/<b>E</b>/<b>R</b>/<b>T</b> skill gems &middot; <b>1</b>/<b>2</b> flasks &middot; <b>P</b> plant portal &middot; <b>F</b> friends &middot; <b>L</b> ladder &middot; <b>I</b> inventory &middot; <b>M</b> mute</div>
+  <div id="help">WASD or click to move &middot; click pickup/stairs/portal &middot; <b>Q</b>/<b>E</b>/<b>R</b>/<b>T</b> skill gems &middot; <b>1</b>/<b>2</b> flasks &middot; <b>P</b> plant portal &middot; <b>F</b> friends &middot; <b>L</b> ladder &middot; <b>Enter</b> chat &middot; <b>G</b> ping &middot; <b>I</b> inventory &middot; <b>M</b> mute</div>
 
   <script src="net.js"></script>
   <script src="client.js"></script>

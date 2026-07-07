@@ -42,6 +42,9 @@ type Command struct {
 	// (the social verbs "accept_invite", "decline_invite" and "leave_party"
 	// carry nothing).
 	Name string `json:"name,omitempty"`
+	// Text is the host-layer "chat" verb's message; a chat with X/Y set
+	// and no text is a map ping.
+	Text string `json:"text,omitempty"`
 	// Gem-verb addressing ("cut_skill", "level_gem", "cut_support",
 	// "add_socket"): Choice indexes the uncut gem's draft, Gem the actor's
 	// cut gems, Socket the gem's sockets; Replace arms cut_skill's
@@ -363,6 +366,16 @@ type ServerMsg struct {
 	// Recap rides "recap" frames: the dying client's death report — what
 	// hit them, for how much, on which floor, under which mods.
 	Recap *RecapSnap `json:"recap,omitempty"`
+	// Chat rides "chat" frames: a party line, or a map ping.
+	Chat *ChatSnap `json:"chat,omitempty"`
+}
+
+// ChatSnap is one relayed chat message: a text line, or — when Ping is
+// set instead — a map spot the sender wants eyes on.
+type ChatSnap struct {
+	Name string `json:"name"`
+	Text string `json:"text,omitempty"`
+	Ping *Vec   `json:"ping,omitempty"`
 }
 
 // RecapSnap is one death's report, sent to the dier just before the eject.

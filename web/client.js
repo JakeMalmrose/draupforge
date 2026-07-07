@@ -105,6 +105,8 @@ function connect() {
         openChart(msg.chart);
       } else if (msg.type === "recap") {
         showRecap(msg.recap);
+      } else if (msg.type === "chat") {
+        onChat(msg.chat);
       } else if (msg.type === "roster") {
         applyRoster(msg.roster);
       } else if (msg.type === "social") {
@@ -463,6 +465,7 @@ function render() {
     drawTrophies();
     drawStairs(now);
     drawPortal(now);
+    drawPings(now);
     drawTelegraphs(s);
     // Fade-out ghosts go under live entities; a ghost whose id reappears
     // (re-entered interest range) yields to the live drawing immediately.
@@ -2122,9 +2125,19 @@ window.addEventListener("blur", () => wasdHeld.clear());
 
 window.addEventListener("keydown", (e) => {
   if (joinOpen()) return; // typing a name is not gameplay input
+  if (chatBarOpen()) return; // typing a message is not gameplay input
   if (e.repeat) return;
   audioUnlock();
   const key = e.key.toLowerCase();
+  if (key === "enter" && myName) {
+    openChatBar();
+    e.preventDefault();
+    return;
+  }
+  if (key === "g") {
+    sendPing();
+    return;
+  }
   if (key === "escape") {
     if (cutState) closeCutDialog();
     if (chartOpen()) closeChart();
@@ -3397,6 +3410,78 @@ function updateRunHUD() {
   }
   el.textContent = line;
   updateAmbient();
+}
+
+// ------------------------------------------------------------------ chat
+
+// The party line. Enter opens the input (game keys pause while it's up),
+// Enter sends, Esc closes. G pings the map at the cursor — the same frame
+// with a coordinate instead of text; everyone sees the pulse.
+
+const chatBarEl = document.getElementById("chat-bar");
+const chatInputEl = document.getElementById("chat-input");
+const pings = []; // { x, y, until, name } — world-milli pulses
+
+function chatBarOpen() {
+  return !chatBarEl.classList.contains("hidden");
+}
+
+function openChatBar() {
+  chatBarEl.classList.remove("hidden");
+  chatInputEl.focus();
+}
+
+function closeChatBar() {
+  chatBarEl.classList.add("hidden");
+  chatInputEl.value = "";
+  chatInputEl.blur();
+}
+
+chatInputEl.addEventListener("keydown", (e) => {
+  e.stopPropagation();
+  if (e.key === "Enter") {
+    const text = chatInputEl.value.trim();
+    if (text) send({ kind: "chat", text });
+    closeChatBar();
+  } else if (e.key === "Escape") {
+    closeChatBar();
+  }
+});
+
+function onChat(chat) {
+  if (!chat) return;
+  if (chat.ping) {
+    pings.push({ x: chat.ping.x, y: chat.ping.y, until: performance.now() + 2400, name: chat.name });
+    logLine(`${chat.name} pinged the map`, "ev-chat");
+    return;
+  }
+  logLine(`${chat.name}: ${chat.text}`, "ev-chat");
+}
+
+function sendPing() {
+  const w = screenToWorldUnits(mouse.x, mouse.y);
+  send({ kind: "chat", x: Math.round(w.x * 1000), y: Math.round(w.y * 1000) });
+}
+
+// drawPings renders active map pings: an expanding double ring.
+function drawPings(now) {
+  for (let i = pings.length - 1; i >= 0; i--) {
+    const pg = pings[i];
+    if (now > pg.until) {
+      pings.splice(i, 1);
+      continue;
+    }
+    const t = 1 - (pg.until - now) / 2400;
+    const p = worldToScreen(pg.x, pg.y);
+    const phase = (t * 3) % 1;
+    ctx.save();
+    ctx.strokeStyle = `rgba(127, 212, 255, ${1 - phase})`;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, SCALE * (0.3 + phase * 1.4), 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+  }
 }
 
 // ------------------------------------------------- feats + hideout trophies
