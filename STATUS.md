@@ -11,8 +11,9 @@ tests, and session-log entries older than a few sessions (git history is the
 archive). If this file outgrows ~150 lines, it has stopped being a status doc
 and started being a changelog — cut it back.
 
-**Last updated: 2026-07-06** (session 73: bleed — the first Track 1
-mechanic; physical-hit DoT with conditional RNG consumption)
+**Last updated: 2026-07-06** (session 74: poison — the stacking ailment;
+Track 1 item 1 complete. Track work now accumulates on the
+`track1-buildcraft` PR: separate commits, merged when the track is done)
 
 ## Where things stand
 
@@ -67,7 +68,7 @@ All foundational machinery from DESIGN.md is real, not stubbed:
 | Stat algebra (flat/inc/more/override + tags) | `sim/stats` | done, tested, memoized |
 | World/Actor/Hit/defs, RNG, state hashing | `sim/core` | done |
 | Damage pipeline: conversion, DoTs, regen; the full mechanics set — leech, block, ES recharge, and stun (a hit ≥15% max life clears the action; `Actor.StunTicks` = 0.3s lock + 0.5s immunity, saved+hashed, gated in the command validator; `ActorDef.StunImmune` on bosses) | `sim/combat`, `sim/sim.go` | done, tested |
-| Statuses: ignite/chill/shock/bleed ailments + content buffs (refresh-not-stack, pending-buff queue); bleed is a physical DoT that rolls only when the attacker has any bleed chance (skill base + sheet + support fold) — old replays stay byte-stable | `sim/combat` | done, tested, verified live |
+| Statuses: ignite/chill/shock/bleed/poison ailments + content buffs (refresh-not-stack, pending-buff queue); bleed (phys DoT, strongest wins) and poison (chaos DoT off the phys+chaos portion, the one ailment that STACKS — every application is its own instance, 2s self-cap) roll only when the attacker has any chance (skill base + sheet + support fold) — old replays stay byte-stable | `sim/combat` | done, tested, verified live |
 | Persistence: `World.Save`/`LoadWorld` (versioned JSON, bit-exact), admin `POST /api/save`, descent run envelope (v2); `-load` under the lobby seeds the first instance (validated at boot) | `sim/core/save.go`, `server/runsave.go`, `server/lobby.go` | done, tested, verified e2e |
 | Actions (windup/recovery) + projectiles; skill feel: splash w/ falloff, wall bounce, heading wiggle, hitscan chains | `sim/skills` | done, tested |
 | Staged skills (DESIGN §15): stage sequences w/ per-stage locked aims, blast/ring effects, telegraphs on the wire (v19); telegraphed blasts skip evasion; the Barrow King (boss_king AI, floors %5, rare, stateless enrage <50%) + boss bar + ground-telegraph rendering | `sim/skills`, `sim/ai`, `content/`, `server/descent.go`, `web/` | done, tested, verified live |
@@ -95,7 +96,7 @@ All foundational machinery from DESIGN.md is real, not stubbed:
 | Minions: `Actor.Owner` (zone-local, saved+hashed), kill attribution up the chain (`World.CreditFor` — XP/flasks/orbs pay the summoner), `minion_melee` heel AI (mobile leash on the owner), `SkillSummon` w/ cap-despawns-oldest; Summon Skeleton cuttable gem (cap 3, minions at gem level); save v12 | `sim/core`, `sim/ai`, `sim/skills`, `content/`, `web/` | done, tested, verified live |
 | Phase order + command validation | `sim/sim.go` | done — this IS the determinism contract |
 | Wire types: versioned welcome (v18), JSON snapshots, binary delta codec | `protocol/` | done, tested |
-| Content tables | `content/` | 18 skills (8 cuttable, 4 staged), 14 supports, 12 actors (3 bosses), 35 affixes (ILvl-tiered), 9 bases, 5 uniques, 8 drop tables, 4 monster mods, 4 buffs |
+| Content tables | `content/` | 19 skills (8 cuttable, 4 staged), 15 supports, 12 actors (3 bosses), 36 affixes (ILvl-tiered), 9 bases, 5 uniques, 8 drop tables, 4 monster mods, 4 buffs |
 | Debug client + determinism/golden replay tests | `cmd/headless`, `sim/sim_test.go` | done |
 
 ## Invariants the code currently honors (don't break casually)
@@ -203,7 +204,8 @@ load-bearing (top entry: the action model is one-thing-at-a-time).
   arrows ~16–17u, spark 1.5s bouncing, splash 2u, arc 12u reach / 2 chains);
   hideout is 16×12; bleed 35% of the phys hit as dps for 6s (ghoul claws
   25% chance, bleed_chance affix 5–10%, Rupture support 35% + 10% more
-  phys).
+  phys); poison 30% of phys+chaos as dps for 2s, stacking (putrid slam
+  30%, poison_chance affix 5–10%, Envenom support 40% + 4 flat chaos).
 
 ## Feature plan
 
@@ -227,6 +229,20 @@ starting either track. Jake's balance pass over the numbers stays open.
 
 ## Session log
 
+- **2026-07-06 (74)** — Poison: the stacking half of Track 1 item 1, and a
+  new workflow. The mechanic: a chaos DoT off the hit's phys+chaos portion
+  (30% as dps, 2s), and THE deliberate design — every application appends
+  its own DoT instance instead of competing (attack speed is now a DoT
+  multiplier; the short duration is the stack cap; chaos res mitigates the
+  ticks via dot.go's existing tail). Same conditional-RNG rule as bleed,
+  rolled after it (append-last keeps older draws in place); goldens again
+  byte-stable, pinned by TestPoisonRNGConsumption. Content: the carrion
+  husk trades zombie_slam for its own putrid_slam (30% poison — the rot
+  monster teaches the rot mechanic), poison_chance suffix appended last,
+  Envenom support (ungated, 40% + 4 flat chaos that feeds the basis).
+  Wire: EvPoison + AilPoisoned (32). Workflow (Jake): Track 1 features now
+  land as separate commits on ONE long-running PR (`track1-buildcraft`),
+  merged when the track is done; no play server during track work.
 - **2026-07-06 (73)** — Bleed: Track 1's first mechanic. A physical DoT on
   the ignite model (strongest wins, no stacking — stacking is poison's
   deliberate design, next), 35% of the phys hit as dps for 6s, riding the

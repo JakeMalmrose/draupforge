@@ -611,12 +611,13 @@ type Hit struct {
 	Volley uint64
 
 	// Outcomes, populated by the pipeline.
-	Damage  [DamageTypeCount]fm.Fixed
-	Crit    bool
-	Evaded  bool
-	Blocked bool
-	Ignited bool
-	Chilled bool
-	Shocked bool
-	Bled    bool
+	Damage   [DamageTypeCount]fm.Fixed
+	Crit     bool
+	Evaded   bool
+	Blocked  bool
+	Ignited  bool
+	Chilled  bool
+	Shocked  bool
+	Bled     bool
+	Poisoned bool
 }

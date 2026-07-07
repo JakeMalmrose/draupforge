@@ -118,6 +118,9 @@ const (
 	// EvBleed fires when a hit tears a bleed (Actor = attacker,
 	// Other = defender, Amount = damage per tick).
 	EvBleed
+	// EvPoison fires when a hit poisons (Actor = attacker,
+	// Other = defender, Amount = the new instance's damage per tick).
+	EvPoison
 )
 
 func (k EventKind) String() string {
@@ -160,6 +163,8 @@ func (k EventKind) String() string {
 		return "stun"
 	case EvBleed:
 		return "bleed"
+	case EvPoison:
+		return "poison"
 	default:
 		return "unequip"
 	}

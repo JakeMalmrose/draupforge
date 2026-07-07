@@ -1184,6 +1184,7 @@ const AILMENT_RINGS = [
   [4, "#f5e25fcc"], // shocked
   [8, "#9fff9fcc"], // buffed
   [16, "#c23b3bcc"], // bleeding
+  [32, "#7aa32acc"], // poisoned
 ];
 
 const PROJ_COLORS = {
@@ -2303,6 +2304,7 @@ const MOD_FMT = (() => {
     ignite_chance: (v) => `+${pc(v)} chance to ignite`,
     shock_chance: (v) => `+${pc(v)} chance to shock`,
     bleed_chance: (v) => `+${pc(v)} chance to bleed`,
+    poison_chance: (v) => `+${pc(v)} chance to poison`,
     life_leech: (v) => `${pc(v)} of damage leeched as life`,
     increased_block: (v) => `+${pc(v)} chance to block`,
     light_radius: (v) => `+${dec(v)} to light radius`,
@@ -3001,6 +3003,9 @@ function logEvent(ev) {
       break;
     case "bleed":
       text = `${nameOf(ev.other)} is bleeding`;
+      break;
+    case "poison":
+      text = `${nameOf(ev.other)} is poisoned`;
       break;
     case "chill":
       text = `${nameOf(ev.other)} is chilled (${Math.round(ev.amount / 10)}% slow)`;

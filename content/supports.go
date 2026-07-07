@@ -149,5 +149,17 @@ func supportDefs() []*core.SupportDef {
 				{Stat: stats.Damage, Layer: stats.LayerMore, Tags: stats.T(stats.TagPhysical), Value: fm.FromMilli(100)},
 			},
 		},
+		{
+			// The poison enabler: a real chance to stack chaos DoTs, plus
+			// flat chaos that both hits AND feeds the poison's basis.
+			// Ungated — poisoned spells are a build, not a bug.
+			ID: "envenom", Name: "Envenom",
+			Desc:     "40% chance to poison, adds 4 chaos damage",
+			ManaMult: fm.FromMilli(1300),
+			Mods: []core.BuffMod{
+				{Stat: stats.PoisonChance, Layer: stats.LayerFlat, Value: fm.FromMilli(400)},
+				{Stat: stats.Damage, Layer: stats.LayerFlat, Tags: stats.T(stats.TagChaos), Value: fm.FromInt(4)},
+			},
+		},
 	}
 }

@@ -195,6 +195,10 @@ type SkillDef struct {
 	// phys hit would shift every replay (block's conditional-consumption
 	// discipline).
 	BleedChance fm.Fixed
+	// Base chance for hits carrying physical or chaos damage to poison,
+	// before PoisonChance stats. Same conditional-consumption rule as
+	// bleed. Poison stacks: every application is its own DoT instance.
+	PoisonChance fm.Fixed
 
 	// SelfBuff names the BuffDef a SkillBuff skill applies to its caster.
 	SelfBuff string

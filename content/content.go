@@ -762,7 +762,24 @@ func skillDefs() []*core.SkillDef {
 	spiritBite.BaseMin[core.Fire] = fm.FromInt(4)
 	spiritBite.BaseMax[core.Fire] = fm.FromInt(7)
 
-	return []*core.SkillDef{fireball, slam, frostNova, spark, boneArrow, adrenaline, claws, arcBolt, arc, colossusSlam, boneVolley, barrowSlam, graveVolley, graveStorm, summonSkeleton, sweep, tyrantQuake, raiseThralls, summonMarksman, summonSpirit, spiritBite}
+	// The carrion husk's own slam: zombie_slam's arc with rot on it — the
+	// monster that teaches poison (stacking chaos DoT).
+	putridSlam := &core.SkillDef{
+		ID:            "putrid_slam",
+		Name:          "Putrid Slam",
+		Kind:          core.SkillMelee,
+		Tags:          stats.T(stats.TagAttack, stats.TagMelee, stats.TagPhysical),
+		Effectiveness: fm.One,
+		WindupTicks:   18, // 0.6s telegraph, like the zombie's
+		RecoveryTicks: 12,
+		SpeedStat:     stats.AttackSpeed,
+		Range:         fm.FromMilli(1800),
+		PoisonChance:  fm.FromMilli(300),
+	}
+	putridSlam.BaseMin[core.Physical] = fm.FromInt(8)
+	putridSlam.BaseMax[core.Physical] = fm.FromInt(12)
+
+	return []*core.SkillDef{fireball, slam, frostNova, spark, boneArrow, adrenaline, claws, arcBolt, arc, colossusSlam, boneVolley, barrowSlam, graveVolley, graveStorm, summonSkeleton, sweep, tyrantQuake, raiseThralls, summonMarksman, summonSpirit, spiritBite, putridSlam}
 }
 
 func baseStats(pairs map[stats.StatID]fm.Fixed) [stats.StatCount]fm.Fixed {
@@ -1002,7 +1019,7 @@ func actorDefs() []*core.ActorDef {
 			stats.Accuracy:   fm.FromInt(80),
 			stats.CritChance: fm.FromMilli(50),
 		}),
-		Skills:          []string{"zombie_slam"},
+		Skills:          []string{"putrid_slam"},
 		AI:              "melee_chaser",
 		AggroRadius:     fm.FromInt(14),
 		LeashRadius:     fm.FromInt(18),
@@ -1415,6 +1432,14 @@ func affixDefs() []*core.AffixDef {
 			// alongside ignite/shock chance. Appended last (ordered table).
 			ID: "bleed_chance", Group: "bleed_chance", Kind: core.Suffix,
 			Stat: stats.BleedChance, Layer: stats.LayerFlat,
+			Min: fm.FromMilli(50), Max: fm.FromMilli(100), Step: fm.FromMilli(10), Weight: 40, // 5–10%
+			Families: procs,
+		},
+		{
+			// Chance to poison: phys/chaos hits stack a chaos DoT — attack
+			// speed becomes a DoT multiplier. Appended last (ordered table).
+			ID: "poison_chance", Group: "poison_chance", Kind: core.Suffix,
+			Stat: stats.PoisonChance, Layer: stats.LayerFlat,
 			Min: fm.FromMilli(50), Max: fm.FromMilli(100), Step: fm.FromMilli(10), Weight: 40, // 5–10%
 			Families: procs,
 		},

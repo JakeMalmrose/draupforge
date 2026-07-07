@@ -204,6 +204,8 @@ func ailmentBits(a *core.Actor) uint8 {
 			b |= protocol.AilIgnited
 		case core.Physical:
 			b |= protocol.AilBleeding
+		case core.Chaos:
+			b |= protocol.AilPoisoned
 		}
 	}
 	for _, st := range a.Statuses {

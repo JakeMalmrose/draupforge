@@ -155,6 +155,8 @@ func printEvent(ev core.Event) {
 		fmt.Printf("[tick %4d] %d shocked %d (+%s taken)\n", ev.Tick, ev.Actor, ev.Other, fixedStr(ev.Amount))
 	case core.EvBleed:
 		fmt.Printf("[tick %4d] %d tore a bleed on %d (%s/tick)\n", ev.Tick, ev.Actor, ev.Other, fixedStr(ev.Amount))
+	case core.EvPoison:
+		fmt.Printf("[tick %4d] %d poisoned %d (%s/tick, stacking)\n", ev.Tick, ev.Actor, ev.Other, fixedStr(ev.Amount))
 	}
 }
 
