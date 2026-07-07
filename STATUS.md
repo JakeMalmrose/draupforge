@@ -11,8 +11,8 @@ tests, and session-log entries older than a few sessions (git history is the
 archive). If this file outgrows ~150 lines, it has stopped being a status doc
 and started being a changelog — cut it back.
 
-**Last updated: 2026-07-06** (session 71: character deletion — a hideout
-reset button + POST /api/forget frees the name for a fresh claim)
+**Last updated: 2026-07-06** (session 72: ROADMAP v2 — two concurrent
+tracks, Buildcraft and The Living Descent, with a seam contract)
 
 ## Where things stand
 
@@ -209,14 +209,38 @@ The descent shipped (session 15); the character store + sessions shipped
 (37–38 — DESIGN §14 is fully real); the telegraphed multi-stage boss shipped
 (45 — staged skills, DESIGN §15); `-load` works under the lobby again (46);
 per-client send queues shipped (47); the stash shipped (48); origin checks
-and rate limiting shipped (49); uniques shipped (50) — ROADMAP's phases
+and rate limiting shipped (49); uniques shipped (50) — roadmap one's phases
 are all ✅ now; the spawn queue paid down RISKS #2 (51), minions landed on
-it (52), and the replay log closed the hardening list (54). The queue is
-pure content and tuning now: more skills/uniques/bosses/floors as appetite
-dictates, and Jake's balance pass over the numbers.
+it (52), and the replay log closed the hardening list (54). The next
+chapter is **ROADMAP.md v2** (rewritten session 72): two concurrently
+developable tracks — Track 1 "Buildcraft" (sim/content build depth:
+bleed/poison, auras, curses, channelling + movement, crafting + the Forge,
+passive growth) and Track 2 "The Living Descent" (server/web world +
+account meta: character roster + shared stash, biomes, depth-scaled floor
+mods with delve-chart route choice, account-wide checkpoints,
+build-visible ladders + death recap, hardcore/SSF modes, feats + hideout
+trophies, chat, shell polish) — sliced along the sim-behavior vs.
+wire/shell seam. Its seam contract governs parallel work; read it before
+starting either track. Jake's balance pass over the numbers stays open.
 
 ## Session log
 
+- **2026-07-06 (72)** — ROADMAP v2, docs only. The shipped roadmap (every
+  phase ✅) is rewritten as two concurrently-developable tracks sliced
+  along the codebase's natural seam: Track 1 "Buildcraft" owns sim
+  behavior, content, goldens, and SaveVersion (bleed/poison → auras →
+  curses → channelling + dash → crafting orbs + the Forge vendor →
+  passive milestones past 10 → content riding each mechanic); Track 2
+  "The Living Descent" owns server/, web/, and protocol.Version (account
+  roster + shared stash → biomes → depth-scaled floor mods w/ delve-chart
+  route choice incl. same-depth side chambers → account-wide level-gated
+  checkpoints → build-visible ladders + death recap → hardcore/SSF modes
+  w/ per-mode boards → feats + hideout trophies → chat → shell polish),
+  deliberately non-seasonal (permanent characters, additive account
+  progression, no resets), with an additive-only sim rule so
+  existing goldens stay byte-stable on its branches. Version numbers are
+  taken at merge time, never reserved; golden conflicts re-record, never
+  hand-merge. No code changed.
 - **2026-07-06 (71)** — Character deletion: the reset lever a bricked
   character needed (its name was squatted forever). `IdentityStore.Delete`
   removes the identity outright — character, stash, name reservation —
