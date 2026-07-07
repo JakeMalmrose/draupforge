@@ -98,6 +98,9 @@ type Identity struct {
 	// Memorials are the account's fallen hardcore characters. An account
 	// with memorials survives an empty roster — the history is the point.
 	Memorials []Memorial `json:"memorials,omitempty"`
+	// Feats are earned achievements, sorted unique — hideout trophies and
+	// panel rows (feats.go).
+	Feats []string `json:"feats,omitempty"`
 
 	online bool
 	// active is the lowercased name of the slot in play while online.

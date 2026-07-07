@@ -22,6 +22,7 @@ let myName = "";            // our character's name ("" = guest)
 let myChar = "";            // roster pick sent at connect ("" = server default)
 let myHardcore = false;     // permanent mode flags, from the welcome
 let mySSF = false;
+let myFeats = [];           // account achievement ids, from the welcome
 let roster = new Map();     // actor id → identity name, server-maintained
 let guestMode = false;      // the join screen chose "play as guest"
 let fatalError = false;     // server refused us; keep that overlay on close
@@ -161,6 +162,8 @@ function resetWorld(msg) {
   myName = msg.name || "";
   myHardcore = !!msg.hardcore;
   mySSF = !!msg.ssf;
+  myFeats = msg.feats || [];
+  trophySpots = null; // recomputed per world (hideout dressing)
   // Remember which character this browser session is playing, so a reload
   // reconnects straight in (and lands the grace-window reconnect) instead
   // of detouring through character select.
@@ -457,6 +460,7 @@ function render() {
       cam.y += (Math.random() * 2 - 1) * k;
     }
     drawTerrain();
+    drawTrophies();
     drawStairs(now);
     drawPortal(now);
     drawTelegraphs(s);
@@ -2800,7 +2804,28 @@ const charSectionEl = document.getElementById("character-section");
 const confirmEl = document.getElementById("confirm");
 
 function renderCharacterSection() {
-  charSectionEl.classList.toggle("hidden", !(myName && runState && runState.floor === 0));
+  const show = myName && runState && runState.floor === 0;
+  charSectionEl.classList.toggle("hidden", !show);
+  if (!show) return;
+  const list = document.getElementById("feat-list");
+  list.replaceChildren();
+  for (const [id, meta] of Object.entries(FEAT_META)) {
+    const row = document.createElement("div");
+    const earned = myFeats.includes(id);
+    row.className = "feat-row" + (earned ? " earned" : "");
+    row.textContent = earned ? `◆ ${meta.name}` : `◇ ???`;
+    row.title = earned ? meta.desc : "undiscovered";
+    list.appendChild(row);
+  }
+  // Server feats newer than this client still show.
+  for (const id of myFeats) {
+    if (!FEAT_META[id]) {
+      const row = document.createElement("div");
+      row.className = "feat-row earned";
+      row.textContent = `◆ ${id}`;
+      list.appendChild(row);
+    }
+  }
 }
 
 // askConfirm arms the shared confirmation overlay: one question, one
@@ -3242,6 +3267,11 @@ function logEvent(ev) {
     case "memorial":
       text = `${ev.note} has fallen on floor ${Math.round(ev.amount / 1000)} — hardcore is forever`;
       break;
+    case "feat": {
+      const meta = FEAT_META[ev.note];
+      text = `FEAT EARNED — ${meta ? meta.name : ev.note}`;
+      break;
+    }
     case "death_eject":
       text = `death! ejected to the portal — ${Math.round(ev.amount / 1000)} portal uses left`;
       break;
@@ -3367,6 +3397,68 @@ function updateRunHUD() {
   }
   el.textContent = line;
   updateAmbient();
+}
+
+// ------------------------------------------------- feats + hideout trophies
+
+// FEAT_META mirrors the server's feat table for display; unknown ids show
+// their raw id, so new server feats degrade gracefully.
+const FEAT_META = {
+  depth_10: { name: "Ten Floors Under", desc: "reach floor 10" },
+  depth_20: { name: "The Cold Below", desc: "reach floor 20" },
+  depth_30: { name: "Where Light Forgets", desc: "reach floor 30" },
+  hc_10: { name: "No Second Chances", desc: "reach floor 10 on a hardcore character" },
+  guardian: { name: "Wallbreaker", desc: "fell a stairs guardian" },
+  king: { name: "Kingslayer", desc: "fell the Barrow King" },
+  king_untouched: { name: "Untouchable", desc: "fell the Barrow King without taking a hit on his floor" },
+  apex: { name: "Tyrant's End", desc: "fell the Grave Tyrant" },
+};
+
+// Trophy dressing: earned feats stand as little pedestals along the
+// hideout's north wall — the account's history made visible. Spots are
+// scanned from the terrain once per world.
+let trophySpots = null;
+
+function computeTrophySpots() {
+  if (!worldMap) return [];
+  let minY = -1;
+  for (let y = 0; y < worldMap.h && minY < 0; y++) {
+    if (worldMap.rows[y].includes(".")) minY = y;
+  }
+  if (minY < 0) return [];
+  const row = worldMap.rows[minY];
+  const spots = [];
+  const t = worldMap.tile / 1000;
+  for (let x = 0; x < worldMap.w && spots.length < 8; x++) {
+    if (row[x] === ".") spots.push({ x: (x + 0.5) * t, y: (minY + 0.45) * t });
+  }
+  return spots;
+}
+
+function drawTrophies() {
+  if (!runState || runState.floor !== 0 || !myFeats.length) return;
+  if (!trophySpots) trophySpots = computeTrophySpots();
+  const n = Math.min(myFeats.length, trophySpots.length);
+  for (let i = 0; i < n; i++) {
+    const s = trophySpots[i];
+    const p = worldToScreen(s.x * 1000, s.y * 1000);
+    const r = SCALE * 0.16;
+    ctx.save();
+    ctx.translate(p.x, p.y);
+    // pedestal
+    ctx.fillStyle = "#2b2b3a";
+    ctx.fillRect(-r, 0, 2 * r, r * 1.2);
+    // the trophy gem
+    ctx.fillStyle = "#c9b76a";
+    ctx.beginPath();
+    ctx.moveTo(0, -r * 1.6);
+    ctx.lineTo(r * 0.8, -r * 0.4);
+    ctx.lineTo(0, r * 0.4);
+    ctx.lineTo(-r * 0.8, -r * 0.4);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+  }
 }
 
 // --------------------------------------------------- ladder + death recap

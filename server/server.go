@@ -1017,6 +1017,9 @@ func (in *Instance) welcomeFrame(c *client) []byte {
 	}
 	msg.Name = c.name
 	msg.Hardcore, msg.SSF = c.hardcore, c.ssf
+	if c.token != "" {
+		msg.Feats = in.ids.Feats(c.token)
+	}
 	msg.Roster = in.roster()
 	if !c.ssf {
 		msg.Stash = in.stashSnap(c) // nil for guests — no identity, no bank

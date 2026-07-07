@@ -286,14 +286,18 @@ func (in *Instance) runTick(fresh []protocol.EventSnap, descends, portals, plant
 			}
 		}
 		// A fallen set-piece marks the floor as an account checkpoint for
-		// every named player present — deep starts for the whole roster.
-		if in.floor > 1 && (ev.Note == guardianDef || ev.Note == bossDef || ev.Note == apexDef) {
-			for _, c := range in.clients {
-				if c.token != "" {
-					in.ids.AddCheckpoint(c.token, in.floor)
+		// every named player present — deep starts for the whole roster —
+		// and proves whatever feats the kill implies.
+		if ev.Note == guardianDef || ev.Note == bossDef || ev.Note == apexDef {
+			if in.floor > 1 {
+				for _, c := range in.clients {
+					if c.token != "" {
+						in.ids.AddCheckpoint(c.token, in.floor)
+					}
 				}
+				in.syntheticEvent("checkpoint", int64(in.floor)*1000, "")
 			}
-			in.syntheticEvent("checkpoint", int64(in.floor)*1000, "")
+			in.killFeats(ev.Note)
 		}
 	}
 	swapped := false
@@ -602,6 +606,7 @@ func (in *Instance) swapWorld(s *sim.Sim, floor int, at space.Vec2) {
 				in.ids.RecordBest(c.token, floor, buildSnapOf(in.db, &c.lastChar))
 			}
 		}
+		in.depthFeats(floor)
 	}
 	for _, c := range in.clients {
 		c.recentHits = nil // a new world's dangers start their own story
