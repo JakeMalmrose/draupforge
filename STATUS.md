@@ -11,9 +11,9 @@ tests, and session-log entries older than a few sessions (git history is the
 archive). If this file outgrows ~150 lines, it has stopped being a status doc
 and started being a changelog — cut it back.
 
-**Last updated: 2026-07-06** (session 78: the crafting ladder's missing
-half + the Forge — melt items to shards, buy orbs; Track 1 item 5. Track
-work accumulates on the `track1-buildcraft` PR, merged when the track ends)
+**Last updated: 2026-07-06** (session 79: the passive ladder reaches the
+cap — a fork every 5 levels to 50; Track 1 item 6. Track work accumulates
+on the `track1-buildcraft` PR, merged when the track ends)
 
 ## Where things stand
 
@@ -81,7 +81,7 @@ All foundational machinery from DESIGN.md is real, not stubbed:
 | Auras: SkillAura toggle gems — while on, AuraMods sit on the caster's sheet AND every owned minion's (no radius, by design), max mana reserved via More(-Reserve); event-driven application (toggle, DrainSpawns, injection — no per-tick scans); AuraOn is durable gem state (save v17, hashed, transfers; wire v23 carries it for the bar); gem replace/level keep applied mods honest; +5%/gem-level effect | `sim/core/aura.go`, `sim/skills`, `content/`, `web/` | done, tested, verified live |
 | Progression: leveled XP on kill, quadratic curve, cap 50, PerLevel mods, ding heal | `sim/progress` | done, tested |
 | Flasks: charge-gated regen-burst sips (keys 1/2), kills feed charges, durable (save v7) | `sim/`, `content/`, `web/` | done, tested |
-| Passive forks: milestone choices at 5/10, permanent, durable (save v6), client chooser | `sim/core`, `content/`, `web/` | done, tested |
+| Passive forks: a pick-3 milestone every 5 levels to the cap (5–50, 30 passives in themed tiers: procs, defense, tempo, shape (+1 minion/projectile/chain at 30), sustain, elements, gambles, More-capstones at 50), permanent, durable, client chooser; DB() asserts the ladder has no missing rung | `sim/core`, `content/`, `web/` | done, tested |
 | Character extract/inject: durables only, item IDs re-minted, sheet rebuilt | `sim/core/character.go` | done, tested |
 | The descent: hideout start (`Config.StartFloor`, 0 = home; hideout world derived from the instance seed), floor swaps, portal economy, XP death penalty, run-over → new run at home, leveled+thickened packs, stairs guardian every 3rd floor | `server/descent.go` | done, unit + e2e tested, verified live |
 | Monster rarity: magic/rare rolls with mod packages, XP ×3/×6, extra drops, floor-scaled chances, rings + nameplates | `sim/sim.go`, `content/`, `web/` | done, tested |
@@ -241,6 +241,18 @@ starting either track. Jake's balance pass over the numbers stays open.
 
 ## Session log
 
+- **2026-07-06 (79)** — The passive ladder reaches the cap: Track 1 item
+  6, pure content on the existing milestone machinery. Eight new rungs
+  (15–50) × 3 forks = 24 passives in themed tiers: procs at 15 (bleed/
+  poison/shock chance), walls at 20, tempo at 25, the SHAPE tier at 30
+  (+1 minion cap / +1 projectile / +1 chain — the stats uniques used to
+  own, now a build-defining level choice), sustain at 35, elements at 40,
+  gambles at 45 (glass cannon takes +10% damage taken; iron will gives
+  -8%), and More-multiplier capstones at 50 (attack/spell/life). DB()
+  now asserts every fifth level to 50 has a fork. The chooser needed
+  nothing — the passive table rides the welcome. Goldens untouched (no
+  RNG shape changed). Pinned by a ladder-walk test: a level-50 character
+  takes all 10 milestones, spent milestones refuse seconds.
 - **2026-07-06 (78)** — The Forge + the crafting ladder's missing half:
   Track 1 item 5. Four orbs join the wallet (OrbKind 4→8; the wallet
   array widens, old saves shorter-copy fine): regal (magic→rare KEEPING

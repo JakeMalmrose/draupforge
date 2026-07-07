@@ -88,3 +88,38 @@ func TestPassivesSurviveTransferAndSave(t *testing.T) {
 		t.Fatalf("loaded passives = %v, want clear_mind", got)
 	}
 }
+
+// TestMilestoneLadderReachesCap walks a max-level character up the whole
+// ladder: one fork per fifth level, 5 through 50, each choice landing its
+// mods on the sheet.
+func TestMilestoneLadderReachesCap(t *testing.T) {
+	s := sim.New(content.DB(), 81)
+	player := mustSpawn(t, s, "player", 0, 0)
+	a := s.W.ActorByID(player)
+	a.SetLevel(50)
+
+	for m := 5; m <= 50; m += 5 {
+		var pick *core.PassiveDef
+		for _, p := range s.W.Content.Passives {
+			if p.Milestone == m {
+				pick = p
+				break
+			}
+		}
+		if pick == nil {
+			t.Fatalf("no passive at milestone %d", m)
+		}
+		s.Step([]core.Command{{Actor: player, Kind: core.CmdChoosePassive, Passive: pick.ID}})
+		if !a.HasMilestone(m) {
+			t.Fatalf("milestone %d pick %s was refused", m, pick.ID)
+		}
+	}
+	if len(a.Passives) != 10 {
+		t.Fatalf("passives taken = %d, want 10", len(a.Passives))
+	}
+	// A second pick at a spent milestone is refused.
+	s.Step([]core.Command{{Actor: player, Kind: core.CmdChoosePassive, Passive: "heavy_hands"}})
+	if len(a.Passives) != 10 {
+		t.Error("a spent milestone accepted a second pick")
+	}
+}

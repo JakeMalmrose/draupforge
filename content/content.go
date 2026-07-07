@@ -197,6 +197,13 @@ func DB() *core.ContentDB {
 			panic(fmt.Sprintf("content: milestone %d has %d fork(s); a choice needs at least 2", m, n))
 		}
 	}
+	// The ladder reaches the cap: every fifth level is a fork. A missing
+	// rung would be a level with nothing to look forward to.
+	for m := 5; m <= 50; m += 5 {
+		if milestoneForks[m] == 0 {
+			panic(fmt.Sprintf("content: milestone ladder is missing level %d", m))
+		}
+	}
 	return db
 }
 
@@ -308,6 +315,206 @@ func passiveDefs() []*core.PassiveDef {
 			Mods: []core.BuffMod{
 				{Stat: stats.Damage, Layer: stats.LayerIncreased, Tags: stats.T(stats.TagSpell), Value: fm.FromMilli(150)},
 				{Stat: stats.ManaRegen, Layer: stats.LayerFlat, Value: fm.One},
+			},
+		},
+
+		// 15 — the proc tier: pick the ailment your build feeds.
+		{
+			ID: "lacerator", Name: "Lacerator", Milestone: 15,
+			Desc: "+15% chance to bleed, 10% increased physical damage",
+			Mods: []core.BuffMod{
+				{Stat: stats.BleedChance, Layer: stats.LayerFlat, Value: fm.FromMilli(150)},
+				{Stat: stats.Damage, Layer: stats.LayerIncreased, Tags: stats.T(stats.TagPhysical), Value: fm.FromMilli(100)},
+			},
+		},
+		{
+			ID: "venomist", Name: "Venomist", Milestone: 15,
+			Desc: "+15% chance to poison, 10% increased chaos damage",
+			Mods: []core.BuffMod{
+				{Stat: stats.PoisonChance, Layer: stats.LayerFlat, Value: fm.FromMilli(150)},
+				{Stat: stats.Damage, Layer: stats.LayerIncreased, Tags: stats.T(stats.TagChaos), Value: fm.FromMilli(100)},
+			},
+		},
+		{
+			ID: "stormcaller", Name: "Stormcaller", Milestone: 15,
+			Desc: "+10% chance to shock, 15% increased lightning damage",
+			Mods: []core.BuffMod{
+				{Stat: stats.ShockChance, Layer: stats.LayerFlat, Value: fm.FromMilli(100)},
+				{Stat: stats.Damage, Layer: stats.LayerIncreased, Tags: stats.T(stats.TagLightning), Value: fm.FromMilli(150)},
+			},
+		},
+
+		// 20 — the defense tier: pick your wall.
+		{
+			ID: "bulwark", Name: "Bulwark", Milestone: 20,
+			Desc: "+80 armour, +5% chance to block",
+			Mods: []core.BuffMod{
+				{Stat: stats.Armour, Layer: stats.LayerFlat, Value: fm.FromInt(80)},
+				{Stat: stats.Block, Layer: stats.LayerFlat, Value: fm.FromMilli(50)},
+			},
+		},
+		{
+			ID: "mistwalker", Name: "Mistwalker", Milestone: 20,
+			Desc: "+80 evasion, 4% increased movement speed",
+			Mods: []core.BuffMod{
+				{Stat: stats.Evasion, Layer: stats.LayerFlat, Value: fm.FromInt(80)},
+				{Stat: stats.MoveSpeed, Layer: stats.LayerIncreased, Value: fm.FromMilli(40)},
+			},
+		},
+		{
+			ID: "soul_cage", Name: "Soul Cage", Milestone: 20,
+			Desc: "+30 energy shield, +15 mana",
+			Mods: []core.BuffMod{
+				{Stat: stats.EnergyShield, Layer: stats.LayerFlat, Value: fm.FromInt(30)},
+				{Stat: stats.Mana, Layer: stats.LayerFlat, Value: fm.FromInt(15)},
+			},
+		},
+
+		// 25 — the tempo tier.
+		{
+			ID: "duelists_eye", Name: "Duelist's Eye", Milestone: 25,
+			Desc: "+4% critical strike chance, +100 accuracy",
+			Mods: []core.BuffMod{
+				{Stat: stats.CritChance, Layer: stats.LayerFlat, Value: fm.FromMilli(40)},
+				{Stat: stats.Accuracy, Layer: stats.LayerFlat, Value: fm.FromInt(100)},
+			},
+		},
+		{
+			ID: "battle_rhythm", Name: "Battle Rhythm", Milestone: 25,
+			Desc: "8% increased attack and cast speed",
+			Mods: []core.BuffMod{
+				{Stat: stats.AttackSpeed, Layer: stats.LayerIncreased, Value: fm.FromMilli(80)},
+				{Stat: stats.CastSpeed, Layer: stats.LayerIncreased, Value: fm.FromMilli(80)},
+			},
+		},
+		{
+			ID: "heavy_hands", Name: "Heavy Hands", Milestone: 25,
+			Desc: "20% increased damage",
+			Mods: []core.BuffMod{
+				{Stat: stats.Damage, Layer: stats.LayerIncreased, Value: fm.FromMilli(200)},
+			},
+		},
+
+		// 30 — the shape tier: the choices uniques used to own. One more
+		// minion, projectile, or chain — a build-defining fork.
+		{
+			ID: "summoners_court", Name: "Summoner's Court", Milestone: 30,
+			Desc: "+1 to minion caps",
+			Mods: []core.BuffMod{
+				{Stat: stats.ExtraMinions, Layer: stats.LayerFlat, Value: fm.One},
+			},
+		},
+		{
+			ID: "volley_master", Name: "Volley Master", Milestone: 30,
+			Desc: "+1 projectile",
+			Mods: []core.BuffMod{
+				{Stat: stats.ExtraProjectiles, Layer: stats.LayerFlat, Value: fm.One},
+			},
+		},
+		{
+			ID: "arcforged", Name: "Arcforged", Milestone: 30,
+			Desc: "+1 chain",
+			Mods: []core.BuffMod{
+				{Stat: stats.ExtraChains, Layer: stats.LayerFlat, Value: fm.One},
+			},
+		},
+
+		// 35 — the sustain tier.
+		{
+			ID: "crimson_feast", Name: "Crimson Feast", Milestone: 35,
+			Desc: "2% of damage leeched as life",
+			Mods: []core.BuffMod{
+				{Stat: stats.LifeLeech, Layer: stats.LayerFlat, Value: fm.FromMilli(20)},
+			},
+		},
+		{
+			ID: "font_of_clarity", Name: "Font of Clarity", Milestone: 35,
+			Desc: "+2 mana regen, +1 life regen",
+			Mods: []core.BuffMod{
+				{Stat: stats.ManaRegen, Layer: stats.LayerFlat, Value: fm.FromInt(2)},
+				{Stat: stats.LifeRegen, Layer: stats.LayerFlat, Value: fm.One},
+			},
+		},
+		{
+			ID: "stalwart_heart", Name: "Stalwart Heart", Milestone: 35,
+			Desc: "+40 life, +1 life regen",
+			Mods: []core.BuffMod{
+				{Stat: stats.Life, Layer: stats.LayerFlat, Value: fm.FromInt(40)},
+				{Stat: stats.LifeRegen, Layer: stats.LayerFlat, Value: fm.One},
+			},
+		},
+
+		// 40 — the elements tier.
+		{
+			ID: "pyromaniac", Name: "Pyromaniac", Milestone: 40,
+			Desc: "25% increased fire damage, +10% chance to ignite",
+			Mods: []core.BuffMod{
+				{Stat: stats.Damage, Layer: stats.LayerIncreased, Tags: stats.T(stats.TagFire), Value: fm.FromMilli(250)},
+				{Stat: stats.IgniteChance, Layer: stats.LayerFlat, Value: fm.FromMilli(100)},
+			},
+		},
+		{
+			ID: "winterborn", Name: "Winterborn", Milestone: 40,
+			Desc: "25% increased cold damage, adds 3 cold damage",
+			Mods: []core.BuffMod{
+				{Stat: stats.Damage, Layer: stats.LayerIncreased, Tags: stats.T(stats.TagCold), Value: fm.FromMilli(250)},
+				{Stat: stats.Damage, Layer: stats.LayerFlat, Tags: stats.T(stats.TagCold), Value: fm.FromInt(3)},
+			},
+		},
+		{
+			ID: "tempest", Name: "Tempest", Milestone: 40,
+			Desc: "25% increased lightning damage, +10% chance to shock",
+			Mods: []core.BuffMod{
+				{Stat: stats.Damage, Layer: stats.LayerIncreased, Tags: stats.T(stats.TagLightning), Value: fm.FromMilli(250)},
+				{Stat: stats.ShockChance, Layer: stats.LayerFlat, Value: fm.FromMilli(100)},
+			},
+		},
+
+		// 45 — the gamble tier: greed, or the wall.
+		{
+			ID: "executioners_edge", Name: "Executioner's Edge", Milestone: 45,
+			Desc: "+30% critical strike multiplier",
+			Mods: []core.BuffMod{
+				{Stat: stats.CritMulti, Layer: stats.LayerFlat, Value: fm.FromMilli(300)},
+			},
+		},
+		{
+			ID: "glass_cannon", Name: "Glass Cannon", Milestone: 45,
+			Desc: "25% increased damage, 10% increased damage taken",
+			Mods: []core.BuffMod{
+				{Stat: stats.Damage, Layer: stats.LayerIncreased, Value: fm.FromMilli(250)},
+				{Stat: stats.DamageTaken, Layer: stats.LayerIncreased, Value: fm.FromMilli(100)},
+			},
+		},
+		{
+			ID: "iron_will", Name: "Iron Will", Milestone: 45,
+			Desc: "8% reduced damage taken",
+			Mods: []core.BuffMod{
+				{Stat: stats.DamageTaken, Layer: stats.LayerIncreased, Value: fm.FromMilli(-80)},
+			},
+		},
+
+		// 50 — the capstones: a more multiplier at the top of the hill.
+		{
+			ID: "avatar_of_war", Name: "Avatar of War", Milestone: 50,
+			Desc: "10% more attack damage",
+			Mods: []core.BuffMod{
+				{Stat: stats.Damage, Layer: stats.LayerMore, Tags: stats.T(stats.TagAttack), Value: fm.FromMilli(100)},
+			},
+		},
+		{
+			ID: "archmage", Name: "Archmage", Milestone: 50,
+			Desc: "10% more spell damage",
+			Mods: []core.BuffMod{
+				{Stat: stats.Damage, Layer: stats.LayerMore, Tags: stats.T(stats.TagSpell), Value: fm.FromMilli(100)},
+			},
+		},
+		{
+			ID: "undying", Name: "Undying", Milestone: 50,
+			Desc: "+80 life, +2 life regen",
+			Mods: []core.BuffMod{
+				{Stat: stats.Life, Layer: stats.LayerFlat, Value: fm.FromInt(80)},
+				{Stat: stats.LifeRegen, Layer: stats.LayerFlat, Value: fm.FromInt(2)},
 			},
 		},
 	}
