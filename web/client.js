@@ -542,7 +542,7 @@ function drawTelegraphs(s) {
 // life bar while it's on screen — the fight should feel like an occasion,
 // so the bar appears when the boss does, not from across the floor.
 
-const BOSS_DEFS = { barrow_king: "The Barrow King", grave_tyrant: "The Grave Tyrant" };
+const BOSS_DEFS = { barrow_king: "The Barrow King", grave_tyrant: "The Grave Tyrant", ashen_warden: "The Ashen Warden" };
 
 function drawBossBar(s) {
   for (const a of s.to.actors.values()) {
@@ -1177,6 +1177,7 @@ const DEF_COLORS = {
   grave_tyrant: "#3e4a52",
   risen_thrall: "#5a6a52",
   bone_hexer: "#8a6aa8",
+  ashen_warden: "#b0563a",
 };
 
 const AILMENT_RINGS = [

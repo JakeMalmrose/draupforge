@@ -232,11 +232,18 @@ func damageParts(att *core.Actor, h *core.Hit, tags stats.TagSet, typeTags ...st
 }
 
 func rollCrit(w *core.World, att *core.Actor, h *core.Hit, tags stats.TagSet) {
-	if !w.RNGCombat.Chance(att.Sheet.Eval(stats.CritChance, tags)) {
+	// Support mods fold into the crit queries like the damage ones —
+	// composed the way Eval would (base + flat, then inc × more). The roll
+	// itself always consumes exactly one draw, so crit supports never
+	// shift the stream.
+	pc := h.Gem.FoldSupportMods(att.Sheet.Layers(stats.CritChance, tags), stats.CritChance, tags)
+	chance := fm.Mul(att.Sheet.Base(stats.CritChance)+pc.Flat, pc.Multiplier())
+	if !w.RNGCombat.Chance(chance) {
 		return
 	}
 	h.Crit = true
-	mult := att.Sheet.Eval(stats.CritMulti, tags)
+	pm := h.Gem.FoldSupportMods(att.Sheet.Layers(stats.CritMulti, tags), stats.CritMulti, tags)
+	mult := fm.Mul(att.Sheet.Base(stats.CritMulti)+pm.Flat, pm.Multiplier())
 	for dt := range h.Damage {
 		h.Damage[dt] = fm.Mul(h.Damage[dt], mult)
 	}

@@ -11,9 +11,9 @@ tests, and session-log entries older than a few sessions (git history is the
 archive). If this file outgrows ~150 lines, it has stopped being a status doc
 and started being a changelog — cut it back.
 
-**Last updated: 2026-07-06** (session 79: the passive ladder reaches the
-cap — a fork every 5 levels to 50; Track 1 item 6. Track work accumulates
-on the `track1-buildcraft` PR, merged when the track ends)
+**Last updated: 2026-07-07** (session 80: the content pass — 5 supports,
+7 uniques, the Ashen Warden. **Track 1 (Buildcraft) is complete**: all 7
+roadmap items live on the `track1-buildcraft` PR, awaiting Jake's call)
 
 ## Where things stand
 
@@ -99,7 +99,7 @@ All foundational machinery from DESIGN.md is real, not stubbed:
 | Minions: `Actor.Owner` (zone-local, saved+hashed), kill attribution up the chain (`World.CreditFor` — XP/flasks/orbs pay the summoner), `minion_melee` heel AI (mobile leash on the owner), `SkillSummon` w/ cap-despawns-oldest; Summon Skeleton cuttable gem (cap 3, minions at gem level); save v12 | `sim/core`, `sim/ai`, `sim/skills`, `content/`, `web/` | done, tested, verified live |
 | Phase order + command validation | `sim/sim.go` | done — this IS the determinism contract |
 | Wire types: versioned welcome (v18), JSON snapshots, binary delta codec | `protocol/` | done, tested |
-| Content tables | `content/` | 26 skills (14 cuttable incl. 2 auras + 2 curses + channel + blink, 4 staged), 15 supports, 13 actors (3 bosses), 36 affixes (ILvl-tiered), 9 bases, 5 uniques, 8 drop tables, 4 monster mods, 7 buffs (3 curses) |
+| Content tables | `content/` | 29 skills (14 cuttable incl. 2 auras + 2 curses + channel + blink, 5 staged), 20 supports (incl. crit pair on the new pipeline fold), 14 actors (4 bosses), 36 affixes (ILvl-tiered), 9 bases, 12 uniques, 8 drop tables, 4 monster mods, 8 buffs (4 curses) |
 | Debug client + determinism/golden replay tests | `cmd/headless`, `sim/sim_test.go` | done |
 
 ## Invariants the code currently honors (don't break casually)
@@ -241,6 +241,26 @@ starting either track. Jake's balance pass over the numbers stays open.
 
 ## Session log
 
+- **2026-07-07 (80)** — The content pass, and **Track 1 is complete**.
+  Crit joins the support fold (rollCrit composes CritChance/CritMulti
+  through GemCtx like the damage queries — one draw always, so streams
+  never shift; behavior-identical for pre-existing content). Five
+  supports → 20: Brutality (30% more phys), Elemental Focus (20% more per
+  element, three type-tagged Mores), Increased Critical Strikes, Deadly
+  Precision (+40% multi), Toxic Coating (poison chance + more chaos).
+  Seven uniques → 12, one celebrating each track mechanic: The Hungering
+  Edge (bleed+leech sword, slower), Pyre Tongue (the incinerate stick,
+  weaker phys), Emberheart (fire vest, cold-cursed), Vilethorn Fists
+  (poison gloves, less life), Crown of the Hexbinder (curse-caster hat),
+  Gravecaller's Girdle (+1 minions belt, slower), Band of the Patient
+  Hunter (crit ring, slower everything). And the set-piece: the Ashen
+  Warden (boss_king AI, stun-immune, 50% fire res) — hexes your fire res
+  from range (hex_of_embers), commits to a telegraphed two-stage pyre
+  slam up close, and channels flame gouts when enraged until his mana
+  pool runs dry; boss floors now alternate King (5, 25…) / Warden
+  (15, 35…) with the floor-15 descent test updated. Goldens byte-stable
+  through all of it. Verified live: the warden hexed a TCP client
+  through his real AI (ail:64, curse events cycling).
 - **2026-07-06 (79)** — The passive ladder reaches the cap: Track 1 item
   6, pure content on the existing milestone machinery. Eight new rungs
   (15–50) × 3 forks = 24 passives in themed tiers: procs at 15 (bleed/

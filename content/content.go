@@ -262,6 +262,80 @@ func uniqueDefs() []*core.UniqueDef {
 			},
 			ModLines: []string{"25% increased move speed", "+30 evasion", "10% less life"},
 		},
+		{
+			ID: "hungering_edge", Name: "The Hungering Edge", Base: "rusty_sword",
+			Desc: "It drinks first. You get what's left.",
+			Mods: []core.BuffMod{
+				{Stat: stats.BleedChance, Layer: stats.LayerFlat, Value: fm.FromMilli(200)},
+				{Stat: stats.LifeLeech, Layer: stats.LayerFlat, Value: fm.FromMilli(30)},
+				{Stat: stats.Damage, Layer: stats.LayerIncreased, Tags: stats.T(stats.TagPhysical), Value: fm.FromMilli(250)},
+				{Stat: stats.AttackSpeed, Layer: stats.LayerIncreased, Value: fm.FromMilli(-100)},
+			},
+			ModLines: []string{"+20% chance to bleed", "3% of damage leeched as life", "25% increased physical damage", "10% reduced attack speed"},
+		},
+		{
+			ID: "pyre_tongue", Name: "Pyre Tongue", Base: "rusty_sword",
+			Desc: "It has one word and never stops saying it.",
+			Mods: []core.BuffMod{
+				{Stat: stats.Damage, Layer: stats.LayerFlat, Tags: stats.T(stats.TagFire), Value: fm.FromInt(5)},
+				{Stat: stats.CastSpeed, Layer: stats.LayerIncreased, Value: fm.FromMilli(150)},
+				{Stat: stats.Damage, Layer: stats.LayerIncreased, Tags: stats.T(stats.TagPhysical), Value: fm.FromMilli(-200)},
+			},
+			ModLines: []string{"adds 5 fire damage", "15% increased cast speed", "20% reduced physical damage"},
+		},
+		{
+			ID: "emberheart", Name: "Emberheart", Base: "leather_vest",
+			Desc: "Some hearts never bank their coals.",
+			Mods: []core.BuffMod{
+				{Stat: stats.Damage, Layer: stats.LayerIncreased, Tags: stats.T(stats.TagFire), Value: fm.FromMilli(400)},
+				{Stat: stats.IgniteChance, Layer: stats.LayerFlat, Value: fm.FromMilli(150)},
+				{Stat: stats.FireRes, Layer: stats.LayerFlat, Value: fm.FromMilli(250)},
+				{Stat: stats.ColdRes, Layer: stats.LayerFlat, Value: fm.FromMilli(-250)},
+			},
+			ModLines: []string{"40% increased fire damage", "+15% chance to ignite", "+25% fire resistance", "-25% cold resistance"},
+		},
+		{
+			ID: "vilethorn_fists", Name: "Vilethorn Fists", Base: "leather_gloves",
+			Desc: "The thorns grow inward too.",
+			Mods: []core.BuffMod{
+				{Stat: stats.PoisonChance, Layer: stats.LayerFlat, Value: fm.FromMilli(250)},
+				{Stat: stats.Damage, Layer: stats.LayerIncreased, Tags: stats.T(stats.TagChaos), Value: fm.FromMilli(200)},
+				{Stat: stats.Life, Layer: stats.LayerFlat, Value: fm.FromInt(-15)},
+			},
+			ModLines: []string{"+25% chance to poison", "20% increased chaos damage", "-15 life"},
+		},
+		{
+			ID: "hexbinder_crown", Name: "Crown of the Hexbinder", Base: "leather_cap",
+			Desc: "Every promise it whispers is about someone else.",
+			Mods: []core.BuffMod{
+				{Stat: stats.Mana, Layer: stats.LayerFlat, Value: fm.FromInt(25)},
+				{Stat: stats.CastSpeed, Layer: stats.LayerIncreased, Value: fm.FromMilli(150)},
+				{Stat: stats.ChaosRes, Layer: stats.LayerFlat, Value: fm.FromMilli(200)},
+				{Stat: stats.Life, Layer: stats.LayerFlat, Value: fm.FromInt(-20)},
+			},
+			ModLines: []string{"+25 mana", "15% increased cast speed", "+20% chaos resistance", "-20 life"},
+		},
+		{
+			ID: "gravecallers_girdle", Name: "Gravecaller's Girdle", Base: "leather_belt",
+			Desc: "The dead answer whoever wears the bell.",
+			Mods: []core.BuffMod{
+				{Stat: stats.ExtraMinions, Layer: stats.LayerFlat, Value: fm.One},
+				{Stat: stats.Life, Layer: stats.LayerFlat, Value: fm.FromInt(30)},
+				{Stat: stats.MoveSpeed, Layer: stats.LayerIncreased, Value: fm.FromMilli(-80)},
+			},
+			ModLines: []string{"+1 to summon capacity", "+30 life", "8% reduced move speed"},
+		},
+		{
+			ID: "patient_hunter", Name: "Band of the Patient Hunter", Base: "iron_ring",
+			Desc: "Wait. Wait. Now.",
+			Mods: []core.BuffMod{
+				{Stat: stats.CritChance, Layer: stats.LayerFlat, Value: fm.FromMilli(80)},
+				{Stat: stats.CritMulti, Layer: stats.LayerFlat, Value: fm.FromMilli(250)},
+				{Stat: stats.AttackSpeed, Layer: stats.LayerIncreased, Value: fm.FromMilli(-80)},
+				{Stat: stats.CastSpeed, Layer: stats.LayerIncreased, Value: fm.FromMilli(-80)},
+			},
+			ModLines: []string{"+8% critical strike chance", "+25% critical strike multiplier", "8% reduced attack and cast speed"},
+		},
 	}
 }
 
@@ -634,6 +708,17 @@ func buffDefs() []*core.BuffDef {
 			Curse:         true,
 			Mods: []core.BuffMod{
 				{Stat: stats.DamageTaken, Layer: stats.LayerIncreased, Value: fm.FromMilli(200)},
+			},
+		},
+		{
+			// The Ashen Warden's setup hex: your fire resistance stripped
+			// before his flame arrives. Cleansing it is leaving the fight.
+			ID:            "hex_of_embers",
+			Name:          "Hex of Embers",
+			DurationTicks: 6 * core.TicksPerSecond,
+			Curse:         true,
+			Mods: []core.BuffMod{
+				{Stat: stats.FireRes, Layer: stats.LayerFlat, Value: fm.FromMilli(-200)},
 			},
 		},
 	}
@@ -1139,6 +1224,60 @@ func skillDefs() []*core.SkillDef {
 		Range:         fm.FromInt(7),
 	}
 
+	// The Ashen Warden's kit: hex your fire res away, then burn you — the
+	// boss that teaches curses and channelling (item 7's set-piece).
+	wardenSlam := &core.SkillDef{
+		ID:            "warden_pyre_slam",
+		Name:          "Pyre Slam",
+		Kind:          core.SkillStaged,
+		Tags:          stats.T(stats.TagAttack, stats.TagMelee, stats.TagFire),
+		Effectiveness: fm.One,
+		SpeedStat:     stats.AttackSpeed,
+		Range:         fm.FromInt(5),
+		Stages: []core.SkillStage{
+			{Ticks: 24, Effect: core.StageBlast, Aim: core.StageAimTarget, Radius: fm.FromMilli(2400)},
+			{Ticks: 18, Effect: core.StageBlast, Aim: core.StageAimTarget, Radius: fm.FromMilli(3400), DamageScale: fm.FromMilli(1400)},
+			{Ticks: 24}, // recovery: the punish window
+		},
+	}
+	wardenSlam.BaseMin[core.Physical] = fm.FromInt(8)
+	wardenSlam.BaseMax[core.Physical] = fm.FromInt(12)
+	wardenSlam.BaseMin[core.Fire] = fm.FromInt(8)
+	wardenSlam.BaseMax[core.Fire] = fm.FromInt(12)
+
+	wardenHex := &core.SkillDef{
+		ID:            "warden_hex",
+		Name:          "Warden's Hex",
+		Kind:          core.SkillCurse,
+		Tags:          stats.T(stats.TagSpell),
+		WindupTicks:   18,
+		RecoveryTicks: 18,
+		SpeedStat:     stats.CastSpeed,
+		Range:         fm.FromInt(11),
+		AoERadius:     fm.FromMilli(2500),
+		CurseBuff:     "hex_of_embers",
+	}
+
+	wardenGout := &core.SkillDef{
+		ID:            "warden_flame_gout",
+		Name:          "Flame Gout",
+		Kind:          core.SkillProjectile,
+		Tags:          stats.T(stats.TagSpell, stats.TagProjectile, stats.TagFire),
+		Effectiveness: fm.One,
+		ManaCost:      fm.FromInt(5),
+		ChannelTicks:  5,
+		ChannelMana:   fm.FromInt(5), // a finite mana pool ends the burst
+		WindupTicks:   15,
+		SpeedStat:     stats.CastSpeed,
+		ProjSpeed:     fm.FromInt(16),
+		ProjTTL:       18, // ~9.6u — the enrage beam crosses half the room
+		ProjRadius:    fm.FromMilli(450),
+		ExplodeRadius: fm.FromMilli(1300),
+		IgniteChance:  fm.FromMilli(200),
+	}
+	wardenGout.BaseMin[core.Fire] = fm.FromInt(6)
+	wardenGout.BaseMax[core.Fire] = fm.FromInt(10)
+
 	// The carrion husk's own slam: zombie_slam's arc with rot on it — the
 	// monster that teaches poison (stacking chaos DoT).
 	putridSlam := &core.SkillDef{
@@ -1156,7 +1295,7 @@ func skillDefs() []*core.SkillDef {
 	putridSlam.BaseMin[core.Physical] = fm.FromInt(8)
 	putridSlam.BaseMax[core.Physical] = fm.FromInt(12)
 
-	return []*core.SkillDef{fireball, slam, frostNova, spark, boneArrow, adrenaline, claws, arcBolt, arc, colossusSlam, boneVolley, barrowSlam, graveVolley, graveStorm, summonSkeleton, sweep, tyrantQuake, raiseThralls, summonMarksman, summonSpirit, spiritBite, putridSlam, anger, determination, flammability, enfeeble, hexWeakness, incinerate, blink}
+	return []*core.SkillDef{fireball, slam, frostNova, spark, boneArrow, adrenaline, claws, arcBolt, arc, colossusSlam, boneVolley, barrowSlam, graveVolley, graveStorm, summonSkeleton, sweep, tyrantQuake, raiseThralls, summonMarksman, summonSpirit, spiritBite, putridSlam, anger, determination, flammability, enfeeble, hexWeakness, incinerate, blink, wardenSlam, wardenHex, wardenGout}
 }
 
 func baseStats(pairs map[stats.StatID]fm.Fixed) [stats.StatCount]fm.Fixed {
@@ -1278,6 +1417,37 @@ func actorDefs() []*core.ActorDef {
 		XPValue:        35, // fragile, but the pack around it earns its keep
 		PerLevel: []core.BuffMod{
 			{Stat: stats.Life, Layer: stats.LayerFlat, Value: fm.FromInt(5)},
+		},
+	}
+
+	// The second set-piece boss (even boss floors): hexes your fire res
+	// from range, commits to a telegraphed pyre slam up close, and below
+	// half life channels gouts of flame until his mana runs dry — the
+	// boss that teaches curses and channelling by using them on you.
+	warden := &core.ActorDef{
+		ID:     "ashen_warden",
+		Name:   "The Ashen Warden",
+		Team:   core.TeamMonsters,
+		Radius: fm.FromMilli(1200),
+		BaseStats: baseStats(map[stats.StatID]fm.Fixed{
+			stats.Life:      fm.FromInt(500),
+			stats.Mana:      fm.FromInt(60),
+			stats.ManaRegen: fm.FromInt(3),
+			stats.MoveSpeed: fm.FromMilli(2600),
+			stats.Accuracy:  fm.FromInt(140),
+			stats.FireRes:   fm.FromMilli(500), // wreathed in his own element
+		}),
+		Skills:      []string{"warden_pyre_slam", "warden_hex", "warden_flame_gout"},
+		AI:          "boss_king",
+		StunImmune:  true,
+		AggroRadius: fm.FromInt(20),
+		LeashRadius: fm.FromInt(16),
+		LootTable:   "king_drops",
+		Level:       1,
+		XPValue:     900,
+		PerLevel: []core.BuffMod{
+			{Stat: stats.Life, Layer: stats.LayerFlat, Value: fm.FromInt(40)},
+			{Stat: stats.Damage, Layer: stats.LayerIncreased, Value: fm.FromMilli(40)},
 		},
 	}
 
@@ -1564,7 +1734,7 @@ func actorDefs() []*core.ActorDef {
 		},
 	}
 
-	return []*core.ActorDef{player, zombie, archer, dummy, ghoul, mage, colossus, barrowKing, husk, skeleton, tyrant, thrall, marksman, spirit, hexer}
+	return []*core.ActorDef{player, zombie, archer, dummy, ghoul, mage, colossus, barrowKing, husk, skeleton, tyrant, thrall, marksman, spirit, hexer, warden}
 }
 
 // affixDefs is the global affix pool. Slice order feeds the weighted roll —
