@@ -100,6 +100,8 @@ function connect() {
         else hideOverlay();
       } else if (msg.type === "chart") {
         openChart(msg.chart);
+      } else if (msg.type === "recap") {
+        showRecap(msg.recap);
       } else if (msg.type === "roster") {
         applyRoster(msg.roster);
       } else if (msg.type === "social") {
@@ -2124,6 +2126,10 @@ window.addEventListener("keydown", (e) => {
     wasdHeld.add(key);
     return;
   }
+  if (key === "l") {
+    toggleLadder();
+    return;
+  }
   if (key === "m") {
     audioMuted = !audioMuted;
     localStorage.setItem("df-muted", audioMuted ? "1" : "0");
@@ -3354,6 +3360,101 @@ function updateRunHUD() {
   }
   el.textContent = line;
   updateAmbient();
+}
+
+// --------------------------------------------------- ladder + death recap
+
+// The ladder (L): best floor per character, the build attached — the
+// server's /api/ladder scan rendered as rows. The recap frame arrives on
+// death, just before the eject, and stays up until dismissed: what hit
+// you, for how much, on which floor, under which mods.
+
+const ladderEl = document.getElementById("ladder");
+const ladderListEl = document.getElementById("ladder-list");
+
+async function toggleLadder() {
+  if (!ladderEl.classList.contains("hidden")) {
+    ladderEl.classList.add("hidden");
+    return;
+  }
+  ladderListEl.replaceChildren();
+  ladderEl.classList.remove("hidden");
+  let rows = [];
+  try {
+    rows = (await (await fetch("/api/ladder")).json()).ladder || [];
+  } catch {}
+  if (!rows.length) {
+    const e = document.createElement("div");
+    e.className = "empty";
+    e.textContent = "no descents on the board yet — go set one";
+    ladderListEl.appendChild(e);
+    return;
+  }
+  rows.forEach((r, i) => {
+    const row = document.createElement("div");
+    row.className = "ladder-row";
+    const head = document.createElement("div");
+    head.className = "lr-head";
+    head.textContent = `${i + 1}. ${r.name} · Lv ${r.level}`;
+    const floor = document.createElement("span");
+    floor.className = "lr-floor";
+    floor.textContent = `floor ${r.best}`;
+    head.appendChild(floor);
+    row.appendChild(head);
+    if (r.build) {
+      const b = document.createElement("div");
+      b.className = "lr-build";
+      const gems = (r.build.gems || []).map((g) =>
+        g.supports && g.supports.length ? `${g.skill} (${g.supports.join(", ")})` : g.skill);
+      let text = gems.join(" · ");
+      b.textContent = text;
+      for (const u of r.build.uniques || []) {
+        const s = document.createElement("span");
+        s.className = "lr-unique";
+        s.textContent = (b.textContent ? " · " : "") + u;
+        b.appendChild(s);
+      }
+      if (b.textContent) row.appendChild(b);
+    }
+    ladderListEl.appendChild(row);
+  });
+}
+
+const recapEl = document.getElementById("recap");
+const recapBodyEl = document.getElementById("recap-body");
+
+function showRecap(rec) {
+  if (!rec) return;
+  recapBodyEl.replaceChildren();
+  const where = document.createElement("div");
+  where.className = "recap-where";
+  where.textContent = `floor ${rec.floor}`;
+  if (rec.mods && rec.mods.length) {
+    const m = document.createElement("span");
+    m.className = "recap-mods";
+    m.textContent = ` · ${rec.mods.join(" / ")}`;
+    where.appendChild(m);
+  }
+  recapBodyEl.appendChild(where);
+  const hits = rec.hits || [];
+  for (const h of hits.slice(-5)) {
+    const div = document.createElement("div");
+    div.className = "recap-hit";
+    const who = document.createElement("span");
+    who.textContent = h.note ? `${h.from} — ${h.note.replace(/_/g, " ")}` : h.from;
+    const amt = document.createElement("span");
+    amt.className = "rh-amt";
+    amt.textContent = (h.amount / 1000).toFixed(1);
+    div.append(who, amt);
+    recapBodyEl.appendChild(div);
+  }
+  if (!hits.length) {
+    const div = document.createElement("div");
+    div.className = "recap-hit";
+    div.textContent = "no recent hits recorded — the floor itself got you";
+    recapBodyEl.appendChild(div);
+  }
+  recapEl.classList.remove("hidden");
 }
 
 // ------------------------------------------------------------ the chart

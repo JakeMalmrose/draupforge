@@ -276,6 +276,10 @@ type client struct {
 	// computed character sheet after this tick.
 	wantSheet bool
 
+	// recentHits are the last few hits taken, tick-goroutine-only — the
+	// death recap's evidence (ladder.go). Cleared on every world swap.
+	recentHits []protocol.RecapHit
+
 	// lastChar is the freshest character extraction for this client's
 	// actor, taken after every step — death compacts the actor away before
 	// the host can see it, so eject/respawn works from this copy (at most
@@ -1148,6 +1152,7 @@ func (in *Instance) Handler() http.Handler {
 	mux.HandleFunc("/api/claim", in.ids.handleClaim)
 	mux.HandleFunc("/api/whoami", in.ids.handleWhoami)
 	mux.HandleFunc("/api/forget", in.ids.handleForget(in.kickToken))
+	mux.HandleFunc("/api/ladder", in.ids.handleLadder)
 	if in.cfg.StaticDir != "" {
 		mux.Handle("/", http.FileServer(http.Dir(in.cfg.StaticDir)))
 	}

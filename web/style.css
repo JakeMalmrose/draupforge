@@ -603,6 +603,53 @@ body {
 .char-delete:hover { color: #a32626 !important; }
 #char-new { width: 274px; }
 
+/* The ladder (L): best floor per character, build attached. */
+#ladder {
+  position: fixed;
+  left: 50%; top: 100px; transform: translateX(-50%);
+  width: 460px; max-height: 65vh;
+  overflow-y: auto;
+  background: rgba(16, 16, 22, 0.96);
+  border: 1px solid #3a3a45;
+  border-radius: 4px;
+  padding: 14px 16px;
+  z-index: 7;
+}
+#ladder h2 { font-size: 13px; color: #c9b76a; text-transform: uppercase; letter-spacing: 1px; margin: 0 0 8px; }
+#ladder .hint { font-size: 11px; color: #55504a; margin-top: 10px; }
+.ladder-row { padding: 6px 0; border-bottom: 1px solid #22222c; font-size: 13px; }
+.ladder-row .lr-head { color: #ece5d6; }
+.ladder-row .lr-head .lr-floor { color: #c9b76a; float: right; }
+.ladder-row .lr-build { font-size: 11px; color: #8d8678; margin-top: 2px; line-height: 1.4; }
+.ladder-row .lr-build .lr-unique { color: #d4813b; }
+#ladder .empty { color: #55504a; font-style: italic; font-size: 12px; }
+
+/* The death recap: what killed you, and under what. */
+#recap {
+  position: fixed;
+  left: 50%; bottom: 130px; transform: translateX(-50%);
+  width: 380px;
+  background: rgba(20, 12, 12, 0.96);
+  border: 1px solid #a3262666;
+  border-radius: 6px;
+  padding: 12px 16px;
+  z-index: 7;
+  text-align: left;
+}
+#recap h3 { margin: 0 0 6px; font-size: 13px; color: #a32626; letter-spacing: 0.15em; font-weight: normal; }
+#recap .recap-where { font-size: 12px; color: #cfc9bf; margin-bottom: 6px; }
+#recap .recap-mods { color: #c98a6a; }
+#recap .recap-hit { font-size: 12px; color: #9a937f; display: flex; justify-content: space-between; }
+#recap .recap-hit .rh-amt { color: #d4634f; }
+#recap button {
+  margin-top: 10px; width: 100%;
+  font: inherit; font-size: 12px;
+  background: #1a1a22; color: #cfc9bf;
+  border: 1px solid #3a3a45; border-radius: 3px;
+  padding: 6px; cursor: pointer;
+}
+#recap button:hover { border-color: #6a6455; }
+
 /* Social panel (F): party + the online directory. */
 #social {
   position: fixed;

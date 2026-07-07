@@ -87,6 +87,18 @@
     <p class="hint">C closes this panel</p>
   </div>
 
+  <div id="ladder" class="hidden">
+    <h2>The Ladder</h2>
+    <div id="ladder-list"></div>
+    <p class="hint">deepest floor per character &middot; L closes this panel</p>
+  </div>
+
+  <div id="recap" class="hidden">
+    <h3>DEATH RECAP</h3>
+    <div id="recap-body"></div>
+    <button onclick="document.getElementById('recap').classList.add('hidden')">learn &amp; descend</button>
+  </div>
+
   <div id="social" class="hidden">
     <h2>Party</h2>
     <div id="party-list"></div>
@@ -114,7 +126,7 @@
     <button class="ghost" onclick="playGuest()">play as guest</button>
   </div>
 
-  <div id="help">WASD or click to move &middot; click pickup/stairs/portal &middot; <b>Q</b>/<b>E</b>/<b>R</b>/<b>T</b> skill gems &middot; <b>1</b>/<b>2</b> flasks &middot; <b>P</b> plant portal &middot; <b>F</b> friends &middot; <b>I</b> inventory &middot; <b>M</b> mute</div>
+  <div id="help">WASD or click to move &middot; click pickup/stairs/portal &middot; <b>Q</b>/<b>E</b>/<b>R</b>/<b>T</b> skill gems &middot; <b>1</b>/<b>2</b> flasks &middot; <b>P</b> plant portal &middot; <b>F</b> friends &middot; <b>L</b> ladder &middot; <b>I</b> inventory &middot; <b>M</b> mute</div>
 
   <script src="net.js"></script>
   <script src="client.js"></script>

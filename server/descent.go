@@ -255,6 +255,26 @@ func (in *Instance) runTick(fresh []protocol.EventSnap, descends, portals, plant
 	if in.run == 0 {
 		return
 	}
+	// Recap evidence: bank hits against client actors before anything can
+	// swap the world out from under the attacker's name.
+	for _, ev := range fresh {
+		if ev.Kind != "hit" {
+			continue
+		}
+		for _, c := range in.clients {
+			if uint64(c.actor) != ev.Other {
+				continue
+			}
+			from := "something"
+			if a := in.sim.W.ActorByID(core.EntityID(ev.Actor)); a != nil {
+				from = a.Def.Name
+			}
+			c.recentHits = append(c.recentHits, protocol.RecapHit{From: from, Note: ev.Note, Amount: ev.Amount})
+			if len(c.recentHits) > recapHitCap {
+				c.recentHits = c.recentHits[1:]
+			}
+		}
+	}
 	var dead []*client
 	for _, ev := range fresh {
 		if ev.Kind != "death" {
@@ -370,6 +390,11 @@ func (in *Instance) handleDeaths(dead []*client) {
 	for _, c := range dead {
 		if !c.hasChar {
 			continue
+		}
+		// The recap first, while the floor that killed them still stands.
+		frame, _ := json.Marshal(protocol.ServerMsg{Type: "recap", Recap: in.recapFor(c)})
+		if !c.send(frame, false) {
+			c.tr.Close()
 		}
 		pen := progress.XPToNext(c.lastChar.Level) / deathXPPenaltyDiv
 		if pen > c.lastChar.XP {
@@ -553,6 +578,16 @@ func (in *Instance) swapWorld(s *sim.Sim, floor int, at space.Vec2) {
 	}
 	if floor > 0 {
 		in.stairs = farthestWalkable(s.W.Grid)
+		// Ladder bookkeeping: reaching a floor records it (and the build
+		// that reached it) as the character's best on the account store.
+		for _, c := range in.clients {
+			if c.token != "" && c.hasChar {
+				in.ids.RecordBest(c.token, floor, buildSnapOf(in.db, &c.lastChar))
+			}
+		}
+	}
+	for _, c := range in.clients {
+		c.recentHits = nil // a new world's dangers start their own story
 	}
 	// Old-world events still buffered reference entities that no longer
 	// exist; the synthetic run events narrate the transition instead.

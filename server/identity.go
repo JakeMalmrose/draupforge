@@ -62,6 +62,10 @@ type CharSlot struct {
 	Char    *core.Character `json:"char,omitempty"`
 	Created time.Time       `json:"created"`
 	Played  time.Time       `json:"played,omitzero"`
+	// Best is the deepest floor this character has reached, ever, and
+	// BestBuild the build that reached it — the ladder's row (ladder.go).
+	Best      int        `json:"best,omitempty"`
+	BestBuild *BuildSnap `json:"best_build,omitempty"`
 }
 
 // Identity is one account: a roster of named characters plus the shared

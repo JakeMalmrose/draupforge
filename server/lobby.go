@@ -160,6 +160,7 @@ func (lb *Lobby) Handler() http.Handler {
 	mux.HandleFunc("/api/claim", lb.ids.handleClaim)
 	mux.HandleFunc("/api/whoami", lb.ids.handleWhoami)
 	mux.HandleFunc("/api/forget", lb.ids.handleForget(lb.kickToken))
+	mux.HandleFunc("/api/ladder", lb.ids.handleLadder)
 	if lb.cfg.StaticDir != "" {
 		mux.Handle("/", http.FileServer(http.Dir(lb.cfg.StaticDir)))
 	}

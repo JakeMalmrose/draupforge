@@ -355,6 +355,24 @@ type ServerMsg struct {
 	// Chart rides "chart" frames: the descent routes offered to a client
 	// standing at the stairs (floor mods, reward weights, side chambers).
 	Chart *ChartSnap `json:"chart,omitempty"`
+	// Recap rides "recap" frames: the dying client's death report — what
+	// hit them, for how much, on which floor, under which mods.
+	Recap *RecapSnap `json:"recap,omitempty"`
+}
+
+// RecapSnap is one death's report, sent to the dier just before the eject.
+type RecapSnap struct {
+	Floor int        `json:"floor"`
+	Mods  []string   `json:"mods,omitempty"`
+	Hits  []RecapHit `json:"hits,omitempty"`
+}
+
+// RecapHit is one recent hit taken: attacker display name, the skill note,
+// and the milli damage dealt.
+type RecapHit struct {
+	From   string `json:"from"`
+	Note   string `json:"note,omitempty"`
+	Amount int64  `json:"amount"`
 }
 
 // SheetSnap is one player's character sheet: evaluated stat lines plus
