@@ -102,7 +102,10 @@ func TestHandleDeathsEjectsAndPenalizes(t *testing.T) {
 	in, c, tr := descentInstance(t, 3)
 	c.lastChar.Level = 3
 	c.lastChar.XP = 500
-	in.floor, in.portalFloor = 4, 2 // died deep, portal planted on floor 2
+	// Died deep (row 2's first floor = global 4), portal planted on the
+	// entry node's second floor (global 2).
+	in.node, in.fin, in.floor = trunkNodeAt(in.runSeed, 2), 1, 4
+	in.portalNode, in.portalFin = trunkNodeAt(in.runSeed, 1), 2
 	in.portalPos = in.sim.W.Grid.Spawn
 	killActor(in, c)
 
@@ -156,8 +159,9 @@ func TestHandleDeathsRunOver(t *testing.T) {
 	if in.run != 2 {
 		t.Errorf("run = %d, want 2 (a fresh run began)", in.run)
 	}
-	if in.floor != 1 || in.portalFloor != 1 {
-		t.Errorf("floor/portalFloor = %d/%d, want 1/1", in.floor, in.portalFloor)
+	if in.floor != 1 || globalFloor(in.portalNode.Row, in.portalFin) != 1 {
+		t.Errorf("floor/portal anchor = %d/%v+%d, want both at global floor 1",
+			in.floor, in.portalNode, in.portalFin)
 	}
 	if in.best != 3 {
 		t.Errorf("best = %d, want the old depth 3 kept as the score", in.best)
@@ -181,7 +185,7 @@ func TestDescendScalesTheNextFloor(t *testing.T) {
 	in, c, tr := descentInstance(t, 3)
 	// Stand on the stairs and take them.
 	in.sim.W.ActorByID(c.actor).Pos = in.stairs
-	in.runTick(nil, []*client{c}, nil, nil, nil)
+	in.runTick(nil, runWants{descends: []*client{c}})
 
 	if in.floor != 2 || in.best != 2 {
 		t.Fatalf("floor/best = %d/%d, want 2/2", in.floor, in.best)
@@ -212,7 +216,7 @@ func TestDescendScalesTheNextFloor(t *testing.T) {
 func TestDescendRequiresStandingAtStairs(t *testing.T) {
 	in, c, _ := descentInstance(t, 3)
 	// The spawn room is far from the stairs by construction.
-	in.runTick(nil, []*client{c}, nil, nil, nil)
+	in.runTick(nil, runWants{descends: []*client{c}})
 	if in.floor != 1 {
 		t.Errorf("descended from across the map: floor = %d", in.floor)
 	}
@@ -221,7 +225,7 @@ func TestDescendRequiresStandingAtStairs(t *testing.T) {
 func TestPortalTravelHideoutAndBack(t *testing.T) {
 	in, c, tr := descentInstance(t, 3)
 	// The portal starts at the floor-1 spawn, where the player stands.
-	in.runTick(nil, nil, []*client{c}, nil, nil)
+	in.runTick(nil, runWants{portals: []*client{c}})
 
 	if in.floor != 0 {
 		t.Fatalf("floor = %d, want 0 (the hideout)", in.floor)
@@ -241,7 +245,7 @@ func TestPortalTravelHideoutAndBack(t *testing.T) {
 	}
 
 	// Step back through: free, and back on the anchor floor.
-	in.runTick(nil, nil, []*client{c}, nil, nil)
+	in.runTick(nil, runWants{portals: []*client{c}})
 	if in.floor != 1 || in.portalsLeft != 2 {
 		t.Errorf("floor/portals = %d/%d after return, want 1/2 (return is free)", in.floor, in.portalsLeft)
 	}
@@ -252,7 +256,7 @@ func TestPortalTravelHideoutAndBack(t *testing.T) {
 
 func TestPortalTravelNeedsUsesLeft(t *testing.T) {
 	in, c, _ := descentInstance(t, 0)
-	in.runTick(nil, nil, []*client{c}, nil, nil)
+	in.runTick(nil, runWants{portals: []*client{c}})
 	if in.floor != 0 && in.floor != 1 {
 		t.Fatalf("unexpected floor %d", in.floor)
 	}
@@ -266,15 +270,16 @@ func TestPlantPortalMovesTheAnchor(t *testing.T) {
 	// Descend twice by teleporting to the stairs (host-level test shortcut).
 	for i := 0; i < 2; i++ {
 		in.sim.W.ActorByID(c.actor).Pos = in.stairs
-		in.runTick(nil, []*client{c}, nil, nil, nil)
+		in.runTick(nil, runWants{descends: []*client{c}})
 	}
 	if in.floor != 3 {
 		t.Fatalf("floor = %d, want 3", in.floor)
 	}
 	a := in.sim.W.ActorByID(c.actor)
-	in.runTick(nil, nil, nil, []*client{c}, nil)
-	if in.portalFloor != 3 || in.portalPos != a.Pos {
-		t.Errorf("portal = floor %d at %v, want floor 3 at %v", in.portalFloor, in.portalPos, a.Pos)
+	in.runTick(nil, runWants{plants: []*client{c}})
+	if in.portalNode != in.node || in.portalFin != in.fin || in.portalPos != a.Pos {
+		t.Errorf("portal = %v+%d at %v, want %v+%d at %v",
+			in.portalNode, in.portalFin, in.portalPos, in.node, in.fin, a.Pos)
 	}
 	// Death now ejects to floor 3, not floor 1.
 	killActor(in, c)
@@ -291,7 +296,7 @@ func TestPlantPortalMovesTheAnchor(t *testing.T) {
 func TestMoveAfterDescend(t *testing.T) {
 	in, c, _ := descentInstance(t, 3)
 	in.sim.W.ActorByID(c.actor).Pos = in.stairs
-	in.runTick(nil, []*client{c}, nil, nil, nil) // descend to floor 2
+	in.runTick(nil, runWants{descends: []*client{c}}) // descend to floor 2
 
 	a := in.sim.W.ActorByID(c.actor)
 	start := a.Pos
@@ -306,23 +311,32 @@ func TestMoveAfterDescend(t *testing.T) {
 
 func TestFloorSeedsAreReplayable(t *testing.T) {
 	in, _, _ := descentInstance(t, 3)
-	s1, err := in.buildFloor(5, 0, 0)
+	n := trunkNodeAt(in.runSeed, 2)
+	s1, err := in.buildFloor(n, 2)
 	if err != nil {
 		t.Fatal(err)
 	}
-	s2, err := in.buildFloor(5, 0, 0)
+	s2, err := in.buildFloor(n, 2)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if s1.W.Hash() != s2.W.Hash() {
 		t.Error("rebuilding the same floor produced a different world")
 	}
-	s3, err := in.buildFloor(6, 0, 0)
+	s3, err := in.buildFloor(n, 3)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if s1.W.Hash() == s3.W.Hash() {
 		t.Error("adjacent floors hashed identically — seeds are not deriving")
+	}
+	// A different node at the same depth diverges too.
+	s4, err := in.buildFloor(nodeAddr{n.Row, n.Col + 1}, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s1.W.Hash() == s4.W.Hash() {
+		t.Error("sibling nodes hashed identically — the column is not in the salt")
 	}
 	if space.Dist(farthestWalkable(s1.W.Grid), s1.W.Grid.Spawn) < fm.FromInt(5) {
 		t.Error("stairs suspiciously close to the spawn room")
@@ -372,38 +386,44 @@ func TestDeathEjectGrantsGrace(t *testing.T) {
 	for i := uint32(0); i <= grace.DurationTicks; i++ {
 		combat.TickStatuses(w)
 	}
-	hit()
+	// A few swings: any single hit can miss on the evasion roll — grace
+	// ending means damage lands within a handful, not on a specific one.
+	for i := 0; i < 8 && a.Life == a.MaxLife(); i++ {
+		hit()
+	}
 	if a.Life == a.MaxLife() {
-		t.Error("hit after grace expiry dealt nothing — grace never ended")
+		t.Error("hits after grace expiry dealt nothing — grace never ended")
 	}
 }
 
-// TestGuardianFloorsSpawnTheColossus: every guardianFloors-th floor builds
-// with a rare Bone Colossus at the stairs; other floors don't.
-func TestGuardianFloorsSpawnTheColossus(t *testing.T) {
+// TestSetPieceGuardsTheLastFloor: a node's first two floors are open; the
+// third stakes the row's set-piece — a rare Bone Colossus on regular rows —
+// on the stairs, two levels hot.
+func TestSetPieceGuardsTheLastFloor(t *testing.T) {
 	in, _, _ := descentInstance(t, 3)
-	find := func(s *sim.Sim) *core.Actor {
+	find := func(s *sim.Sim, def string) *core.Actor {
 		for _, a := range s.W.Actors {
-			if a.Def.ID == guardianDef {
+			if a.Def.ID == def {
 				return a
 			}
 		}
 		return nil
 	}
-	s2, err := in.buildFloor(2, 0, 0)
+	n1 := trunkNodeAt(in.runSeed, 1)
+	s2, err := in.buildFloor(n1, 2)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if find(s2) != nil {
-		t.Error("floor 2 spawned a guardian; wanted none")
+	if find(s2, guardianDef) != nil {
+		t.Error("a mid-node floor spawned a set-piece; wanted none")
 	}
-	s3, err := in.buildFloor(3, 0, 0)
+	s3, err := in.buildFloor(n1, 3)
 	if err != nil {
 		t.Fatal(err)
 	}
-	g := find(s3)
+	g := find(s3, guardianDef)
 	if g == nil {
-		t.Fatal("floor 3 has no guardian")
+		t.Fatal("row 1's last floor has no guardian")
 	}
 	if g.Rarity != core.RarityRare || len(g.Mods) != 2 {
 		t.Errorf("guardian rarity %v with %d mods, want rare with 2", g.Rarity, len(g.Mods))
@@ -416,75 +436,44 @@ func TestGuardianFloorsSpawnTheColossus(t *testing.T) {
 	}
 }
 
-// TestBossFloorsSpawnTheKing: every bossFloors-th floor builds with a rare
-// Barrow King at the stairs, outranking the guardian schedule (floor 15 is
-// divisible by both; only the king shows).
-func TestBossFloorsSpawnTheKing(t *testing.T) {
+// TestSetPieceCadence: every bossRows-th row ends in the Barrow King or
+// the Ashen Warden (alternating), every apexRows-th in the Grave Tyrant,
+// the rest in the guardian — and exactly one set-piece per node.
+func TestSetPieceCadence(t *testing.T) {
+	cases := []struct {
+		row  int
+		want string
+	}{
+		{1, guardianDef}, {2, guardianDef}, {3, bossDef}, {4, guardianDef},
+		{5, guardianDef}, {6, bossDef2}, {9, bossDef}, {10, apexDef},
+		{12, bossDef2}, {20, apexDef}, {30, apexDef},
+	}
+	for _, c := range cases {
+		if got := setPieceFor(c.row); got != c.want {
+			t.Errorf("setPieceFor(%d) = %q, want %q", c.row, got, c.want)
+		}
+	}
+
+	// And the apex builds hot: floor+3 against the guardian's floor+2.
 	in, _, _ := descentInstance(t, 3)
-	find := func(s *sim.Sim, def string) *core.Actor {
-		for _, a := range s.W.Actors {
-			if a.Def.ID == def {
-				return a
+	s, err := in.buildFloor(nodeAddr{Row: 10, Col: delveEntryCol}, 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	setPieces := 0
+	for _, a := range s.W.Actors {
+		if isSetPiece(a.Def.ID) {
+			setPieces++
+			if a.Def.ID != apexDef {
+				t.Errorf("row 10 staked %q, want the apex", a.Def.ID)
+			}
+			if a.Level != globalFloor(10, 3)+3 {
+				t.Errorf("apex level = %d, want floor+3 = %d", a.Level, globalFloor(10, 3)+3)
 			}
 		}
-		return nil
 	}
-	s5, err := in.buildFloor(5, 0, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	king := find(s5, bossDef)
-	if king == nil {
-		t.Fatal("floor 5 has no boss")
-	}
-	if king.Rarity != core.RarityRare || len(king.Mods) < 2 {
-		t.Errorf("boss rarity %v with %d mods, want rare with >= 2", king.Rarity, len(king.Mods))
-	}
-	if king.Level != 7 {
-		t.Errorf("boss level = %d, want floor+2 = 7", king.Level)
-	}
-	if d := space.Dist(king.Pos, farthestWalkable(s5.W.Grid)); d > fm.FromInt(2) {
-		t.Errorf("boss %v from the stairs, want parked on them", d)
-	}
-	// Boss floors alternate set-pieces: floor 15 belongs to the Ashen
-	// Warden ((15/5)%4 == 3), still outranking the guardian schedule.
-	s15, err := in.buildFloor(15, 0, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if find(s15, bossDef2) == nil {
-		t.Error("floor 15 has no Ashen Warden")
-	}
-	if find(s15, bossDef) != nil {
-		t.Error("floor 15 spawned the King; the Warden owns it now")
-	}
-	if find(s15, guardianDef) != nil {
-		t.Error("floor 15 spawned a guardian alongside the boss")
-	}
-	s6, err := in.buildFloor(6, 0, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if find(s6, bossDef) != nil {
-		t.Error("floor 6 spawned a boss; wanted the guardian schedule")
-	}
-	if find(s6, guardianDef) == nil {
-		t.Error("floor 6 has no guardian")
-	}
-	// Floor 10: the apex outranks the king (10 is also %5).
-	s10, err := in.buildFloor(10, 0, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	apex := find(s10, apexDef)
-	if apex == nil {
-		t.Fatal("floor 10 has no apex boss")
-	}
-	if apex.Level != 13 {
-		t.Errorf("apex level = %d, want floor+3 = 13", apex.Level)
-	}
-	if find(s10, bossDef) != nil {
-		t.Error("floor 10 spawned the king alongside the apex")
+	if setPieces != 1 {
+		t.Errorf("row 10's last floor holds %d set-pieces, want exactly 1", setPieces)
 	}
 }
 
@@ -494,9 +483,10 @@ func TestBossFloorsSpawnTheKing(t *testing.T) {
 func TestRunSaveRoundTrip(t *testing.T) {
 	in, _, _ := descentInstance(t, 3)
 	in.descend()
-	in.descend() // floor 3
+	in.descend() // floor 3: the entry node's last floor
+	in.cleared[in.node] = true
 	in.portalsLeft = 1
-	in.portalFloor, in.portalPos = 3, in.sim.W.Grid.Spawn
+	in.portalNode, in.portalFin, in.portalPos = in.node, 3, in.sim.W.Grid.Spawn
 
 	world, err := in.sim.W.Save()
 	if err != nil {
@@ -515,8 +505,16 @@ func TestRunSaveRoundTrip(t *testing.T) {
 		t.Errorf("restored run = floor %d portals %d best %d run %d, want 3/1/3/%d",
 			in2.floor, in2.portalsLeft, in2.best, in2.run, in.run)
 	}
-	if in2.portalFloor != 3 || in2.portalPos != in.portalPos || !in2.portalPlaced {
-		t.Errorf("restored portal anchor = %d %v (placed %v)", in2.portalFloor, in2.portalPos, in2.portalPlaced)
+	if in2.node != in.node || in2.fin != 3 {
+		t.Errorf("restored node = %v+%d, want %v+3", in2.node, in2.fin, in.node)
+	}
+	if in2.portalNode != in.node || in2.portalFin != 3 || in2.portalPos != in.portalPos || !in2.portalPlaced {
+		t.Errorf("restored portal anchor = %v+%d %v (placed %v)",
+			in2.portalNode, in2.portalFin, in2.portalPos, in2.portalPlaced)
+	}
+	if !in2.visited[in.node] || !in2.cleared[in.node] {
+		t.Errorf("restored chart lost the bookkeeping: visited=%v cleared=%v",
+			in2.visited[in.node], in2.cleared[in.node])
 	}
 	if in2.stairs == (space.Vec2{}) {
 		t.Error("restored instance has no stairs")
@@ -557,16 +555,17 @@ func TestRunStartsInHideout(t *testing.T) {
 
 	// The player joins standing on the home portal; entering it begins the
 	// run on floor 1 — free, arriving at the floor's spawn.
-	in.runTick(nil, nil, []*client{c}, nil, nil)
+	in.runTick(nil, runWants{portals: []*client{c}})
 	if in.floor != 1 || in.best != 1 {
 		t.Fatalf("floor/best = %d/%d after the home portal, want 1/1", in.floor, in.best)
 	}
 	if in.portalsLeft != 3 {
 		t.Errorf("portalsLeft = %d, want 3 (leaving home is free)", in.portalsLeft)
 	}
-	if !in.portalPlaced || in.portalFloor != 1 || in.portalPos != in.sim.W.Grid.Spawn {
-		t.Errorf("portal anchor = floor %d at %v (placed %v), want floor 1 at its spawn",
-			in.portalFloor, in.portalPos, in.portalPlaced)
+	if !in.portalPlaced || globalFloor(in.portalNode.Row, in.portalFin) != 1 ||
+		in.portalPos != in.sim.W.Grid.Spawn {
+		t.Errorf("portal anchor = %v+%d at %v (placed %v), want global floor 1 at its spawn",
+			in.portalNode, in.portalFin, in.portalPos, in.portalPlaced)
 	}
 	w := tr.lastWelcome(t)
 	if w.Run == nil || w.Run.Floor != 1 || w.Stairs == nil {
@@ -574,7 +573,7 @@ func TestRunStartsInHideout(t *testing.T) {
 	}
 
 	// And back through: a hideout trip still costs one.
-	in.runTick(nil, nil, []*client{c}, nil, nil)
+	in.runTick(nil, runWants{portals: []*client{c}})
 	if in.floor != 0 || in.portalsLeft != 2 {
 		t.Errorf("floor/portals = %d/%d after retreating home, want 0/2", in.floor, in.portalsLeft)
 	}
@@ -584,7 +583,7 @@ func TestRunStartsInHideout(t *testing.T) {
 // next one starts back in the hideout with a fresh, unplaced anchor.
 func TestRunOverReturnsHome(t *testing.T) {
 	in, c, _ := descentInstanceAt(t, 0, 0)
-	in.runTick(nil, nil, []*client{c}, nil, nil) // step through the home portal
+	in.runTick(nil, runWants{portals: []*client{c}}) // step through the home portal
 	if in.floor != 1 {
 		t.Fatalf("floor = %d, want 1", in.floor)
 	}
@@ -606,7 +605,7 @@ func TestRunOverReturnsHome(t *testing.T) {
 	}
 
 	// The new run's portal works: down to floor 1 of run 2.
-	in.runTick(nil, nil, []*client{c}, nil, nil)
+	in.runTick(nil, runWants{portals: []*client{c}})
 	if in.floor != 1 {
 		t.Errorf("floor = %d after the new run's portal, want 1", in.floor)
 	}

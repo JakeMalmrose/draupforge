@@ -1,7 +1,7 @@
 package server
 
-// Biome unit tests: band selection, biome-built floors (map kind + roster),
-// and the biome id on the run snap.
+// Biome unit tests: clump assignment on the delve chart, biome-built floors
+// (map kind + roster), and the biome id on the run snap.
 
 import (
 	"testing"
@@ -9,28 +9,76 @@ import (
 	"github.com/JakeMalmrose/draupforge/sim"
 )
 
-func TestBiomeForFloor(t *testing.T) {
-	cases := []struct {
-		floor int
-		want  string
-	}{
-		{0, ""}, {1, "crypt"}, {9, "crypt"}, {10, "caves"}, {19, "caves"},
-		{20, "frost"}, {99, "frost"},
-	}
-	for _, c := range cases {
-		got := ""
-		if b := biomeForFloor(c.floor); b != nil {
-			got = b.ID
+// findBiomeNode scans the chart for a node of the wanted biome, shallowest
+// first. Fails the test if none shows within maxRow — with depth-weighted
+// clumps every biome should appear well before row 40.
+func findBiomeNode(t *testing.T, runSeed uint64, biome string, maxRow int) nodeAddr {
+	t.Helper()
+	for row := 1; row <= maxRow; row++ {
+		for _, col := range delveRow(runSeed, row) {
+			n := nodeAddr{row, col}
+			if b := delveBiome(runSeed, n); b != nil && b.ID == biome {
+				return n
+			}
 		}
-		if got != c.want {
-			t.Errorf("biomeForFloor(%d) = %q, want %q", c.floor, got, c.want)
+	}
+	t.Fatalf("no %q node within %d rows — clump weights drifted?", biome, maxRow)
+	return nodeAddr{}
+}
+
+// TestShallowRowsAreCrypt: the chart's first two rows are always the crypt,
+// whatever the blob centers say — the early game reads as it always did.
+func TestShallowRowsAreCrypt(t *testing.T) {
+	for seed := uint64(1); seed <= 20; seed++ {
+		for row := 1; row <= 2; row++ {
+			for _, col := range delveRow(seed, row) {
+				if b := delveBiome(seed, nodeAddr{row, col}); b == nil || b.ID != "crypt" {
+					t.Fatalf("seed %d node %d:%d biome = %v, want crypt", seed, row, col, b)
+				}
+			}
 		}
 	}
 }
 
-// TestBuildFloorUsesBiomeRoster: a caves-band floor scatters the caves mix
-// (plus the schedule's set-piece and any death-spawn kin), never the
-// scenario's crypt roster wholesale; a crypt floor keeps the scenario's.
+// TestBiomesFormClumps: biome assignment is deterministic, every biome
+// appears somewhere, and the deeps aren't crypt-dominated (the weights
+// actually shift with depth).
+func TestBiomesFormClumps(t *testing.T) {
+	seed := uint64(9)
+	counts := map[string]int{}
+	for row := 1; row <= 40; row++ {
+		for _, col := range delveRow(seed, row) {
+			n := nodeAddr{row, col}
+			a, b := delveBiome(seed, n), delveBiome(seed, n)
+			if a != b {
+				t.Fatalf("node %v biome not deterministic", n)
+			}
+			counts[a.ID]++
+		}
+	}
+	for _, want := range []string{"crypt", "caves", "frost"} {
+		if counts[want] == 0 {
+			t.Errorf("biome %q never appears in 40 rows: %v", want, counts)
+		}
+	}
+	deepCrypt := 0
+	deepTotal := 0
+	for row := 25; row <= 40; row++ {
+		for _, col := range delveRow(seed, row) {
+			deepTotal++
+			if delveBiome(seed, nodeAddr{row, col}).ID == "crypt" {
+				deepCrypt++
+			}
+		}
+	}
+	if deepCrypt*2 > deepTotal {
+		t.Errorf("rows 25–40 are %d/%d crypt — depth weighting not biting", deepCrypt, deepTotal)
+	}
+}
+
+// TestBuildFloorUsesBiomeRoster: a caves node scatters the caves mix (plus
+// any death-spawn kin), never the scenario's crypt roster wholesale; a
+// crypt node keeps the scenario's.
 func TestBuildFloorUsesBiomeRoster(t *testing.T) {
 	in, _, _ := descentInstance(t, 3)
 
@@ -42,58 +90,58 @@ func TestBuildFloorUsesBiomeRoster(t *testing.T) {
 		return m
 	}
 
-	// Floor 11 (caves band, no set-piece schedule: 11%3 != 0, 11%5 != 0).
-	s11, err := in.buildFloor(11, 0, 0)
+	caves := findBiomeNode(t, in.runSeed, "caves", 40)
+	s1, err := in.buildFloor(caves, 1) // fin 1: no set-piece in the census
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := defsOn(s11)
+	got := defsOn(s1)
 	allowed := map[string]bool{"ghoul": true, "carrion_husk": true, "zombie": true}
 	for def := range got {
 		if !allowed[def] {
-			t.Errorf("floor 11 spawned %q, not in the caves roster", def)
+			t.Errorf("caves node %v spawned %q, not in the caves roster", caves, def)
 		}
 	}
 	if got["ghoul"] == 0 || got["carrion_husk"] == 0 {
-		t.Errorf("floor 11 roster = %v, want the caves mix present", got)
+		t.Errorf("caves node roster = %v, want the caves mix present", got)
 	}
-	// The scenario roster (descentInstance uses arena-style scatter) rides
-	// crypt floors unchanged.
-	s2, err := in.buildFloor(2, 0, 0)
+
+	// The scenario roster (descentInstance uses dummy scatter) rides crypt
+	// nodes unchanged.
+	crypt := findBiomeNode(t, in.runSeed, "crypt", 5)
+	s2, err := in.buildFloor(crypt, 1)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if defsOn(s2)["carrion_husk"] > defsOn(s11)["carrion_husk"] {
-		t.Log("crypt floor has more husks than a caves floor — roster weights are open for tuning")
+	if defsOn(s2)["training_dummy"] == 0 {
+		t.Errorf("crypt node roster = %v, want the scenario's dummies", defsOn(s2))
 	}
 }
 
-// TestCavesFloorsCarveCaves: a caves-band floor's terrain differs from the
-// same seed carved as rooms — the map kind actually switched.
+// TestCavesFloorsCarveCaves: a caves node's terrain rebuilds byte-identical
+// (the replayable-floors invariant survives the biome switch) and differs
+// from a crypt floor's rooms-and-corridors.
 func TestCavesFloorsCarveCaves(t *testing.T) {
 	in, _, _ := descentInstance(t, 3)
-	s11a, err := in.buildFloor(11, 0, 0)
+	caves := findBiomeNode(t, in.runSeed, "caves", 40)
+	sa, err := in.buildFloor(caves, 1)
 	if err != nil {
 		t.Fatal(err)
 	}
-	s11b, err := in.buildFloor(11, 0, 0)
+	sb, err := in.buildFloor(caves, 1)
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Same floor twice: byte-identical terrain (the replayable-floors
-	// invariant survives the biome switch).
-	ga, gb := s11a.W.Grid, s11b.W.Grid
+	ga, gb := sa.W.Grid, sb.W.Grid
 	for y := 0; y < ga.Height; y++ {
 		for x := 0; x < ga.Width; x++ {
 			if ga.Solid(x, y) != gb.Solid(x, y) {
-				t.Fatalf("floor 11 terrain not replayable at (%d,%d)", x, y)
+				t.Fatalf("caves node terrain not replayable at (%d,%d)", x, y)
 			}
 		}
 	}
-	// And a crypt floor from the same run differs in generator character:
-	// rooms maps have long straight corridor walls; just assert the two
-	// floors aren't identical (they share width/height).
-	s2, err := in.buildFloor(2, 0, 0)
+	crypt := findBiomeNode(t, in.runSeed, "crypt", 5)
+	s2, err := in.buildFloor(crypt, 1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -114,16 +162,18 @@ func TestCavesFloorsCarveCaves(t *testing.T) {
 
 func TestRunSnapCarriesBiome(t *testing.T) {
 	in, _, _ := descentInstance(t, 3)
-	in.floor = 0
+	node := in.node
+	in.node, in.fin, in.floor = nodeAddr{}, 0, 0
 	if b := in.runSnap().Biome; b != "" {
 		t.Errorf("hideout biome = %q, want empty", b)
 	}
-	in.floor = 3
+	in.node, in.fin, in.floor = node, 1, 1
 	if b := in.runSnap().Biome; b != "crypt" {
-		t.Errorf("floor 3 biome = %q, want crypt", b)
+		t.Errorf("entry node biome = %q, want crypt", b)
 	}
-	in.floor = 12
+	caves := findBiomeNode(t, in.runSeed, "caves", 40)
+	in.node, in.fin, in.floor = caves, 1, globalFloor(caves.Row, 1)
 	if b := in.runSnap().Biome; b != "caves" {
-		t.Errorf("floor 12 biome = %q, want caves", b)
+		t.Errorf("caves node biome on the snap = %q, want caves", b)
 	}
 }

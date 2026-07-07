@@ -38,9 +38,14 @@ func TestFeatTriggers(t *testing.T) {
 		t.Fatal("connect")
 	}
 
-	// Depth: entering floor 10 proves three feats (10 + the hardcore 10).
-	in.floor = 9
+	// Depth: entering floor 10 proves the feats (10 + the hardcore 10).
+	// Row 3's last floor is global 9; the trunk descent enters row 4 at
+	// global floor 10.
+	in.node, in.fin, in.floor = trunkNodeAt(in.runSeed, 3), 3, 9
 	in.descend()
+	if in.floor != 10 {
+		t.Fatalf("floor = %d after the trunk descent, want 10", in.floor)
+	}
 	feats := in.ids.Feats(tok)
 	want := map[string]bool{"depth_10": true, "hc_10": true}
 	for _, f := range feats {
@@ -52,8 +57,7 @@ func TestFeatTriggers(t *testing.T) {
 
 	// A king kill with hits on the ring: Kingslayer but not Untouchable.
 	c.recentHits = []protocol.RecapHit{{From: "zombie", Amount: 1000}}
-	in.runTick([]protocol.EventSnap{{Kind: "death", Actor: 999, Note: bossDef}},
-		nil, nil, nil, nil)
+	in.runTick([]protocol.EventSnap{{Kind: "death", Actor: 999, Note: bossDef}}, runWants{})
 	feats = in.ids.Feats(tok)
 	has := func(id string) bool {
 		for _, f := range feats {
@@ -69,8 +73,7 @@ func TestFeatTriggers(t *testing.T) {
 
 	// A clean-ring king kill earns Untouchable.
 	c.recentHits = nil
-	in.runTick([]protocol.EventSnap{{Kind: "death", Actor: 999, Note: bossDef}},
-		nil, nil, nil, nil)
+	in.runTick([]protocol.EventSnap{{Kind: "death", Actor: 999, Note: bossDef}}, runWants{})
 	if feats = in.ids.Feats(tok); !has("king_untouched") {
 		// refresh the closure's view
 		found := false

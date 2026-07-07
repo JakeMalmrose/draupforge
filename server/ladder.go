@@ -148,13 +148,12 @@ func (st *IdentityStore) handleLadder(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]any{"ladder": st.Ladder()})
 }
 
-// recapFor builds one dying client's death recap: the floor, its mods,
-// and the recent hits the tick goroutine recorded against them.
+// recapFor builds one dying client's death recap: the floor, its node's
+// mods, and the recent hits the tick goroutine recorded against them.
 func (in *Instance) recapFor(c *client) *protocol.RecapSnap {
 	rec := &protocol.RecapSnap{Floor: in.floor, Hits: c.recentHits}
 	if in.floor > 0 {
-		for _, m := range rollFloorMods(in.runSeed, in.floor, in.route, in.chamber,
-			modCountAt(in.floor, in.route, in.chamber)) {
+		for _, m := range delveNodeMods(in.runSeed, in.node) {
 			rec.Mods = append(rec.Mods, m.Name)
 		}
 	}

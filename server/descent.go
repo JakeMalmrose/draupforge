@@ -1,18 +1,24 @@
 // The descent — the host-layer run loop (DESIGN.md §14: transfers happen at
 // the host layer between ticks; the sim never participates). A run owns a
-// seed; each floor is a whole fresh World derived from (run seed, floor
-// index). Floor swaps extract every client to character state, build the
-// new world, inject, and re-welcome — the same full-reset machinery a
-// reconnect would use.
+// seed; the seed owns a delve chart (delvemap.go) — a lattice of nodes,
+// each a 3-floor dungeon of one biome ending in a set-piece fight. Floor
+// swaps extract every client to character state, build the new world,
+// inject, and re-welcome — the same full-reset machinery a reconnect would
+// use.
 //
 // Run rules: a run starts in the hideout (floor 0, a small safe world
-// derived from the instance seed); its portal leads to floor 1. The portal is the death anchor — it lands on a floor's
-// spawn the first time you step through and can be re-planted wherever you
-// stand. Death costs XP (never below the current level's floor) and ejects
-// everyone to the portal, consuming one portal use; a death with none left
-// ends the run (depth was the score; a new run starts back home on a fresh
-// seed — the character survives). Entering the planted portal travels to
-// the hideout for one use; stepping back through is free. Numbers (penalty,
+// derived from the instance seed); its portal leads to the chart's entry
+// node. Inside a node, stairs walk its three floors; the third holds the
+// set-piece, and killing it CLEARS the node — the stairs then open the map,
+// and you travel to any neighbor of cleared ground (down, sideways to hold
+// a depth, or back up), or to anywhere you've already been. The portal is
+// the death anchor — it lands on a floor's spawn the first time you step
+// through and can be re-planted wherever you stand. Death costs XP (never
+// below the current level's floor) and ejects everyone to the portal,
+// consuming one portal use; a death with none left ends the run (depth was
+// the score; a new run starts back home on a fresh seed and a fresh chart —
+// the character survives). Entering the planted portal travels to the
+// hideout for one use; stepping back through is free. Numbers (penalty,
 // pack scaling, portal budget) are open for tuning.
 package server
 
@@ -37,28 +43,66 @@ var (
 	portalRange  = fm.FromInt(2)
 )
 
-// routeWant is one client's harvested chart pick for a tick.
+// routeWant is one client's harvested deep-start pick for a tick.
 type routeWant struct {
 	c      *client
 	choice int
+}
+
+// travelWant is one client's harvested delve-chart travel pick.
+type travelWant struct {
+	c  *client
+	to nodeAddr
+}
+
+// runWants bundles one tick's harvested run verbs for runTick.
+type runWants struct {
+	descends []*client
+	routes   []routeWant
+	travels  []travelWant
+	delves   []*client
+	portals  []*client
+	plants   []*client
 }
 
 // deathXPPenaltyDiv: death costs 1/5 of the current level's XP requirement,
 // clamped so a level's progress never goes negative (no de-leveling).
 const deathXPPenaltyDiv = 5
 
-// The stairs guardian: which def, and how often (every Nth floor). Boss
-// floors outrank guardian floors — every bossFloors-th floor stakes the
-// Barrow King on the stairs instead.
+// The node set-pieces: every node's third floor ends in one. Regular nodes
+// stake a rare Bone Colossus; every bossRows-th row alternates the Barrow
+// King and the Ashen Warden; every apexRows-th row stakes the Grave Tyrant.
 const (
-	guardianDef    = "bone_colossus"
-	guardianFloors = 3
-	bossDef        = "barrow_king"
-	bossDef2       = "ashen_warden" // alternates with the King on boss floors
-	bossFloors     = 5
-	apexDef        = "grave_tyrant"
-	apexFloors     = 10
+	guardianDef = "bone_colossus"
+	bossDef     = "barrow_king"
+	bossDef2    = "ashen_warden" // alternates with the King on boss rows
+	bossRows    = 3
+	apexDef     = "grave_tyrant"
+	apexRows    = 10
+	// nodeFloors: every node is this many floors deep; the last holds the
+	// set-piece. globalFloor/nodeRowOf/finOf in delvemap.go assume 3.
+	nodeFloors = 3
 )
+
+// setPieceFor names the set-piece def guarding a node row's last floor.
+func setPieceFor(row int) string {
+	switch {
+	case row%apexRows == 0:
+		return apexDef
+	case row%bossRows == 0:
+		if (row/bossRows)%2 == 1 {
+			return bossDef
+		}
+		return bossDef2
+	default:
+		return guardianDef
+	}
+}
+
+// isSetPiece: is this def id one of the node-clearing set-pieces?
+func isSetPiece(def string) bool {
+	return def == guardianDef || def == bossDef || def == bossDef2 || def == apexDef
+}
 
 // deriveSeed mixes a salt into a base seed (splitmix finalizer), so run
 // seeds derive from the config seed and floor seeds derive from the run
@@ -82,16 +126,22 @@ func farthestWalkable(g *space.Grid) space.Vec2 {
 	return best
 }
 
-// buildFloor constructs one floor of the current run at a route address
-// (floor, route, chamber): terrain from the address seed carved by the
-// floor's biome, the scenario's fixed spawns, the biome's scatter packs
-// leveled and thickened by depth, and the address's floor modifiers
-// applied to every monster. (0,0,0-style addresses: route and chamber are
-// 0 for the trunk path; side chambers bump chamber at the same floor.)
-// Pure in the address — a death-eject rebuild is byte-identical.
-func (in *Instance) buildFloor(floor, route, chamber int) (*sim.Sim, error) {
-	s := sim.New(in.db, deriveSeed(in.runSeed, uint64(floor)^uint64(route)<<40^uint64(chamber)<<48))
-	b := biomeForFloor(floor)
+// floorSalt mixes a node address and floor-within-node into one world-seed
+// salt (its own namespace next to delvemap.go's).
+func floorSalt(n nodeAddr, fin int) uint64 {
+	return 0xF10012_0000_0000 ^ uint64(uint32(n.Row))<<16 ^ uint64(uint32(n.Col))<<8 ^ uint64(uint32(fin))
+}
+
+// buildFloor constructs floor fin (1..nodeFloors) of a delve node: terrain
+// from the address seed carved by the node's biome, the scenario's fixed
+// spawns, the biome's scatter packs leveled and thickened by global depth,
+// the node's modifiers applied to every monster, and — on the last floor —
+// the row's set-piece parked on the stairs. Pure in (runSeed, node, fin) —
+// a death-eject rebuild is byte-identical.
+func (in *Instance) buildFloor(n nodeAddr, fin int) (*sim.Sim, error) {
+	floor := globalFloor(n.Row, fin)
+	s := sim.New(in.db, deriveSeed(in.runSeed, floorSalt(n, fin)))
+	b := delveBiome(in.runSeed, n)
 	kind := ""
 	if b != nil {
 		kind = b.MapKind
@@ -102,13 +152,13 @@ func (in *Instance) buildFloor(floor, route, chamber int) (*sim.Sim, error) {
 	})
 	for _, sp := range in.cfg.Spawns {
 		if _, err := s.Spawn(sp.Def, space.V(fm.FromMilli(sp.X), fm.FromMilli(sp.Y))); err != nil {
-			return nil, fmt.Errorf("server: floor %d spawn: %w", floor, err)
+			return nil, fmt.Errorf("server: node %v floor %d spawn: %w", n, fin, err)
 		}
 	}
-	mods := rollFloorMods(in.runSeed, floor, route, chamber, modCountAt(floor, route, chamber))
+	mods := delveNodeMods(in.runSeed, n)
 	// Rarity pressure grows with depth (numbers open for tuning): magic
 	// 10% +2%/floor capped at 30%, rare 2% +1%/floor capped at 12% — plus
-	// whatever juice the floor mods promise.
+	// whatever juice the node mods promise.
 	magicPm := min(uint64(100+20*(floor-1)), 300)
 	rarePm := min(uint64(20+10*(floor-1)), 120)
 	packsPct := 0
@@ -126,39 +176,27 @@ func (in *Instance) buildFloor(floor, route, chamber int) (*sim.Sim, error) {
 		scatter = b.Scatter
 	}
 	for _, sc := range scatter {
-		n := sc.Count + floor - 1
-		n += n * packsPct / 100
-		if err := s.ScatterSpawnPack(sc.Def, n, floor, magicPm, rarePm); err != nil {
-			return nil, fmt.Errorf("server: floor %d scatter: %w", floor, err)
+		count := sc.Count + floor - 1
+		count += count * packsPct / 100
+		if err := s.ScatterSpawnPack(sc.Def, count, floor, magicPm, rarePm); err != nil {
+			return nil, fmt.Errorf("server: node %v floor %d scatter: %w", n, fin, err)
 		}
 	}
-	// Set-piece fights at the stairs: every bossFloors-th floor the Barrow
-	// King (the telegraphed multi-stage boss), otherwise every
-	// guardianFloors-th floor a rare Bone Colossus. Both spawn two levels
-	// hot and leash tight: fight, or sneak the stairs at your peril. Side
-	// chambers don't repeat the set-piece — the trunk holds the guardians.
-	if floor > 0 && chamber == 0 && floor%apexFloors == 0 {
-		if _, err := s.SpawnRareLeveled(apexDef, farthestWalkable(s.W.Grid), floor+3); err != nil {
-			return nil, fmt.Errorf("server: floor %d apex: %w", floor, err)
+	// The set-piece guards the node's last floor: kill it to clear the node
+	// and open the map. It spawns hot and leashes tight — sneaking to the
+	// stairs only buys the retreat routes.
+	if fin == nodeFloors {
+		def := setPieceFor(n.Row)
+		lvl := floor + 2
+		if def == apexDef {
+			lvl = floor + 3
 		}
-	} else if floor > 0 && chamber == 0 && floor%bossFloors == 0 {
-		// Boss floors alternate set-pieces: apex floors own the even
-		// multiples, so the remaining odd ones split by (floor/5)%4 —
-		// the King at 5, 25, 45…, the Ashen Warden at 15, 35, 55….
-		def := bossDef
-		if (floor/bossFloors)%4 == 3 {
-			def = bossDef2
-		}
-		if _, err := s.SpawnRareLeveled(def, farthestWalkable(s.W.Grid), floor+2); err != nil {
-			return nil, fmt.Errorf("server: floor %d boss: %w", floor, err)
-		}
-	} else if floor > 0 && chamber == 0 && floor%guardianFloors == 0 {
-		if _, err := s.SpawnRareLeveled(guardianDef, farthestWalkable(s.W.Grid), floor+2); err != nil {
-			return nil, fmt.Errorf("server: floor %d guardian: %w", floor, err)
+		if _, err := s.SpawnRareLeveled(def, farthestWalkable(s.W.Grid), lvl); err != nil {
+			return nil, fmt.Errorf("server: node %v set-piece: %w", n, err)
 		}
 	}
 	if err := s.ApplyFloorMods(monMods); err != nil {
-		return nil, fmt.Errorf("server: floor %d mods: %w", floor, err)
+		return nil, fmt.Errorf("server: node %v mods: %w", n, err)
 	}
 	return s, nil
 }
@@ -176,27 +214,48 @@ func (in *Instance) buildHideout() *sim.Sim {
 	return s
 }
 
+// resetChart clears the run's chart bookkeeping (visited/cleared nodes).
+func (in *Instance) resetChart() {
+	in.visited = make(map[nodeAddr]bool)
+	in.cleared = make(map[nodeAddr]bool)
+	in.maxRow = 1
+}
+
+// markVisited records entering a node (and stretches the chart's revealed
+// depth).
+func (in *Instance) markVisited(n nodeAddr) {
+	in.visited[n] = true
+	if n.Row > in.maxRow {
+		in.maxRow = n.Row
+	}
+}
+
 // startRunWorld builds the current run's first world per cfg.StartFloor:
-// the hideout by default (floor 1 waits behind its portal), or directly on
-// a floor for tests and dev servers. Boot-time only — swaps use
+// the hideout by default (the chart's entry node waits behind its portal),
+// or directly on a global floor for tests and dev servers (mapped onto the
+// chart's trunk node at that depth). Boot-time only — swaps use
 // startNextRun, which carries the clients along.
 func (in *Instance) startRunWorld() error {
 	in.portalsLeft = in.cfg.Portals
-	in.route, in.chamber = 0, 0
-	in.portalRoute, in.portalChmbr = 0, 0
+	in.resetChart()
 	if in.cfg.StartFloor <= 0 {
 		in.sim = in.buildHideout()
-		in.floor = 0
-		in.portalFloor, in.portalPlaced = 1, false
+		in.node, in.fin, in.floor = nodeAddr{}, 0, 0
+		in.portalNode, in.portalFin = trunkNodeAt(in.runSeed, 1), 1
+		in.portalPlaced = false
 	} else {
-		s, err := in.buildFloor(in.cfg.StartFloor, 0, 0)
+		n := trunkNodeAt(in.runSeed, nodeRowOf(in.cfg.StartFloor))
+		fin := finOf(in.cfg.StartFloor)
+		s, err := in.buildFloor(n, fin)
 		if err != nil {
 			return err
 		}
 		in.sim = s
-		in.floor = in.cfg.StartFloor
+		in.node, in.fin, in.floor = n, fin, in.cfg.StartFloor
+		in.markVisited(n)
 		in.stairs = farthestWalkable(s.W.Grid)
-		in.portalFloor, in.portalPos, in.portalPlaced = in.floor, s.W.Grid.Spawn, true
+		in.portalNode, in.portalFin = n, fin
+		in.portalPos, in.portalPlaced = s.W.Grid.Spawn, true
 		if in.floor > in.best {
 			in.best = in.floor
 		}
@@ -206,52 +265,61 @@ func (in *Instance) startRunWorld() error {
 }
 
 // beginRun initializes run bookkeeping over the current world, which must
-// be a floor with terrain installed — the legacy-save resume path.
+// be a floor with terrain installed — the legacy-save resume path (the
+// saved world stands in for the entry node's first floor).
 func (in *Instance) beginRun() {
 	g := in.sim.W.Grid
-	in.floor = 1
-	in.route, in.chamber = 0, 0
+	in.resetChart()
+	in.node, in.fin, in.floor = trunkNodeAt(in.runSeed, 1), 1, 1
+	in.markVisited(in.node)
 	if in.best < 1 {
 		in.best = 1
 	}
 	in.stairs = farthestWalkable(g)
-	in.portalFloor, in.portalPos, in.portalPlaced = 1, g.Spawn, true
-	in.portalRoute, in.portalChmbr = 0, 0
+	in.portalNode, in.portalFin = in.node, 1
+	in.portalPos, in.portalPlaced = g.Spawn, true
 	in.portalsLeft = in.cfg.Portals
 }
 
-// startNextRun begins run in.run+1 on a fresh derived seed at the
-// configured start floor — back home by default — carrying every client
-// through the swap. Hideout arrivals need no grace (nothing lives there);
-// floor arrivals get it, same as a death eject.
+// startNextRun begins run in.run+1 on a fresh derived seed (a fresh chart)
+// at the configured start floor — back home by default — carrying every
+// client through the swap. Hideout arrivals need no grace (nothing lives
+// there); floor arrivals get it, same as a death eject.
 func (in *Instance) startNextRun() {
 	in.run++
 	in.runSeed = deriveSeed(in.cfg.Seed, uint64(in.run))
 	in.portalsLeft = in.cfg.Portals
-	in.route, in.chamber = 0, 0
-	in.portalRoute, in.portalChmbr = 0, 0
+	in.resetChart()
 	if in.cfg.StartFloor <= 0 {
 		s := in.buildHideout()
-		in.portalFloor, in.portalPlaced = 1, false
+		in.portalNode, in.portalFin = trunkNodeAt(in.runSeed, 1), 1
+		in.portalPlaced = false
+		in.node, in.fin = nodeAddr{}, 0
 		in.swapWorld(s, 0, s.W.Grid.Spawn)
 		return
 	}
-	s, err := in.buildFloor(in.cfg.StartFloor, 0, 0)
+	n := trunkNodeAt(in.runSeed, nodeRowOf(in.cfg.StartFloor))
+	fin := finOf(in.cfg.StartFloor)
+	s, err := in.buildFloor(n, fin)
 	if err != nil {
 		log.Printf("server: new run: %v", err)
 		return
 	}
-	in.portalFloor, in.portalPos, in.portalPlaced = in.cfg.StartFloor, s.W.Grid.Spawn, true
+	in.node, in.fin = n, fin
+	in.markVisited(n)
+	in.portalNode, in.portalFin = n, fin
+	in.portalPos, in.portalPlaced = s.W.Grid.Spawn, true
 	in.swapWorld(s, in.cfg.StartFloor, s.W.Grid.Spawn)
 	in.grantGrace()
 }
 
 // runTick drives the descent between steps: deaths eject through the portal
-// (or end the run), stairs and portal travel swap the world, plants move
-// the portal anchor. At most one world swap happens per tick; whichever
-// fires first wins and the rest of this tick's requests are dropped (their
-// validation context is gone with the old world).
-func (in *Instance) runTick(fresh []protocol.EventSnap, descends, portals, plants []*client, routes []routeWant) {
+// (or end the run), stairs walk a node's floors or open the chart, travel
+// picks and portal travel swap the world, plants move the portal anchor. At
+// most one world swap happens per tick; whichever fires first wins and the
+// rest of this tick's requests are dropped (their validation context is
+// gone with the old world).
+func (in *Instance) runTick(fresh []protocol.EventSnap, w runWants) {
 	if in.run == 0 {
 		return
 	}
@@ -285,10 +353,12 @@ func (in *Instance) runTick(fresh []protocol.EventSnap, descends, portals, plant
 				dead = append(dead, c)
 			}
 		}
-		// A fallen set-piece marks the floor as an account checkpoint for
-		// every named player present — deep starts for the whole roster —
-		// and proves whatever feats the kill implies.
-		if ev.Note == guardianDef || ev.Note == bossDef || ev.Note == apexDef {
+		// A fallen set-piece clears the node: the map opens at the stairs,
+		// the floor marks an account checkpoint for every named player
+		// present (deep starts for the whole roster), and the kill proves
+		// whatever feats it implies.
+		if isSetPiece(ev.Note) && in.fin == nodeFloors && !in.cleared[in.node] {
+			in.cleared[in.node] = true
 			if in.floor > 1 {
 				for _, c := range in.clients {
 					if c.token != "" {
@@ -297,6 +367,11 @@ func (in *Instance) runTick(fresh []protocol.EventSnap, descends, portals, plant
 				}
 				in.syntheticEvent("checkpoint", int64(in.floor)*1000, "")
 			}
+			in.syntheticEvent("cleared", int64(in.node.Row)*1000, "")
+			in.killFeats(ev.Note)
+			in.broadcastRun()
+			in.broadcastDelve()
+		} else if isSetPiece(ev.Note) {
 			in.killFeats(ev.Note)
 		}
 	}
@@ -306,59 +381,61 @@ func (in *Instance) runTick(fresh []protocol.EventSnap, descends, portals, plant
 		swapped = true
 	}
 	if !swapped && in.floor > 0 {
-		for _, c := range descends {
+		for _, c := range w.descends {
 			a := in.sim.W.ActorByID(c.actor)
 			if a == nil || a.Dead || space.Dist(a.Pos, in.stairs) > descendRange {
 				continue
 			}
-			// Modded depths offer the chart and wait for a route pick;
-			// clean early floors keep the classic instant descent.
-			offers := in.chartOffers()
-			if len(offers[0].mods) == 0 && len(offers) == 2 {
-				in.descendTo(offers[0])
+			if in.fin < nodeFloors {
+				// Mid-node stairs: straight down to the node's next floor.
+				in.descendWithin()
 				swapped = true
 				break
 			}
-			frame, _ := json.Marshal(protocol.ServerMsg{Type: "chart", Chart: chartSnap(offers)})
+			// The node's last floor: the stairs open the chart in travel
+			// mode. An uncleared node's frontier isn't travelable (CanGo
+			// says so per node) — the set-piece bars new ground, but the
+			// retreat routes to visited nodes work.
+			frame, _ := json.Marshal(protocol.ServerMsg{Type: "delve", Delve: in.delveSnap("travel")})
 			if !c.send(frame, false) {
 				c.tr.Close()
 			}
 		}
 	}
 	if !swapped && in.floor > 0 {
-		for _, w := range routes {
-			a := in.sim.W.ActorByID(w.c.actor)
-			if a == nil || a.Dead || space.Dist(a.Pos, in.stairs) > descendRange {
+		for _, t := range w.travels {
+			a := in.sim.W.ActorByID(t.c.actor)
+			if a == nil || a.Dead || in.fin != nodeFloors ||
+				space.Dist(a.Pos, in.stairs) > descendRange {
 				continue
 			}
-			offers := in.chartOffers()
-			if w.choice < 0 || w.choice >= len(offers) {
+			if !in.canTravelTo(t.to) {
 				continue
 			}
-			in.descendTo(offers[w.choice])
+			in.travelTo(t.to)
 			swapped = true
 			break
 		}
 	}
 	if !swapped && in.floor == 0 {
 		// Route picks at the hideout portal: the deep-start chart's answer.
-		for _, w := range routes {
-			a := in.sim.W.ActorByID(w.c.actor)
-			if a == nil || a.Dead || in.portalPlaced || w.c.token == "" ||
+		for _, wr := range w.routes {
+			a := in.sim.W.ActorByID(wr.c.actor)
+			if a == nil || a.Dead || in.portalPlaced || wr.c.token == "" ||
 				space.Dist(a.Pos, in.sim.W.Grid.Spawn) > portalRange {
 				continue
 			}
-			offers := in.portalStartOffers(w.c, a)
-			if w.choice < 0 || w.choice >= len(offers) {
+			offers := in.portalStartOffers(wr.c, a)
+			if wr.choice < 0 || wr.choice >= len(offers) {
 				continue
 			}
-			in.startRunAt(offers[w.choice])
+			in.startRunAt(offers[wr.choice])
 			swapped = true
 			break
 		}
 	}
 	if !swapped {
-		for _, c := range portals {
+		for _, c := range w.portals {
 			if in.portalTravel(c) {
 				swapped = true
 				break
@@ -366,15 +443,25 @@ func (in *Instance) runTick(fresh []protocol.EventSnap, descends, portals, plant
 		}
 	}
 	if !swapped && in.floor > 0 {
-		for _, c := range plants {
+		for _, c := range w.plants {
 			a := in.sim.W.ActorByID(c.actor)
 			if a == nil || a.Dead {
 				continue
 			}
-			in.portalFloor, in.portalPos, in.portalPlaced = in.floor, a.Pos, true
-			in.portalRoute, in.portalChmbr = in.route, in.chamber
+			in.portalNode, in.portalFin = in.node, in.fin
+			in.portalPos, in.portalPlaced = a.Pos, true
 			in.syntheticEvent("portal", int64(in.floor)*1000, "planted")
 			in.broadcastRun()
+		}
+	}
+	// The map panel's refresh requests — reads, answered any time.
+	for _, c := range w.delves {
+		if in.floor <= 0 {
+			continue
+		}
+		frame, _ := json.Marshal(protocol.ServerMsg{Type: "delve", Delve: in.delveSnap("")})
+		if !c.send(frame, false) {
+			c.tr.Close()
 		}
 	}
 	// Keep the freshest character copy per client: death compacts the actor
@@ -385,6 +472,23 @@ func (in *Instance) runTick(fresh []protocol.EventSnap, descends, portals, plant
 			c.lastChar, c.hasChar = core.ExtractCharacter(a), true
 		}
 	}
+}
+
+// canTravelTo: is a node a legal travel target right now? Anywhere the run
+// has been, or any neighbor of cleared ground — the frontier.
+func (in *Instance) canTravelTo(n nodeAddr) bool {
+	if !nodeExists(in.runSeed, n) || (n == in.node) {
+		return false
+	}
+	if in.visited[n] {
+		return true
+	}
+	for _, nb := range delveNeighbors(in.runSeed, n) {
+		if in.cleared[nb] {
+			return true
+		}
+	}
+	return false
 }
 
 // handleDeaths applies the run's death rules for client actors that died
@@ -427,7 +531,7 @@ func (in *Instance) handleDeaths(dead []*client) {
 	}
 	if in.portalsLeft > 0 {
 		in.portalsLeft--
-		s, err := in.buildFloor(in.portalFloor, in.portalRoute, in.portalChmbr)
+		s, err := in.buildFloor(in.portalNode, in.portalFin)
 		if err != nil {
 			log.Printf("server: death eject: %v", err)
 			return
@@ -435,8 +539,9 @@ func (in *Instance) handleDeaths(dead []*client) {
 		if !in.portalPlaced { // defensive: deaths shouldn't precede placement
 			in.portalPos, in.portalPlaced = s.W.Grid.Spawn, true
 		}
-		in.route, in.chamber = in.portalRoute, in.portalChmbr
-		in.swapWorld(s, in.portalFloor, in.portalPos)
+		in.node, in.fin = in.portalNode, in.portalFin
+		in.markVisited(in.node)
+		in.swapWorld(s, globalFloor(in.portalNode.Row, in.portalFin), in.portalPos)
 		in.grantGrace()
 		in.syntheticEvent("death_eject", int64(in.portalsLeft)*1000, "")
 		return
@@ -464,66 +569,93 @@ func (in *Instance) grantGrace() {
 	in.surgery = true // replay: buffs granted outside Step
 }
 
-// descend takes the trunk route one floor down — the pre-chart descent,
-// kept as the shorthand tests and tools reach for.
+// descendWithin takes the mid-node stairs one floor down inside the current
+// node.
+func (in *Instance) descendWithin() {
+	fin := in.fin + 1
+	s, err := in.buildFloor(in.node, fin)
+	if err != nil {
+		log.Printf("server: descend: %v", err)
+		return
+	}
+	in.fin = fin
+	in.swapWorld(s, globalFloor(in.node.Row, fin), s.W.Grid.Spawn)
+	in.syntheticEvent("descend", int64(in.floor-1)*1000, "")
+}
+
+// descend walks one global floor down the trunk: the mid-node stairs, or —
+// from a node's last floor — entry into the next row's trunk node, skipping
+// the clear gate. The shorthand tests and tools reach for; live travel
+// goes through runTick's validated travel picks.
 func (in *Instance) descend() {
-	in.descendTo(routeOffer{floor: in.floor + 1})
+	if in.fin < nodeFloors {
+		in.descendWithin()
+		return
+	}
+	in.travelTo(trunkNodeAt(in.runSeed, in.node.Row+1))
+}
+
+// travelTo swaps the instance to a chart node's first floor — the pick made
+// on the open map at a cleared node's stairs.
+func (in *Instance) travelTo(n nodeAddr) {
+	s, err := in.buildFloor(n, 1)
+	if err != nil {
+		log.Printf("server: travel: %v", err)
+		return
+	}
+	in.node, in.fin = n, 1
+	in.markVisited(n)
+	in.swapWorld(s, globalFloor(n.Row, 1), s.W.Grid.Spawn)
+	b := delveBiome(in.runSeed, n)
+	note := ""
+	if b != nil {
+		note = b.ID
+	}
+	in.syntheticEvent("travel", int64(n.Row)*1000, note)
 }
 
 // portalStartOffers is the deep-start chart for a fresh run: from the top
 // with the full portal budget, or any earned checkpoint the character's
 // level covers — one portal lighter, so "from the top" stays a choice.
+// Checkpoints are stored as global floors (a cleared node's last floor);
+// each maps onto the fresh chart's trunk node at that row.
 func (in *Instance) portalStartOffers(c *client, a *core.Actor) []routeOffer {
+	entry := trunkNodeAt(in.runSeed, 1)
 	offers := []routeOffer{{
-		choice: 0, floor: in.portalFloor, portals: in.cfg.Portals,
-		mods: rollFloorMods(in.runSeed, in.portalFloor, 0, 0, modCountAt(in.portalFloor, 0, 0)),
+		choice: 0, node: entry, portals: in.cfg.Portals,
+		mods: delveNodeMods(in.runSeed, entry),
 	}}
 	deep := max(1, in.cfg.Portals-1)
 	for _, cp := range in.ids.Checkpoints(c.token) {
-		if cp <= in.portalFloor || a.Level < cp {
+		row := nodeRowOf(cp)
+		if row <= 1 || a.Level < cp {
 			continue
 		}
+		n := trunkNodeAt(in.runSeed, row)
 		offers = append(offers, routeOffer{
-			choice: len(offers), floor: cp, portals: deep,
-			mods: rollFloorMods(in.runSeed, cp, 0, 0, modCountAt(cp, 0, 0)),
+			choice: len(offers), node: n, portals: deep,
+			mods: delveNodeMods(in.runSeed, n),
 		})
 	}
 	return offers
 }
 
 // startRunAt begins the fresh run's descent at a deep-start offer: the
-// portal anchors on the chosen floor's spawn and the portal budget is the
-// offer's — the depth was bought with it.
+// portal anchors on the chosen node's first floor and the portal budget is
+// the offer's — the depth was bought with it.
 func (in *Instance) startRunAt(o routeOffer) {
-	s, err := in.buildFloor(o.floor, 0, 0)
+	s, err := in.buildFloor(o.node, 1)
 	if err != nil {
 		log.Printf("server: deep start: %v", err)
 		return
 	}
 	in.portalsLeft = o.portals
-	in.route, in.chamber = 0, 0
-	in.portalFloor, in.portalPos, in.portalPlaced = o.floor, s.W.Grid.Spawn, true
-	in.portalRoute, in.portalChmbr = 0, 0
-	in.swapWorld(s, o.floor, in.portalPos)
-	in.syntheticEvent("portal", int64(o.floor)*1000, "checkpoint")
-}
-
-// descendTo swaps the instance to a chart offer: one floor deeper on the
-// chosen route, or sideways into a chamber at the same depth (mods
-// stacked, depth held). Entry is the new world's spawn room.
-func (in *Instance) descendTo(o routeOffer) {
-	s, err := in.buildFloor(o.floor, o.route, o.chamber)
-	if err != nil {
-		log.Printf("server: descend: %v", err)
-		return
-	}
-	in.route, in.chamber = o.route, o.chamber
-	in.swapWorld(s, o.floor, s.W.Grid.Spawn)
-	if o.side {
-		in.syntheticEvent("chamber", int64(o.floor)*1000, "")
-	} else {
-		in.syntheticEvent("descend", int64(o.floor-1)*1000, "")
-	}
+	in.node, in.fin = o.node, 1
+	in.markVisited(o.node)
+	in.portalNode, in.portalFin = o.node, 1
+	in.portalPos, in.portalPlaced = s.W.Grid.Spawn, true
+	in.swapWorld(s, globalFloor(o.node.Row, 1), in.portalPos)
+	in.syntheticEvent("portal", int64(in.floor)*1000, "checkpoint")
 }
 
 // portalTravel handles one client's enter_portal request. From a dungeon
@@ -544,7 +676,7 @@ func (in *Instance) portalTravel(c *client) bool {
 		if !in.portalPlaced && c.token != "" {
 			if offers := in.portalStartOffers(c, a); len(offers) > 1 {
 				frame, _ := json.Marshal(protocol.ServerMsg{
-					Type: "chart", Chart: chartSnapKind("portal", offers),
+					Type: "chart", Chart: in.chartSnapKind("portal", offers),
 				})
 				if !c.send(frame, false) {
 					c.tr.Close()
@@ -552,7 +684,7 @@ func (in *Instance) portalTravel(c *client) bool {
 				return false
 			}
 		}
-		s, err := in.buildFloor(in.portalFloor, in.portalRoute, in.portalChmbr)
+		s, err := in.buildFloor(in.portalNode, in.portalFin)
 		if err != nil {
 			log.Printf("server: portal return: %v", err)
 			return false
@@ -561,12 +693,14 @@ func (in *Instance) portalTravel(c *client) bool {
 		if !in.portalPlaced {
 			in.portalPos, in.portalPlaced = s.W.Grid.Spawn, true
 		}
-		in.route, in.chamber = in.portalRoute, in.portalChmbr
-		in.swapWorld(s, in.portalFloor, in.portalPos)
-		in.syntheticEvent("portal", int64(in.portalFloor)*1000, "return")
+		in.node, in.fin = in.portalNode, in.portalFin
+		in.markVisited(in.node)
+		in.swapWorld(s, globalFloor(in.portalNode.Row, in.portalFin), in.portalPos)
+		in.syntheticEvent("portal", int64(in.floor)*1000, "return")
 		return true
 	}
-	if in.floor != in.portalFloor || space.Dist(a.Pos, in.portalPos) > portalRange {
+	if in.node != in.portalNode || in.fin != in.portalFin ||
+		space.Dist(a.Pos, in.portalPos) > portalRange {
 		return false
 	}
 	if in.portalsLeft == 0 {
@@ -575,6 +709,7 @@ func (in *Instance) portalTravel(c *client) bool {
 	}
 	in.portalsLeft--
 	s := in.buildHideout()
+	in.node, in.fin = nodeAddr{}, 0
 	in.swapWorld(s, 0, s.W.Grid.Spawn)
 	in.syntheticEvent("portal", int64(in.portalsLeft)*1000, "hideout")
 	return true
@@ -655,12 +790,13 @@ func (in *Instance) swapWorld(s *sim.Sim, floor int, at space.Vec2) {
 // portal position is included when the portal stands on the current world.
 func (in *Instance) runSnap() *protocol.RunSnap {
 	rs := &protocol.RunSnap{Floor: in.floor, Portals: in.portalsLeft, Run: in.run, Best: in.best}
-	if b := biomeForFloor(in.floor); b != nil {
-		rs.Biome = b.ID
-	}
 	if in.floor > 0 {
-		for _, m := range rollFloorMods(in.runSeed, in.floor, in.route, in.chamber,
-			modCountAt(in.floor, in.route, in.chamber)) {
+		rs.Row, rs.Col, rs.Fin = in.node.Row, in.node.Col, in.fin
+		rs.Cleared = in.cleared[in.node]
+		if b := delveBiome(in.runSeed, in.node); b != nil {
+			rs.Biome = b.ID
+		}
+		for _, m := range delveNodeMods(in.runSeed, in.node) {
 			rs.Mods = append(rs.Mods, m.Name)
 		}
 	}
@@ -668,7 +804,7 @@ func (in *Instance) runSnap() *protocol.RunSnap {
 	if in.floor == 0 {
 		p := in.sim.W.Grid.Spawn
 		pp = &p
-	} else if in.floor == in.portalFloor {
+	} else if in.node == in.portalNode && in.fin == in.portalFin {
 		pp = &in.portalPos
 	}
 	if pp != nil {
@@ -678,9 +814,25 @@ func (in *Instance) runSnap() *protocol.RunSnap {
 }
 
 // broadcastRun announces a run-state change that comes without a new world
-// (portal planted). Swaps don't need it — their welcomes carry the run.
+// (portal planted, node cleared). Swaps don't need it — their welcomes
+// carry the run.
 func (in *Instance) broadcastRun() {
 	frame, _ := json.Marshal(protocol.ServerMsg{Type: "run", Run: in.runSnap()})
+	for _, c := range in.clients {
+		if !c.send(frame, false) {
+			c.tr.Close()
+		}
+	}
+}
+
+// broadcastDelve pushes a fresh chart to everyone — after a clear, so open
+// map panels see the frontier grow without re-asking. Info kind: the map
+// never pops open mid-fight; the stairs answer travel mode.
+func (in *Instance) broadcastDelve() {
+	if in.floor <= 0 {
+		return
+	}
+	frame, _ := json.Marshal(protocol.ServerMsg{Type: "delve", Delve: in.delveSnap("")})
 	for _, c := range in.clients {
 		if !c.send(frame, false) {
 			c.tr.Close()
